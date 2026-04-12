@@ -16,7 +16,7 @@ untested code for the next step to build on.
 | 1 — Project scaffold | ✅ Done | `src/lib.rs` + binary split; all deps locked                               |
 | 2 — Parser           | ✅ Done | 18/18 tests passing; design doc updated to reflect exclusion-zone approach |
 | 3 — Note Index       | ✅ Done | 11/11 tests passing; `remove_internal` drops `links_to[path]` explicitly   |
-| 4 — Server skeleton  | —       |                                                                            |
+| 4 — Server skeleton  | ✅ Done | 3/3 tests passing; workspace folder parsing deferred to Step 5             |
 | 5 — Document sync    | —       |                                                                            |
 | 6 — Diagnostics      | —       |                                                                            |
 | 7 — Completion       | —       |                                                                            |
@@ -44,6 +44,14 @@ by using `links_to.remove(path)` to collect and drop in one step — without thi
 **Step 3:** `build()` takes `extensions: &[&str]` (string slices) rather than
 `&[String]` — sufficient for v0.1 where extensions are compile-time constants,
 and avoids allocation at call sites.
+
+**Step 4:** lsp-types 0.97 uses its own `Uri` struct (not `url::Url`) that lacks
+`to_file_path()`. Rather than pulling in the `url` crate as a direct dependency,
+`Config::from_params` leaves `index_roots` empty for now — the conversion is
+deferred to Step 5 where it is actually needed. LSP method name constants
+(`METHOD`) are defined on traits (`lsp_types::request::Request`,
+`lsp_types::notification::Notification`) that conflict with the same-named types
+from `lsp_server`; string literals are used instead to avoid the ambiguity.
 
 ---
 
@@ -188,40 +196,38 @@ the default).
 | `capabilities_advertised`      | `InitializeResult` includes completion (trigger `[`), definition, references              |
 | `unknown_request_returns_null` | An unrecognised method gets a null result, not an error                                   |
 
-> **Manual checkpoint:** point Zed at the server binary with debug logging
-> enabled. In `~/.config/zed/settings.json`, configure the language server and
-> redirect stderr to a log file:
+> **Manual checkpoint — in-process (no editor needed):**
+>
+> ```
+> cargo run -- check          # protocol output only
+> KNAP_LOG=debug cargo run -- check  # with lifecycle log interleaved
+> ```
+>
+> Expected output: 11 checks, all `[ok]`. With `KNAP_LOG=debug` you see the
+> server's lifecycle log lines interleaved with the check results —
+> `initialize`, `initialized`, each request dispatched, `shutdown requested`,
+> `exiting` — confirming both the protocol behaviour and the log output in one
+> pass. Exit code is non-zero if any check fails.
+>
+> **Manual checkpoint — Zed (real editor):**
+>
+> In `~/.config/zed/settings.json` configure the binary:
 >
 > ```json
 > "lsp": {
 >   "knap": {
->     "binary": {
->       "path": "/path/to/knap",
->       "arguments": []
->     }
+>     "binary": { "path": "/path/to/knap", "arguments": [] }
 >   }
 > }
 > ```
 >
-> Zed pipes language server stderr to its own log. Run **Zed: Open Log** from
-> the command palette to view it, or `tail -f ~/Library/Logs/Zed/Zed.log`. Set
-> `KNAP_LOG=debug` in the environment before launching Zed (e.g. via
-> `launchctl setenv KNAP_LOG debug` on macOS, or launching from a terminal with
-> `KNAP_LOG=debug zed`).
->
-> Open a `.md` file in a Zed workspace. The log should show, in order:
->
-> 1. `knap starting`
-> 2. `initialize: client=Zed version=...`
-> 3. `initialized: registering file watcher...`
->
-> Close Zed (or stop the server):
->
-> 4. `shutdown requested`
-> 5. `exiting`
->
-> No features work yet, but no panics, no errors, and the full lifecycle
-> sequence visible in the log.
+> Set `KNAP_LOG=debug` before launching (`KNAP_LOG=debug zed` from a terminal,
+> or `launchctl setenv KNAP_LOG debug` on macOS). Zed pipes language server
+> stderr to its own log — run **Zed: Open Log** or
+> `tail -f ~/Library/Logs/Zed/Zed.log`. Open a `.md` file; the log should
+> contain `knap starting`, `initialize: client=Zed`, and
+> `initialized: registering file watcher`. No features work yet, but no panics
+> and the full lifecycle sequence visible in the log.
 
 ---
 
