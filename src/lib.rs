@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod handlers;
 pub mod index;
 pub mod parser;

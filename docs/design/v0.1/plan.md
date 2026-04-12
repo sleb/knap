@@ -1,39 +1,52 @@
 # v0.1 Implementation Plan
 
-Describes the order in which components are built, what is tested after each step, and the checkpoints where the server should be manually verified against a real editor.
+Describes the order in which components are built, what is tested after each
+step, and the checkpoints where the server should be manually verified against a
+real editor.
 
-The guiding principle: each step produces something testable. No step lays down untested code for the next step to build on.
+The guiding principle: each step produces something testable. No step lays down
+untested code for the next step to build on.
 
 ---
 
 ## Status
 
-| Step | Status | Notes |
-|---|---|---|
-| 1 — Project scaffold | ✅ Done | `src/lib.rs` + binary split; all deps locked |
-| 2 — Parser | ✅ Done | 18/18 tests passing; design doc updated to reflect exclusion-zone approach |
-| 3 — Note Index | — | |
-| 4 — Server skeleton | — | |
-| 5 — Document sync | — | |
-| 6 — Diagnostics | — | |
-| 7 — Completion | — | |
-| 8 — Go to Definition | — | |
-| 9 — Find References | — | |
+| Step                 | Status  | Notes                                                                      |
+| -------------------- | ------- | -------------------------------------------------------------------------- |
+| 1 — Project scaffold | ✅ Done | `src/lib.rs` + binary split; all deps locked                               |
+| 2 — Parser           | ✅ Done | 18/18 tests passing; design doc updated to reflect exclusion-zone approach |
+| 3 — Note Index       | —       |                                                                            |
+| 4 — Server skeleton  | —       |                                                                            |
+| 5 — Document sync    | —       |                                                                            |
+| 6 — Diagnostics      | —       |                                                                            |
+| 7 — Completion       | —       |                                                                            |
+| 8 — Go to Definition | —       |                                                                            |
+| 9 — Find References  | —       |                                                                            |
 
 ### Implementation notes
 
-**Step 2:** pulldown-cmark fragments `[[note]]` into individual character `Text` events, making it impossible to scan within text events directly. The parser instead uses pulldown-cmark only to collect exclusion zones (code blocks, inline code spans) by byte range, then does a raw scan of the full content string. Design doc updated to match.
+**Step 2:** pulldown-cmark fragments `[[note]]` into individual character `Text`
+events, making it impossible to scan within text events directly. The parser
+instead uses pulldown-cmark only to collect exclusion zones (code blocks, inline
+code spans) by byte range, then does a raw scan of the full content string.
+Design doc updated to match.
 
-**Step 2:** Switched from a single-binary crate to a `lib.rs` + thin `main.rs` split. This avoids false dead_code warnings from clippy (all `pub` items in the library are treated as part of the public API) and makes integration tests straightforward — they can `use knap::parser` directly.
+**Step 2:** Switched from a single-binary crate to a `lib.rs` + thin `main.rs`
+split. This avoids false dead_code warnings from clippy (all `pub` items in the
+library are treated as part of the public API) and makes integration tests
+straightforward — they can `use knap::parser` directly.
 
 ---
 
 ## Step 1 — Project scaffold
 
-Create the Cargo workspace, add all v0.1 dependencies, and establish the module structure.
+Create the Cargo workspace, add all v0.1 dependencies, and establish the module
+structure.
 
 **Deliverables:**
-- `Cargo.toml` with `lsp-server`, `lsp-types`, `pulldown-cmark`, `serde`, `serde_json`, `anyhow`
+
+- `Cargo.toml` with `lsp-server`, `lsp-types`, `pulldown-cmark`, `serde`,
+  `serde_json`, `anyhow`
 - Empty modules: `parser`, `index`, `handlers`, `server`
 - `main.rs` that compiles and exits cleanly
 
@@ -43,68 +56,81 @@ Create the Cargo workspace, add all v0.1 dependencies, and establish the module 
 
 ## Step 2 — Parser
 
-Implement the parser in isolation: `LineIndex`, the `Note` and `WikiLink` types, and `parse(path, content) → Note`.
+Implement the parser in isolation: `LineIndex`, the `Note` and `WikiLink` types,
+and `parse(path, content) → Note`.
 
 Reference: `docs/design/components/parser.md`
 
 **Deliverables:**
-- `parser::parse()` — full implementation including `extract_wiki_links` and `scan_wiki_links`
+
+- `parser::parse()` — full implementation including `extract_wiki_links` and
+  `scan_wiki_links`
 - `parser::LineIndex` — byte offset → LSP position conversion
+- `cli::cmd_parse` + `knap parse <file>` subcommand (US-D01)
 
 **Unit tests** (`src/parser/tests.rs`):
 
-| Test | What it verifies |
-|---|---|
-| `basic_link` | `[[note]]` produces one `WikiLink` with correct stem and ranges |
-| `multiple_links` | Two links on one line both captured |
-| `link_in_fenced_code_block` | No links extracted from ` ``` ` blocks |
-| `link_in_inline_code` | No links extracted from `` `[[note]]` `` |
-| `aliased_link_ignored` | `[[note\|alias]]` produces no `WikiLink` in v0.1 |
-| `heading_anchor_ignored` | `[[note#heading]]` produces no `WikiLink` in v0.1 |
-| `empty_link_ignored` | `[[]]` produces nothing |
-| `unclosed_link_ignored` | `[[note` with no `]]` produces nothing |
-| `link_ranges` | `range` covers `[[note]]`, `inner_range` covers `note` only |
-| `line_index_positions` | Byte offsets map to correct line/character positions across multi-line content |
-| `stem_from_path` | `my-note.md` → stem `"my-note"` |
+| Test                        | What it verifies                                                               |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| `basic_link`                | `[[note]]` produces one `WikiLink` with correct stem and ranges                |
+| `multiple_links`            | Two links on one line both captured                                            |
+| `link_in_fenced_code_block` | No links extracted from ` ``` ` blocks                                         |
+| `link_in_inline_code`       | No links extracted from `` `[[note]]` ``                                       |
+| `aliased_link_ignored`      | `[[note\|alias]]` produces no `WikiLink` in v0.1                               |
+| `heading_anchor_ignored`    | `[[note#heading]]` produces no `WikiLink` in v0.1                              |
+| `empty_link_ignored`        | `[[]]` produces nothing                                                        |
+| `unclosed_link_ignored`     | `[[note` with no `]]` produces nothing                                         |
+| `link_ranges`               | `range` covers `[[note]]`, `inner_range` covers `note` only                    |
+| `line_index_positions`      | Byte offsets map to correct line/character positions across multi-line content |
+| `stem_from_path`            | `my-note.md` → stem `"my-note"`                                                |
 
 ---
 
 ## Step 3 — Note Index
 
-Implement the `NoteIndex` with all three internal maps and the full `index()`, `remove()`, `resolve()` surface. The index is pure data — no LSP, no filesystem.
+Implement the `NoteIndex` with all three internal maps and the full `index()`,
+`remove()`, `resolve()` surface. The index is pure data — no LSP, no filesystem.
 
 Reference: `docs/design/components/note-index.md`
 
 **Deliverables:**
-- `index::NoteIndex` with `index()`, `remove()`, `resolve()`, `get_note()`, `all_notes()`, `links_to()`
+
+- `index::NoteIndex` with `index()`, `remove()`, `resolve()`, `get_note()`,
+  `all_notes()`, `links_to()`
 - `index::IndexDelta` and `index::LocatedLink`
 - `index::build()` — initial crawl from a list of roots
+- `cli::cmd_index` + `knap index <dir>` subcommand (US-D02)
 
 **Unit tests** (`src/index/tests.rs`):
 
-| Test | What it verifies |
-|---|---|
-| `resolve_found` | Single file with stem `"foo"` resolves to `Found` |
-| `resolve_broken` | Stem with no matching file resolves to `Broken` |
-| `resolve_ambiguous` | Two files with same stem resolve to `Ambiguous` |
-| `index_replaces_existing` | Re-indexing a path updates links and stem map cleanly |
-| `remove_clears_all_maps` | Removed note disappears from all three maps |
-| `links_to_populated` | After indexing `a.md` linking to `b.md`, `links_to("b.md")` returns the link |
-| `broken_link_heals_on_add` | Index `a.md` with `[[b]]`, then index `b.md` — `links_to("b.md")` now populated |
-| `link_breaks_on_remove` | Remove `b.md` — `links_to("b.md")` is cleared |
-| `delta_includes_affected` | `index()` delta includes the indexed file and any files whose resolutions changed |
-| `remove_delta_includes_incoming` | Removing `b.md` delta includes `a.md` (which linked to it) |
-| `ambiguous_becomes_found` | Two `foo.md` files; remove one → resolves to `Found` |
+| Test                             | What it verifies                                                                  |
+| -------------------------------- | --------------------------------------------------------------------------------- |
+| `resolve_found`                  | Single file with stem `"foo"` resolves to `Found`                                 |
+| `resolve_broken`                 | Stem with no matching file resolves to `Broken`                                   |
+| `resolve_ambiguous`              | Two files with same stem resolve to `Ambiguous`                                   |
+| `index_replaces_existing`        | Re-indexing a path updates links and stem map cleanly                             |
+| `remove_clears_all_maps`         | Removed note disappears from all three maps                                       |
+| `links_to_populated`             | After indexing `a.md` linking to `b.md`, `links_to("b.md")` returns the link      |
+| `broken_link_heals_on_add`       | Index `a.md` with `[[b]]`, then index `b.md` — `links_to("b.md")` now populated   |
+| `link_breaks_on_remove`          | Remove `b.md` — `links_to("b.md")` is cleared                                     |
+| `delta_includes_affected`        | `index()` delta includes the indexed file and any files whose resolutions changed |
+| `remove_delta_includes_incoming` | Removing `b.md` delta includes `a.md` (which linked to it)                        |
+| `ambiguous_becomes_found`        | Two `foo.md` files; remove one → resolves to `Found`                              |
 
 ---
 
 ## Step 4 — Server skeleton
 
-Wire up `lsp-server`, implement the lifecycle (`initialize` → `initialized` → loop → `shutdown`/`exit`), and stub all v0.1 request handlers to return empty/null results. The server starts, handshakes, and shuts down cleanly — but does nothing useful yet.
+Wire up `lsp-server`, implement the lifecycle (`initialize` → `initialized` →
+loop → `shutdown`/`exit`), and stub all v0.1 request handlers to return
+empty/null results. The server starts, handshakes, and shuts down cleanly — but
+does nothing useful yet.
 
-Reference: `docs/design/components/transport.md`, `docs/design/components/protocol-handler.md`
+Reference: `docs/design/components/transport.md`,
+`docs/design/components/protocol-handler.md`
 
 **Deliverables:**
+
 - `main.rs` — `Connection::stdio()` + `server::run()`
 - `server::run()` — full lifecycle and message loop
 - `Config` resolution from `initializationOptions`
@@ -113,58 +139,69 @@ Reference: `docs/design/components/transport.md`, `docs/design/components/protoc
 
 **Integration tests** (`tests/lifecycle.rs`):
 
-| Test | What it verifies |
-|---|---|
-| `initialize_shutdown` | Server responds to `initialize` with correct capabilities, then `shutdown`/`exit` cleanly |
-| `capabilities_advertised` | `InitializeResult` includes completion (trigger `[`), definition, references |
-| `unknown_request_returns_null` | An unrecognised method gets a null result, not an error |
+| Test                           | What it verifies                                                                          |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| `initialize_shutdown`          | Server responds to `initialize` with correct capabilities, then `shutdown`/`exit` cleanly |
+| `capabilities_advertised`      | `InitializeResult` includes completion (trigger `[`), definition, references              |
+| `unknown_request_returns_null` | An unrecognised method gets a null result, not an error                                   |
 
-> **Manual checkpoint:** point a real editor (Neovim or Helix) at the server binary. Open a `.md` file. The server should start, complete the handshake, and not crash. No features work yet, but no errors either.
+> **Manual checkpoint:** point a real editor (Neovim or Helix) at the server
+> binary. Open a `.md` file. The server should start, complete the handshake,
+> and not crash. No features work yet, but no errors either.
 
 ---
 
 ## Step 5 — Document sync + index wiring
 
-Connect `textDocument/didOpen`, `textDocument/didChange`, `textDocument/didClose`, and `workspace/didChangeWatchedFiles` to the `NoteIndex`. After this step the index is populated and live; diagnostics are still not published.
+Connect `textDocument/didOpen`, `textDocument/didChange`,
+`textDocument/didClose`, and `workspace/didChangeWatchedFiles` to the
+`NoteIndex`. After this step the index is populated and live; diagnostics are
+still not published.
 
 **Deliverables:**
-- `on_did_open`, `on_did_change`, `on_did_close`, `on_did_change_watched_files` in the server
+
+- `on_did_open`, `on_did_change`, `on_did_close`, `on_did_change_watched_files`
+  in the server
 - Initial crawl on `initialized` using `index::build()`
 
 **Integration tests** (`tests/sync.rs`):
 
-| Test | What it verifies |
-|---|---|
-| `did_open_indexes_note` | After `didOpen`, `get_note()` returns the parsed note |
+| Test                      | What it verifies                                                     |
+| ------------------------- | -------------------------------------------------------------------- |
+| `did_open_indexes_note`   | After `didOpen`, `get_note()` returns the parsed note                |
 | `did_change_updates_note` | After `didChange` with new content, the index reflects the new links |
-| `did_close_retains_note` | After `didClose`, the note is still in the index |
-| `watched_file_created` | `didChangeWatchedFiles` created event adds note to index |
-| `watched_file_deleted` | `didChangeWatchedFiles` deleted event removes note from index |
+| `did_close_retains_note`  | After `didClose`, the note is still in the index                     |
+| `watched_file_created`    | `didChangeWatchedFiles` created event adds note to index             |
+| `watched_file_deleted`    | `didChangeWatchedFiles` deleted event removes note from index        |
 
 ---
 
 ## Step 6 — Diagnostics
 
-Implement `publish_diagnostics` and `compute_diagnostics`. Hook them into the document sync handlers via `IndexDelta`. After this step broken links surface as warnings in the editor.
+Implement `publish_diagnostics` and `compute_diagnostics`. Hook them into the
+document sync handlers via `IndexDelta`. After this step broken links surface as
+warnings in the editor.
 
 Reference: `docs/design/components/handlers.md` (Diagnostics section)
 
 **Deliverables:**
+
 - `handlers::publish_diagnostics()` and `handlers::compute_diagnostics()`
 - Called from all document sync handlers with the `IndexDelta` they return
 
 **Integration tests** (`tests/diagnostics.rs`):
 
-| Test | What it verifies |
-|---|---|
-| `broken_link_produces_warning` | Opening a file with `[[missing]]` publishes a warning diagnostic |
-| `valid_link_no_diagnostic` | Opening a file with a valid link publishes no diagnostic |
-| `ambiguous_link_produces_warning` | Two files with same stem produces an ambiguous warning |
-| `diagnostic_clears_on_fix` | Creating the missing file clears the diagnostic |
-| `diagnostic_range_is_stem_only` | Warning range covers the stem text, not the `[[` `]]` brackets |
-| `cascade_on_delete` | Deleting a linked file publishes a diagnostic in the file that linked to it |
+| Test                              | What it verifies                                                            |
+| --------------------------------- | --------------------------------------------------------------------------- |
+| `broken_link_produces_warning`    | Opening a file with `[[missing]]` publishes a warning diagnostic            |
+| `valid_link_no_diagnostic`        | Opening a file with a valid link publishes no diagnostic                    |
+| `ambiguous_link_produces_warning` | Two files with same stem produces an ambiguous warning                      |
+| `diagnostic_clears_on_fix`        | Creating the missing file clears the diagnostic                             |
+| `diagnostic_range_is_stem_only`   | Warning range covers the stem text, not the `[[` `]]` brackets              |
+| `cascade_on_delete`               | Deleting a linked file publishes a diagnostic in the file that linked to it |
 
-> **Manual checkpoint:** open a `.md` file with `[[broken-link]]`. The editor should show a warning. Create `broken-link.md`. The warning should clear.
+> **Manual checkpoint:** open a `.md` file with `[[broken-link]]`. The editor
+> should show a warning. Create `broken-link.md`. The warning should clear.
 
 ---
 
@@ -175,19 +212,21 @@ Implement the completion handler and wire it into the request router.
 Reference: `docs/design/components/handlers.md` (Completion section)
 
 **Deliverables:**
+
 - `handlers::handle_completion()`
 - Trigger check: returns empty unless cursor is preceded by `[[`
 
 **Integration tests** (`tests/completion.rs`):
 
-| Test | What it verifies |
-|---|---|
+| Test                              | What it verifies                              |
+| --------------------------------- | --------------------------------------------- |
 | `completion_after_double_bracket` | Typing `[[` returns one item per indexed note |
-| `completion_after_single_bracket` | Typing `[` returns no items |
-| `completion_includes_all_notes` | Three notes in index → three completion items |
-| `completion_item_is_file_kind` | Each item has `kind: File` |
+| `completion_after_single_bracket` | Typing `[` returns no items                   |
+| `completion_includes_all_notes`   | Three notes in index → three completion items |
+| `completion_item_is_file_kind`    | Each item has `kind: File`                    |
 
-> **Manual checkpoint:** type `[[` in a `.md` file. A completion menu should appear listing the other notes in the workspace.
+> **Manual checkpoint:** type `[[` in a `.md` file. A completion menu should
+> appear listing the other notes in the workspace.
 
 ---
 
@@ -198,18 +237,20 @@ Implement the definition handler.
 Reference: `docs/design/components/handlers.md` (Go to Definition section)
 
 **Deliverables:**
+
 - `handlers::handle_definition()`
 
 **Integration tests** (`tests/definition.rs`):
 
-| Test | What it verifies |
-|---|---|
-| `definition_on_valid_link` | Cursor on `[[note]]` returns `Location` pointing to `note.md` at position 0,0 |
-| `definition_on_broken_link` | Cursor on `[[missing]]` returns null |
-| `definition_off_link` | Cursor on plain text returns null |
-| `definition_on_ambiguous_link` | Returns null (diagnostic already flags it) |
+| Test                           | What it verifies                                                              |
+| ------------------------------ | ----------------------------------------------------------------------------- |
+| `definition_on_valid_link`     | Cursor on `[[note]]` returns `Location` pointing to `note.md` at position 0,0 |
+| `definition_on_broken_link`    | Cursor on `[[missing]]` returns null                                          |
+| `definition_off_link`          | Cursor on plain text returns null                                             |
+| `definition_on_ambiguous_link` | Returns null (diagnostic already flags it)                                    |
 
-> **Manual checkpoint:** `gd` (or equivalent) on a `[[link]]` navigates to the target file.
+> **Manual checkpoint:** `gd` (or equivalent) on a `[[link]]` navigates to the
+> target file.
 
 ---
 
@@ -220,18 +261,20 @@ Implement the references handler.
 Reference: `docs/design/components/handlers.md` (Find References section)
 
 **Deliverables:**
+
 - `handlers::handle_references()`
 
 **Integration tests** (`tests/references.rs`):
 
-| Test | What it verifies |
-|---|---|
-| `references_on_link` | Cursor on `[[b]]` in `a.md` returns all locations that link to `b.md` |
-| `references_returns_correct_ranges` | Returned ranges point to the `[[...]]` range, not line 0 |
-| `references_off_link` | Cursor on plain text returns empty list |
-| `references_multiple_sources` | Two files link to same target — both locations returned |
+| Test                                | What it verifies                                                      |
+| ----------------------------------- | --------------------------------------------------------------------- |
+| `references_on_link`                | Cursor on `[[b]]` in `a.md` returns all locations that link to `b.md` |
+| `references_returns_correct_ranges` | Returned ranges point to the `[[...]]` range, not line 0              |
+| `references_off_link`               | Cursor on plain text returns empty list                               |
+| `references_multiple_sources`       | Two files link to same target — both locations returned               |
 
-> **Manual checkpoint:** with multiple notes linking to a common note, `gr` (or equivalent) on any `[[link]]` shows all the linking locations.
+> **Manual checkpoint:** with multiple notes linking to a common note, `gr` (or
+> equivalent) on any `[[link]]` shows all the linking locations.
 
 ---
 
@@ -239,12 +282,15 @@ Reference: `docs/design/components/handlers.md` (Find References section)
 
 At this point all five user stories are implemented and tested:
 
-| Story | Delivered in step |
-|---|---|
-| US-01 `[[` completion | Step 7 |
-| US-02 Go to Definition | Step 8 |
-| US-03 Find References | Step 9 |
-| US-07 Broken link diagnostics | Step 6 |
-| US-16 Incremental index updates | Step 5 |
+| Story                           | Delivered in step |
+| ------------------------------- | ----------------- |
+| US-01 `[[` completion           | Step 7            |
+| US-02 Go to Definition          | Step 8            |
+| US-03 Find References           | Step 9            |
+| US-07 Broken link diagnostics   | Step 6            |
+| US-16 Incremental index updates | Step 5            |
 
-Final check before tagging: run the full test suite, then do a manual end-to-end session — open the workspace, verify all four features work together, introduce and fix a broken link, confirm diagnostics and navigation stay consistent throughout.
+Final check before tagging: run the full test suite, then do a manual end-to-end
+session — open the workspace, verify all four features work together, introduce
+and fix a broken link, confirm diagnostics and navigation stay consistent
+throughout.
