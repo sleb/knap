@@ -6,6 +6,28 @@ The guiding principle: each step produces something testable. No step lays down 
 
 ---
 
+## Status
+
+| Step | Status | Notes |
+|---|---|---|
+| 1 — Project scaffold | ✅ Done | `src/lib.rs` + binary split; all deps locked |
+| 2 — Parser | ✅ Done | 18/18 tests passing; design doc updated to reflect exclusion-zone approach |
+| 3 — Note Index | — | |
+| 4 — Server skeleton | — | |
+| 5 — Document sync | — | |
+| 6 — Diagnostics | — | |
+| 7 — Completion | — | |
+| 8 — Go to Definition | — | |
+| 9 — Find References | — | |
+
+### Implementation notes
+
+**Step 2:** pulldown-cmark fragments `[[note]]` into individual character `Text` events, making it impossible to scan within text events directly. The parser instead uses pulldown-cmark only to collect exclusion zones (code blocks, inline code spans) by byte range, then does a raw scan of the full content string. Design doc updated to match.
+
+**Step 2:** Switched from a single-binary crate to a `lib.rs` + thin `main.rs` split. This avoids false dead_code warnings from clippy (all `pub` items in the library are treated as part of the public API) and makes integration tests straightforward — they can `use knap::parser` directly.
+
+---
+
 ## Step 1 — Project scaffold
 
 Create the Cargo workspace, add all v0.1 dependencies, and establish the module structure.

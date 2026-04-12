@@ -99,102 +99,100 @@ pub fn parse(path: &Path, content: &str) -> Note {
 
 ## extract_wiki_links()
 
-Uses pulldown-cmark's offset iterator to walk the event stream. Wiki-links are extracted by scanning `Text` events; all other events are used only for context tracking.
+pulldown-cmark fragments `[[note]]` into individual character `Text` events
+(`"["`, `"["`, `"note"`, `"]"`, `"]"`), so scanning within `Text` events will
+never see the full `[[` sequence. Instead, the event stream is used only to
+collect **exclusion zones** — byte ranges that must not be scanned — and then
+the full content string is scanned directly.
 
 ```rust
 fn extract_wiki_links(content: &str, line_index: &LineIndex) -> Vec<WikiLink> {
-    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+    let exclusions = collect_exclusions(content);
+    scan_wiki_links(content, &exclusions, line_index)
+}
+```
 
-    let parser = Parser::new_ext(content, Options::empty())
-        .into_offset_iter();
+### collect_exclusions()
 
-    let mut links = Vec::new();
-    let mut in_code_block = false;
+Walks the pulldown-cmark event stream and records the byte ranges of fenced
+code blocks and inline code spans. Everything else is fair game for scanning.
 
-    for (event, _event_range) in parser {
+```rust
+fn collect_exclusions(content: &str) -> Vec<Range<usize>> {
+    let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
+    let mut exclusions = Vec::new();
+    let mut code_block_start: Option<usize> = None;
+
+    for (event, range) in parser {
         match event {
-            Event::Start(Tag::CodeBlock(_)) => in_code_block = true,
-            Event::End(TagEnd::CodeBlock)   => in_code_block = false,
-
-            Event::Code(_) => {
-                // inline code — skip entirely, no scanning
+            Event::Start(Tag::CodeBlock(_)) => { code_block_start = Some(range.start); }
+            Event::End(TagEnd::CodeBlock)   => {
+                if let Some(start) = code_block_start.take() {
+                    exclusions.push(start..range.end);
+                }
             }
-
-            Event::Text(text) if !in_code_block => {
-                scan_wiki_links(&text, content, &line_index, &mut links);
-            }
-
+            Event::Code(_) => { exclusions.push(range); }  // inline code span
             _ => {}
         }
     }
+    exclusions
+}
+```
 
+### scan_wiki_links()
+
+Scans the full content string for `[[stem]]` patterns, skipping any position
+inside an exclusion zone.
+
+```rust
+fn scan_wiki_links(
+    content: &str,
+    exclusions: &[Range<usize>],
+    line_index: &LineIndex,
+) -> Vec<WikiLink> {
+    let mut links = Vec::new();
+    let mut search_from = 0;
+
+    while let Some(open_offset) = content[search_from..].find("[[") {
+        let open = search_from + open_offset;
+
+        if exclusions.iter().any(|ex| ex.contains(&open)) {
+            search_from = open + 1;
+            continue;
+        }
+
+        let after_open = open + 2;
+        let line_end = content[after_open..].find('\n')
+            .map(|n| after_open + n)
+            .unwrap_or(content.len());
+        let line_slice = &content[after_open..line_end];
+
+        if let Some(close_offset) = line_slice.find("]]") {
+            let inner = &line_slice[..close_offset];
+
+            if !inner.trim().is_empty() && !inner.contains('|') && !inner.contains('#') {
+                links.push(WikiLink {
+                    stem: inner.trim().to_string(),
+                    range:       line_index.range(open..after_open + close_offset + 2),
+                    inner_range: line_index.range(after_open..after_open + inner.len()),
+                });
+            }
+
+            search_from = after_open + close_offset + 2;
+        } else {
+            search_from = after_open; // no ]] on this line, keep scanning
+        }
+    }
     links
 }
 ```
 
-Note: `_event_range` is the byte range of the whole event (e.g. the full paragraph). We don't use it directly — `scan_wiki_links` locates the `[[...]]` byte positions within `content` itself for precision.
-
----
-
-## scan_wiki_links()
-
-Scans a single text string for `[[stem]]` patterns and appends any found to `links`.
-
-```rust
-fn scan_wiki_links(
-    text: &str,
-    full_content: &str,
-    line_index: &LineIndex,
-    links: &mut Vec<WikiLink>,
-) {
-    // Find the byte offset of `text` within `full_content`.
-    // pulldown-cmark text slices are substrings of the original content,
-    // so pointer arithmetic gives us the offset.
-    let text_start = text.as_ptr() as usize - full_content.as_ptr() as usize;
-
-    let mut remaining = text;
-    let mut cursor = text_start;
-
-    while let Some(open) = remaining.find("[[") {
-        cursor += open + 2;
-        remaining = &remaining[open + 2..];
-
-        // Find closing ]] on the same "run" — stop at newline
-        let close_search = remaining.split('\n').next().unwrap_or("");
-        if let Some(close) = close_search.find("]]") {
-            let inner = &close_search[..close];
-
-            // Skip aliased links and heading anchors (deferred to later releases)
-            if !inner.contains('|') && !inner.contains('#') && !inner.is_empty() {
-                let inner_start = cursor;
-                let inner_end   = cursor + inner.len();
-                let outer_start = inner_start - 2;   // include [[
-                let outer_end   = inner_end + 2;     // include ]]
-
-                links.push(WikiLink {
-                    stem: inner.trim().to_string(),
-                    range:       line_index.range(outer_start..outer_end),
-                    inner_range: line_index.range(inner_start..inner_end),
-                });
-            }
-
-            let advance = close + 2; // past ]]
-            cursor += advance;
-            remaining = &remaining[close + 2..];
-        } else {
-            // No closing ]] on this line — skip
-            break;
-        }
-    }
-}
-```
-
 **Edge cases handled:**
-- `[[link]]` inside a fenced code block → skipped by `in_code_block` flag
-- `` `[[link]]` `` inline code → skipped by the `Event::Code` arm
+- `[[link]]` inside a fenced code block → excluded by `collect_exclusions`
+- `` `[[link]]` `` inline code → excluded by `collect_exclusions`
 - `[[note|alias]]` → skipped (`contains('|')`)
 - `[[note#heading]]` → skipped (`contains('#')`)
-- `[[]]` empty → skipped (`is_empty()`)
+- `[[]]` / `[[   ]]` empty/whitespace → skipped (`trim().is_empty()`)
 - `[[link` unclosed → skipped (no `]]` found before newline)
 
 **Not handled in v0.1:**
