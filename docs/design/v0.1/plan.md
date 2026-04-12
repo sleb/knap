@@ -15,13 +15,22 @@ untested code for the next step to build on.
 | -------------------- | ------- | -------------------------------------------------------------------------- |
 | 1 — Project scaffold | ✅ Done | `src/lib.rs` + binary split; all deps locked                               |
 | 2 — Parser           | ✅ Done | 18/18 tests passing; design doc updated to reflect exclusion-zone approach |
-| 3 — Note Index       | —       |                                                                            |
+| 3 — Note Index       | ✅ Done | 11/11 tests passing; `remove_internal` drops `links_to[path]` explicitly   |
 | 4 — Server skeleton  | —       |                                                                            |
 | 5 — Document sync    | —       |                                                                            |
 | 6 — Diagnostics      | —       |                                                                            |
 | 7 — Completion       | —       |                                                                            |
 | 8 — Go to Definition | —       |                                                                            |
 | 9 — Find References  | —       |                                                                            |
+
+**Step 3:** The design doc's `remove_internal` pseudo-code collects incoming
+links into `affected` but never removes the `links_to[path]` entry itself. Fixed
+by using `links_to.remove(path)` to collect and drop in one step — without this,
+`links_to(path)` still returns stale entries after the note is removed.
+
+**Step 3:** `build()` takes `extensions: &[&str]` (string slices) rather than
+`&[String]` — sufficient for v0.1 where extensions are compile-time constants,
+and avoids allocation at call sites.
 
 ### Implementation notes
 

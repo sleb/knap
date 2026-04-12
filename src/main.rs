@@ -3,6 +3,9 @@ fn main() -> anyhow::Result<()> {
     if args.len() >= 2 && args[1] == "parse" {
         return knap::cli::cmd_parse(&args[2..]);
     }
+    if args.len() >= 2 && args[1] == "index" {
+        return knap::cli::cmd_index(&args[2..]);
+    }
 
     let (connection, io_threads) = lsp_server::Connection::stdio();
     knap::server::run(connection)?;
