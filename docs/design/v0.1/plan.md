@@ -23,15 +23,6 @@ untested code for the next step to build on.
 | 8 — Go to Definition | —       |                                                                            |
 | 9 — Find References  | —       |                                                                            |
 
-**Step 3:** The design doc's `remove_internal` pseudo-code collects incoming
-links into `affected` but never removes the `links_to[path]` entry itself. Fixed
-by using `links_to.remove(path)` to collect and drop in one step — without this,
-`links_to(path)` still returns stale entries after the note is removed.
-
-**Step 3:** `build()` takes `extensions: &[&str]` (string slices) rather than
-`&[String]` — sufficient for v0.1 where extensions are compile-time constants,
-and avoids allocation at call sites.
-
 ### Implementation notes
 
 **Step 2:** pulldown-cmark fragments `[[note]]` into individual character `Text`
@@ -44,6 +35,15 @@ Design doc updated to match.
 split. This avoids false dead_code warnings from clippy (all `pub` items in the
 library are treated as part of the public API) and makes integration tests
 straightforward — they can `use knap::parser` directly.
+
+**Step 3:** The design doc's `remove_internal` pseudo-code collects incoming
+links into `affected` but never removes the `links_to[path]` entry itself. Fixed
+by using `links_to.remove(path)` to collect and drop in one step — without this,
+`links_to(path)` still returns stale entries after the note is removed.
+
+**Step 3:** `build()` takes `extensions: &[&str]` (string slices) rather than
+`&[String]` — sufficient for v0.1 where extensions are compile-time constants,
+and avoids allocation at call sites.
 
 ---
 
@@ -145,6 +145,40 @@ Reference: `docs/design/components/transport.md`,
 - `Config` resolution from `initializationOptions`
 - Stub handlers returning null for all v0.1 methods
 - File watcher registration on `initialized`
+- Stderr logging via `log` + `env_logger` (add both to `Cargo.toml`)
+
+**Logging:**
+
+All log output goes to stderr — stdout is owned by the LSP JSON-RPC framing and
+must not be touched. The `log` facade + `env_logger` backend is the
+implementation:
+
+```rust
+// main.rs, before Connection::stdio()
+env_logger::Builder::from_env(
+    env_logger::Env::default().filter_or("KNAP_LOG", "info")
+).init();
+```
+
+Using `KNAP_LOG` rather than `RUST_LOG` avoids conflicts when the editor or its
+plugins also use `env_logger`.
+
+Log the following lifecycle events (at `info` level unless noted):
+
+| Event                         | Message                                                     |
+| ----------------------------- | ----------------------------------------------------------- |
+| Server start                  | `knap starting`                                             |
+| `initialize` received         | `initialize: client={name} version={version}`               |
+| `initialized` notification    | `initialized: registering file watcher, crawling {n} roots` |
+| Every request dispatched      | `request: method={method} id={id}` (`debug`)                |
+| Every notification dispatched | `notification: method={method}` (`debug`)                   |
+| `shutdown` received           | `shutdown requested`                                        |
+| Main loop exit                | `exiting`                                                   |
+
+Logging at `debug` is verbose enough to reconstruct the full message sequence
+after a crash, which makes it the right level for diagnosing startup failures or
+hangs without flooding the editor's log in normal use (where `KNAP_LOG=info` is
+the default).
 
 **Integration tests** (`tests/lifecycle.rs`):
 
@@ -154,9 +188,40 @@ Reference: `docs/design/components/transport.md`,
 | `capabilities_advertised`      | `InitializeResult` includes completion (trigger `[`), definition, references              |
 | `unknown_request_returns_null` | An unrecognised method gets a null result, not an error                                   |
 
-> **Manual checkpoint:** point a real editor (Neovim or Helix) at the server
-> binary. Open a `.md` file. The server should start, complete the handshake,
-> and not crash. No features work yet, but no errors either.
+> **Manual checkpoint:** point Zed at the server binary with debug logging
+> enabled. In `~/.config/zed/settings.json`, configure the language server and
+> redirect stderr to a log file:
+>
+> ```json
+> "lsp": {
+>   "knap": {
+>     "binary": {
+>       "path": "/path/to/knap",
+>       "arguments": []
+>     }
+>   }
+> }
+> ```
+>
+> Zed pipes language server stderr to its own log. Run **Zed: Open Log** from
+> the command palette to view it, or `tail -f ~/Library/Logs/Zed/Zed.log`. Set
+> `KNAP_LOG=debug` in the environment before launching Zed (e.g. via
+> `launchctl setenv KNAP_LOG debug` on macOS, or launching from a terminal with
+> `KNAP_LOG=debug zed`).
+>
+> Open a `.md` file in a Zed workspace. The log should show, in order:
+>
+> 1. `knap starting`
+> 2. `initialize: client=Zed version=...`
+> 3. `initialized: registering file watcher...`
+>
+> Close Zed (or stop the server):
+>
+> 4. `shutdown requested`
+> 5. `exiting`
+>
+> No features work yet, but no panics, no errors, and the full lifecycle
+> sequence visible in the log.
 
 ---
 
