@@ -40,6 +40,8 @@ required for the common single-folder case.
 | US-07b | Diagnostic for ambiguous stems (multiple files, same name)             |
 | US-21  | Config: file extensions treated as notes                               |
 | US-22  | Config: link resolution strategy (stem vs. full path)                  |
+| US-26  | Attachment links (`[[image.png]]`) resolve against non-md files        |
+| US-27  | External URL links (`[[https://...]]`) are never flagged broken        |
 
 **LSP capabilities delivered:** `workspace/willRenameFiles`,
 `textDocument/completion` (alias support)

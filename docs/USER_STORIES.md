@@ -91,6 +91,18 @@ every file that uses that tag.
 and updates its index incrementally, so completions and diagnostics are always
 current without restarting.
 
+**US-26** — As a writer, `[[image.png]]` and `![[image.png]]` links to
+non-Markdown files (images, PDFs, audio, etc.) that exist in my workspace
+resolve correctly and do not produce broken-link diagnostics, so notes with
+pasted attachments aren't cluttered with false warnings.
+
+_Resolution rule for attachments: match by full filename (stem + extension),
+since attachment links always include the extension. Notes continue to resolve
+by stem only._
+
+**US-27** — As a writer, `[[https://example.com]]` links to external URLs are
+recognised as intentional and never produce broken-link diagnostics.
+
 ---
 
 ## Backlinks
