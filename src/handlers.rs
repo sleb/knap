@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 
 use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification};
-use lsp_types::{Diagnostic, DiagnosticSeverity, PublishDiagnosticsParams};
+use lsp_types::{
+    CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
+    Position, PublishDiagnosticsParams,
+};
 
 use crate::index::{NoteIndex, ResolvedLink};
 
@@ -62,6 +65,35 @@ pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: 
             params: serde_json::to_value(params).expect("serialize diagnostics"),
         }));
     }
+}
+
+// ─── Completion ───────────────────────────────────────────────────────────────
+
+/// Returns `true` if the text on the cursor's line immediately before the
+/// cursor position ends with `[[`, indicating the user wants note completion.
+fn check_trigger(content: &str, pos: Position) -> bool {
+    let line = content.lines().nth(pos.line as usize).unwrap_or("");
+    let up_to_cursor = line.get(..pos.character as usize).unwrap_or(line);
+    up_to_cursor.ends_with("[[")
+}
+
+pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
+    let pos = params.text_document_position.position;
+    let path = uri_to_path(&params.text_document_position.text_document.uri);
+    let Some(note) = index.get_note(&path) else {
+        return vec![];
+    };
+    if !check_trigger(&note.content, pos) {
+        return vec![];
+    }
+    index
+        .all_notes()
+        .map(|n| CompletionItem {
+            label: n.stem.clone(),
+            kind: Some(CompletionItemKind::FILE),
+            ..Default::default()
+        })
+        .collect()
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────

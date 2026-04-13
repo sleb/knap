@@ -19,7 +19,7 @@ untested code for the next step to build on.
 | 4 — Server skeleton  | ✅ Done | 3/3 tests passing; workspace folder parsing deferred to Step 5             |
 | 5 — Document sync    | ✅ Done | 5/5 tests passing; `url` crate added for URI↔PathBuf conversion            |
 | 6 — Diagnostics      | ✅ Done | 6/6 tests passing; `crossbeam-channel` added as direct dep for sender type |
-| 7 — Completion       | —       |                                                                            |
+| 7 — Completion       | ✅ Done | 4/4 tests passing; `dispatch_request` now takes `&NoteIndex` for routing   |
 | 8 — Go to Definition | —       |                                                                            |
 | 9 — Find References  | —       |                                                                            |
 

@@ -8,7 +8,7 @@ use log::{debug, info, warn};
 use crossbeam_channel::Sender;
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
-    CompletionOptions, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidOpenTextDocumentParams, DidChangeWatchedFilesRegistrationOptions,
     FileChangeType, FileSystemWatcher, GlobPattern, InitializeParams, InitializeResult, OneOf,
     Registration, RegistrationParams, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
@@ -110,7 +110,7 @@ pub fn run(connection: Connection) -> Result<()> {
                     info!("shutdown requested");
                     break;
                 }
-                dispatch_request(req, &connection)?;
+                dispatch_request(req, &connection, &index)?;
             }
             Message::Notification(notif) => {
                 debug!("notification: method={}", notif.method);
@@ -162,12 +162,23 @@ fn register_file_watcher(
     Ok(())
 }
 
-fn dispatch_request(req: Request, connection: &Connection) -> Result<()> {
-    // All v0.1 request methods return null until implemented in Steps 7–9.
-    // Unknown methods also return null (not an error) per LSP spec.
-    connection
-        .sender
-        .send(Message::Response(Response::new_ok(req.id, ())))?;
+fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) -> Result<()> {
+    match req.method.as_str() {
+        "textDocument/completion" => {
+            let items = serde_json::from_value::<CompletionParams>(req.params)
+                .map(|params| handlers::handle_completion(params, index))
+                .unwrap_or_default();
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, items)))?;
+        }
+        _ => {
+            // Unknown methods return null (not an error) per LSP spec.
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, ())))?;
+        }
+    }
     Ok(())
 }
 
