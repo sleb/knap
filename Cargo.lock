@@ -305,6 +305,7 @@ name = "knap"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "crossbeam-channel",
  "env_logger",
  "log",
  "lsp-server",

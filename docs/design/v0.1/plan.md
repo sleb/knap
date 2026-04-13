@@ -18,7 +18,7 @@ untested code for the next step to build on.
 | 3 — Note Index       | ✅ Done | 11/11 tests passing; `remove_internal` drops `links_to[path]` explicitly   |
 | 4 — Server skeleton  | ✅ Done | 3/3 tests passing; workspace folder parsing deferred to Step 5             |
 | 5 — Document sync    | ✅ Done | 5/5 tests passing; `url` crate added for URI↔PathBuf conversion            |
-| 6 — Diagnostics      | —       |                                                                            |
+| 6 — Diagnostics      | ✅ Done | 6/6 tests passing; `crossbeam-channel` added as direct dep for sender type |
 | 7 — Completion       | —       |                                                                            |
 | 8 — Go to Definition | —       |                                                                            |
 | 9 — Find References  | —       |                                                                            |
@@ -61,6 +61,15 @@ so pattern matching uses `if`/`else if` equality checks rather than match arms.
 `DidCloseTextDocument` is a no-op (the on-disk version was already indexed);
 `didChangeWatchedFiles` for created/changed files reads from disk and skips with
 a warning if the file cannot be read.
+
+**Step 6:** Added `crossbeam-channel = "0.5"` as a direct dependency so
+`publish_diagnostics` can take `&crossbeam_channel::Sender<Message>` — the type
+of `Connection.sender` from `lsp-server`. `DiagnosticSeverity` is also a newtype
+struct (like `FileChangeType`) with associated constants, not an enum. Tests use
+a synchronising-request pattern: after sending a notification, a dummy
+completion request is sent; all `textDocument/publishDiagnostics` notifications
+collected before the completion response are known to be causally ordered after
+the notification.
 
 ---
 

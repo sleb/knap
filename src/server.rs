@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use log::{debug, info, warn};
+use crossbeam_channel::Sender;
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CompletionOptions, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
@@ -14,7 +15,7 @@ use lsp_types::{
     TextDocumentSyncKind,
 };
 
-use crate::handlers::uri_to_path;
+use crate::handlers::{self, uri_to_path};
 use crate::index::{self, NoteIndex};
 use crate::parser;
 
@@ -97,9 +98,9 @@ pub fn run(connection: Connection) -> Result<()> {
     register_file_watcher(&connection, &config, &mut next_request_id)?;
 
     let exts: Vec<&str> = config.extensions.iter().map(|s| s.as_str()).collect();
-    let (mut index, _initial_delta) = index::build(&config.index_roots, &exts);
+    let (mut index, initial_delta) = index::build(&config.index_roots, &exts);
     info!("index ready: {} notes", index.all_notes().count());
-    // _initial_delta will be used for initial diagnostics in Step 6.
+    handlers::publish_diagnostics(&initial_delta.affected_paths, &index, &connection.sender);
 
     for msg in &connection.receiver {
         match msg {
@@ -113,7 +114,7 @@ pub fn run(connection: Connection) -> Result<()> {
             }
             Message::Notification(notif) => {
                 debug!("notification: method={}", notif.method);
-                dispatch_notification(notif, &mut index);
+                dispatch_notification(notif, &mut index, &connection.sender);
             }
             Message::Response(_) => {
                 // Responses to our outbound requests (e.g. registerCapability) — ignored.
@@ -170,17 +171,17 @@ fn dispatch_request(req: Request, connection: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn dispatch_notification(notif: Notification, index: &mut NoteIndex) {
+fn dispatch_notification(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>) {
     match notif.method.as_str() {
-        "textDocument/didOpen" => on_did_open(notif, index),
-        "textDocument/didChange" => on_did_change(notif, index),
+        "textDocument/didOpen" => on_did_open(notif, index, sender),
+        "textDocument/didChange" => on_did_change(notif, index, sender),
         "textDocument/didClose" => {} // no-op: on-disk version already indexed
-        "workspace/didChangeWatchedFiles" => on_did_change_watched_files(notif, index),
+        "workspace/didChangeWatchedFiles" => on_did_change_watched_files(notif, index, sender),
         _ => {}
     }
 }
 
-fn on_did_open(notif: Notification, index: &mut NoteIndex) {
+fn on_did_open(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>) {
     let params: DidOpenTextDocumentParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -190,10 +191,11 @@ fn on_did_open(notif: Notification, index: &mut NoteIndex) {
     };
     let path = uri_to_path(&params.text_document.uri);
     let note = parser::parse(&path, &params.text_document.text);
-    index.index(note);
+    let delta = index.index(note);
+    handlers::publish_diagnostics(&delta.affected_paths, index, sender);
 }
 
-fn on_did_change(notif: Notification, index: &mut NoteIndex) {
+fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>) {
     let params: DidChangeTextDocumentParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -210,10 +212,11 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex) {
     };
     let path = uri_to_path(&params.text_document.uri);
     let note = parser::parse(&path, &content);
-    index.index(note);
+    let delta = index.index(note);
+    handlers::publish_diagnostics(&delta.affected_paths, index, sender);
 }
 
-fn on_did_change_watched_files(notif: Notification, index: &mut NoteIndex) {
+fn on_did_change_watched_files(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>) {
     let params: DidChangeWatchedFilesParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -226,14 +229,16 @@ fn on_did_change_watched_files(notif: Notification, index: &mut NoteIndex) {
         if event.typ == FileChangeType::CREATED || event.typ == FileChangeType::CHANGED {
             match std::fs::read_to_string(&path) {
                 Ok(content) => {
-                    index.index(parser::parse(&path, &content));
+                    let delta = index.index(parser::parse(&path, &content));
+                    handlers::publish_diagnostics(&delta.affected_paths, index, sender);
                 }
                 Err(e) => {
                     warn!("cannot read {}: {e}", path.display());
                 }
             }
         } else if event.typ == FileChangeType::DELETED {
-            index.remove(&path);
+            let delta = index.remove(&path);
+            handlers::publish_diagnostics(&delta.affected_paths, index, sender);
         }
     }
 }
