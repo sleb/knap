@@ -10,25 +10,34 @@ Covers the implementation of the five stories in the v0.1 release:
 | US-07 | Broken link diagnostics                        |
 | US-16 | Incremental index updates                      |
 
-**Out of scope for v0.1:** aliased links (`[[Note|alias]]`), heading anchors (`[[Note#Heading]]`), tag support, hover previews, rename refactoring, frontmatter parsing.
+**Out of scope for v0.1:** tag support, hover previews, rename refactoring,
+frontmatter parsing, navigating to a specific heading line.
 
 ---
 
 ## Wiki-link syntax
 
-v0.1 supports the basic form only:
+v0.1 supports three forms:
 
 ```
-[[stem]]
+[[stem]]               plain link
+[[stem#section]]       heading anchor — section ignored; navigates to file top
+[[stem|display text]]  aliased link   — alias ignored; navigates to file top
 ```
 
-Where `stem` is the filename without extension (e.g. `[[my-note]]` targets `my-note.md`). The `[[` sequence is the completion trigger. Any `[[...]]` where the content contains a `|` or `#` is left unparsed — those forms are introduced in later releases.
+Where `stem` is the filename without extension (e.g. `[[my-note]]` targets
+`my-note.md`). The `[[` sequence is the completion trigger.
+
+For anchored and aliased forms the parser strips everything after `#` or `|` and
+uses the preceding text as the stem. Go to Definition navigates to position
+`(0, 0)` in all cases — jumping to the specific heading line is deferred to
+v0.3. Diagnostics and completion behave the same as for plain links.
 
 A valid wiki-link:
 
 - Opens with `[[`
 - Closes with `]]` on the same line
-- Contains only the stem: no `|`, no `#`, no whitespace-only content
+- Contains a non-empty note stem (text before any `|` or `#`)
 - Is not inside a fenced code block or inline code span
 
 ---
@@ -37,7 +46,8 @@ A valid wiki-link:
 
 ### Note
 
-The parsed representation of a single file. Produced by the Parser; stored in the index.
+The parsed representation of a single file. Produced by the Parser; stored in
+the index.
 
 ```
 Note {
@@ -66,9 +76,13 @@ byStem:  Map<stem, path[]>      // stem → all files with that stem (for resolu
 linksTo: Map<path, WikiLink[]>  // target path → all links pointing to it (reverse index)
 ```
 
-`byStem` values are arrays because two files can share a stem (e.g. `notes/foo.md` and `archive/foo.md`). A stem that maps to exactly one path is resolved; more than one is ambiguous.
+`byStem` values are arrays because two files can share a stem (e.g.
+`notes/foo.md` and `archive/foo.md`). A stem that maps to exactly one path is
+resolved; more than one is ambiguous.
 
-`linksTo` is built by resolving each `WikiLink.stem` at index time and recording the result. Unresolvable links are not entered into `linksTo` (they become diagnostics instead).
+`linksTo` is built by resolving each `WikiLink.stem` at index time and recording
+the result. Unresolvable links are not entered into `linksTo` (they become
+diagnostics instead).
 
 ---
 
@@ -86,7 +100,8 @@ initialized received
   → publish diagnostics for all broken links found
 ```
 
-The initial crawl is the only time the server reads from disk in bulk. After that, all updates are incremental.
+The initial crawl is the only time the server reads from disk in bulk. After
+that, all updates are incremental.
 
 ---
 
@@ -107,25 +122,34 @@ YAML frontmatter parsing is not needed in v0.1 and will be added in v0.4.
 
 ## Parser
 
-Parses a file's text content into a `Note` using `pulldown-cmark`'s event stream. Runs on a single file; has no access to the index.
+Parses a file's text content into a `Note` using `pulldown-cmark`'s event
+stream. Runs on a single file; has no access to the index.
 
-`pulldown-cmark` does not know about `[[wiki-link]]` syntax (it's not standard Markdown), so links are extracted by scanning within `Text` events. What the parser gives us is correct context: we know exactly when we're inside a code block or inline code span, so we never scan for wiki-links in those positions.
+`pulldown-cmark` does not know about `[[wiki-link]]` syntax (it's not standard
+Markdown), so links are extracted by scanning within `Text` events. What the
+parser gives us is correct context: we know exactly when we're inside a code
+block or inline code span, so we never scan for wiki-links in those positions.
 
 **Algorithm:**
 
-1. Create a `pulldown-cmark` parser with `into_offset_iter()` to get `(Event, Range<usize>)` pairs
+1. Create a `pulldown-cmark` parser with `into_offset_iter()` to get
+   `(Event, Range<usize>)` pairs
 2. Walk the event stream, tracking a `in_code` boolean:
    - `Start(CodeBlock)` / `End(CodeBlock)` → flip `in_code`
    - `Code(_)` (inline code) → emit nothing, skip
-   - `Text(text)` when `in_code` is false → scan `text` for wiki-links (see below)
+   - `Text(text)` when `in_code` is false → scan `text` for wiki-links (see
+     below)
 3. For each `Text` event, scan for `[[` / `]]` pairs on the same line:
    - Skip if inner content contains `|` or `#`
    - Use the event's byte offset + inner offset to compute the link's byte range
-   - Convert byte range to LSP `Range` (line/column) using a newline index built from the source
+   - Convert byte range to LSP `Range` (line/column) using a newline index built
+     from the source
 
 **Byte offset → LSP position conversion:**
 
-Build a `Vec<usize>` of newline byte positions once per file. A byte offset maps to a line by binary search, and a column by subtracting the line's start offset. This is done once after parsing, not per-link.
+Build a `Vec<usize>` of newline byte positions once per file. A byte offset maps
+to a line by binary search, and a column by subtracting the line's start offset.
+This is done once after parsing, not per-link.
 
 ---
 
@@ -168,7 +192,9 @@ Look up `byStem[stem]`:
 
 ### Completion (`textDocument/completion`)
 
-**Trigger:** the client sends a completion request when the user types `[` (registered as a trigger character). The handler checks whether the cursor is preceded by `[[` on the same line; if not, returns no results.
+**Trigger:** the client sends a completion request when the user types `[`
+(registered as a trigger character). The handler checks whether the cursor is
+preceded by `[[` on the same line; if not, returns no results.
 
 **Response:** one `CompletionItem` per note in the index.
 
@@ -180,33 +206,40 @@ CompletionItem {
 }
 ```
 
-No filtering — the editor handles fuzzy matching against what the user has typed so far.
+No filtering — the editor handles fuzzy matching against what the user has typed
+so far.
 
 ---
 
 ### Go to Definition (`textDocument/definition`)
 
-1. Find the `WikiLink` in the current file whose range contains the cursor position
+1. Find the `WikiLink` in the current file whose range contains the cursor
+   position
 2. If none, return null
 3. Resolve `link.stem` via the index
-4. If `found`: return `Location { uri: resolvedPath, range: start of file (0,0)-(0,0) }`
+4. If `found`: return
+   `Location { uri: resolvedPath, range: start of file (0,0)-(0,0) }`
 5. If `broken` or `ambiguous`: return null (the diagnostic already flags this)
 
 ---
 
 ### Find References (`textDocument/references`)
 
-1. Find the `WikiLink` in the current file whose range contains the cursor position
+1. Find the `WikiLink` in the current file whose range contains the cursor
+   position
 2. If none, return null — the editor does nothing
 3. Resolve `link.stem` via the index
-4. If `found`: return `index.linksTo[resolvedPath]` as a list of `Location` (one per link, using `link.range`)
+4. If `found`: return `index.linksTo[resolvedPath]` as a list of `Location` (one
+   per link, using `link.range`)
 5. If `broken` or `ambiguous`: return null
 
 ---
 
 ### Diagnostics (`textDocument/publishDiagnostics`)
 
-Diagnostics are published for a file whenever that file is indexed (opened, changed, or updated via file watcher). They are never published for files that are not currently in the index.
+Diagnostics are published for a file whenever that file is indexed (opened,
+changed, or updated via file watcher). They are never published for files that
+are not currently in the index.
 
 For each `WikiLink` in the file:
 
@@ -218,7 +251,10 @@ For each `WikiLink` in the file:
 
 Diagnostic range: `link.innerRange` (the stem text only, not the brackets).
 
-**Cascading updates:** when a file is added, removed, or renamed, links in _other_ files that reference it may change state (e.g. a previously broken link becomes valid). After any index update, the server republishes diagnostics for all files whose link resolutions changed.
+**Cascading updates:** when a file is added, removed, or renamed, links in
+_other_ files that reference it may change state (e.g. a previously broken link
+becomes valid). After any index update, the server republishes diagnostics for
+all files whose link resolutions changed.
 
 ---
 
@@ -237,7 +273,8 @@ Same as `didOpen` — re-parse the full document content and re-index.
 
 ### File closed in editor (`textDocument/didClose`)
 
-No index update. The on-disk version (already indexed via `didOpen` or file watcher) remains current.
+No index update. The on-disk version (already indexed via `didOpen` or file
+watcher) remains current.
 
 ### External file change (`workspace/didChangeWatchedFiles`)
 

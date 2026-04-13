@@ -1,6 +1,7 @@
 # Parser
 
-Parses a single Markdown file into a `Note`. Stateless and pure — given the same input it always returns the same output. Has no access to the Note Index.
+Parses a single Markdown file into a `Note`. Stateless and pure — given the same
+input it always returns the same output. Has no access to the Note Index.
 
 ---
 
@@ -37,7 +38,8 @@ pub struct WikiLink {
 
 ## LineIndex
 
-Converts byte offsets (what pulldown-cmark produces) to LSP line/character positions.
+Converts byte offsets (what pulldown-cmark produces) to LSP line/character
+positions.
 
 ```rust
 pub struct LineIndex {
@@ -114,8 +116,8 @@ fn extract_wiki_links(content: &str, line_index: &LineIndex) -> Vec<WikiLink> {
 
 ### collect_exclusions()
 
-Walks the pulldown-cmark event stream and records the byte ranges of fenced
-code blocks and inline code spans. Everything else is fair game for scanning.
+Walks the pulldown-cmark event stream and records the byte ranges of fenced code
+blocks and inline code spans. Everything else is fair game for scanning.
 
 ```rust
 fn collect_exclusions(content: &str) -> Vec<Range<usize>> {
@@ -169,16 +171,30 @@ fn scan_wiki_links(
 
         if let Some(close_offset) = line_slice.find("]]") {
             let inner = &line_slice[..close_offset];
+            let close = after_open + close_offset + 2; // byte offset after ]]
 
-            if !inner.trim().is_empty() && !inner.contains('|') && !inner.contains('#') {
-                links.push(WikiLink {
-                    stem: inner.trim().to_string(),
-                    range:       line_index.range(open..after_open + close_offset + 2),
-                    inner_range: line_index.range(after_open..after_open + inner.len()),
-                });
+            if !inner.trim().is_empty() {
+                // Strip alias suffix ([[note|display]]) then anchor suffix
+                // ([[note#section]]) to isolate the target note stem.
+                let note_part = inner.split('|').next().unwrap_or(inner);
+                let note_part = note_part.split('#').next().unwrap_or(note_part);
+                let stem = note_part.trim();
+
+                // Skip if only a `#section` or `|alias` with no note name.
+                if !stem.is_empty() {
+                    let leading = note_part.len() - note_part.trim_start().len();
+                    let inner_start = after_open + leading;
+                    let inner_end = inner_start + stem.len();
+
+                    links.push(WikiLink {
+                        stem: stem.to_string(),
+                        range:       line_index.range(open..close),
+                        inner_range: line_index.range(inner_start..inner_end),
+                    });
+                }
             }
 
-            search_from = after_open + close_offset + 2;
+            search_from = close;
         } else {
             search_from = after_open; // no ]] on this line, keep scanning
         }
@@ -188,13 +204,20 @@ fn scan_wiki_links(
 ```
 
 **Edge cases handled:**
+
 - `[[link]]` inside a fenced code block → excluded by `collect_exclusions`
 - `` `[[link]]` `` inline code → excluded by `collect_exclusions`
-- `[[note|alias]]` → skipped (`contains('|')`)
-- `[[note#heading]]` → skipped (`contains('#')`)
+- `[[note|display text]]` → alias stripped; stem is `"note"`
+- `[[note#section]]` → anchor stripped; stem is `"note"`
+- `[[#section]]` / `[[|alias]]` → no note name; skipped
 - `[[]]` / `[[   ]]` empty/whitespace → skipped (`trim().is_empty()`)
 - `[[link` unclosed → skipped (no `]]` found before newline)
 
+`inner_range` covers the stem bytes only (after any leading whitespace, before
+`|` or `#`), so diagnostic squiggles land on the note name regardless of alias
+or anchor suffix.
+
 **Not handled in v0.1:**
+
 - Links spanning multiple lines (not valid Obsidian syntax anyway)
 - HTML blocks containing `[[...]]`

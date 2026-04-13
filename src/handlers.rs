@@ -8,7 +8,7 @@ use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
-    Position, PublishDiagnosticsParams,
+    GotoDefinitionParams, Location, Position, PublishDiagnosticsParams, Range,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -94,6 +94,33 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
             ..Default::default()
         })
         .collect()
+}
+
+// ─── Go to Definition ─────────────────────────────────────────────────────────
+
+fn contains(range: Range, pos: Position) -> bool {
+    (pos.line > range.start.line
+        || (pos.line == range.start.line && pos.character >= range.start.character))
+        && (pos.line < range.end.line
+            || (pos.line == range.end.line && pos.character <= range.end.character))
+}
+
+fn find_link_at_position(note: &crate::parser::Note, pos: Position) -> Option<&crate::parser::WikiLink> {
+    note.wiki_links.iter().find(|link| contains(link.range, pos))
+}
+
+pub fn handle_definition(params: GotoDefinitionParams, index: &NoteIndex) -> Option<Location> {
+    let pos = params.text_document_position_params.position;
+    let path = uri_to_path(&params.text_document_position_params.text_document.uri);
+    let note = index.get_note(&path)?;
+    let link = find_link_at_position(note, pos)?;
+    match index.resolve(&link.stem) {
+        ResolvedLink::Found(target_path) => Some(Location {
+            uri: path_to_uri(&target_path),
+            range: Range::default(),
+        }),
+        _ => None,
+    }
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────

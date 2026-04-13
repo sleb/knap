@@ -11,17 +11,17 @@ untested code for the next step to build on.
 
 ## Status
 
-| Step                 | Status  | Notes                                                                      |
-| -------------------- | ------- | -------------------------------------------------------------------------- |
-| 1 — Project scaffold | ✅ Done | `src/lib.rs` + binary split; all deps locked                               |
-| 2 — Parser           | ✅ Done | 18/18 tests passing; design doc updated to reflect exclusion-zone approach |
-| 3 — Note Index       | ✅ Done | 11/11 tests passing; `remove_internal` drops `links_to[path]` explicitly   |
-| 4 — Server skeleton  | ✅ Done | 3/3 tests passing; workspace folder parsing deferred to Step 5             |
-| 5 — Document sync    | ✅ Done | 5/5 tests passing; `url` crate added for URI↔PathBuf conversion            |
-| 6 — Diagnostics      | ✅ Done | 6/6 tests passing; `crossbeam-channel` added as direct dep for sender type |
-| 7 — Completion       | ✅ Done | 4/4 tests passing; `dispatch_request` now takes `&NoteIndex` for routing   |
-| 8 — Go to Definition | —       |                                                                            |
-| 9 — Find References  | —       |                                                                            |
+| Step                 | Status  | Notes                                                                                       |
+| -------------------- | ------- | ------------------------------------------------------------------------------------------- |
+| 1 — Project scaffold | ✅ Done | `src/lib.rs` + binary split; all deps locked                                                |
+| 2 — Parser           | ✅ Done | 18/18 tests passing; design doc updated to reflect exclusion-zone approach                  |
+| 3 — Note Index       | ✅ Done | 11/11 tests passing; `remove_internal` drops `links_to[path]` explicitly                    |
+| 4 — Server skeleton  | ✅ Done | 3/3 tests passing; workspace folder parsing deferred to Step 5                              |
+| 5 — Document sync    | ✅ Done | 5/5 tests passing; `url` crate added for URI↔PathBuf conversion                             |
+| 6 — Diagnostics      | ✅ Done | 6/6 tests passing; `crossbeam-channel` added as direct dep for sender type                  |
+| 7 — Completion       | ✅ Done | 4/4 tests passing; `dispatch_request` now takes `&NoteIndex` for routing                    |
+| 8 — Go to Definition | ✅ Done | 6/6 tests passing; `[[stem\|alias]]` and `[[stem#anchor]]` links navigate to file top (0,0) |
+| 9 — Find References  | —       |                                                                                             |
 
 ### Implementation notes
 

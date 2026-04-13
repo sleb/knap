@@ -10,9 +10,9 @@ use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidOpenTextDocumentParams, DidChangeWatchedFilesRegistrationOptions,
-    FileChangeType, FileSystemWatcher, GlobPattern, InitializeParams, InitializeResult, OneOf,
-    Registration, RegistrationParams, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
-    TextDocumentSyncKind,
+    FileChangeType, FileSystemWatcher, GlobPattern, GotoDefinitionParams, InitializeParams,
+    InitializeResult, OneOf, Registration, RegistrationParams, ServerCapabilities, ServerInfo,
+    TextDocumentSyncCapability, TextDocumentSyncKind,
 };
 
 use crate::handlers::{self, uri_to_path};
@@ -171,6 +171,14 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, items)))?;
+        }
+        "textDocument/definition" => {
+            let location = serde_json::from_value::<GotoDefinitionParams>(req.params)
+                .ok()
+                .and_then(|params| handlers::handle_definition(params, index));
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, location)))?;
         }
         _ => {
             // Unknown methods return null (not an error) per LSP spec.

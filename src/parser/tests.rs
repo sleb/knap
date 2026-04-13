@@ -61,13 +61,29 @@ fn link_in_inline_code() {
 }
 
 #[test]
-fn aliased_link_ignored() {
-    assert!(links("[[note|display text]]").is_empty());
+fn aliased_link_extracts_stem() {
+    let result = links("[[note|display text]]");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].stem, "note");
 }
 
 #[test]
-fn heading_anchor_ignored() {
-    assert!(links("[[note#section]]").is_empty());
+fn anchor_link_extracts_stem() {
+    let result = links("[[note#section]]");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].stem, "note");
+}
+
+#[test]
+fn anchor_only_ignored() {
+    // [[#section]] has no note name — skip it.
+    assert!(links("[[#section]]").is_empty());
+}
+
+#[test]
+fn alias_only_ignored() {
+    // [[|alias]] has no note name — skip it.
+    assert!(links("[[|alias]]").is_empty());
 }
 
 #[test]
@@ -120,6 +136,26 @@ fn link_range_on_second_line() {
     let result = links("first line\n[[note]]");
     assert_eq!(result[0].range, range((1, 0), (1, 8)));
     assert_eq!(result[0].inner_range, range((1, 2), (1, 6)));
+}
+
+#[test]
+fn aliased_link_ranges() {
+    // "[[note|display text]]"
+    //  0123456789...
+    // outer: 0..21, inner (stem "note"): 2..6
+    let result = links("[[note|display text]]");
+    assert_eq!(result[0].range, range((0, 0), (0, 21)));
+    assert_eq!(result[0].inner_range, range((0, 2), (0, 6)));
+}
+
+#[test]
+fn anchor_link_ranges() {
+    // "[[note#section]]"
+    //  0123456789...
+    // outer: 0..16, inner (stem "note"): 2..6
+    let result = links("[[note#section]]");
+    assert_eq!(result[0].range, range((0, 0), (0, 16)));
+    assert_eq!(result[0].inner_range, range((0, 2), (0, 6)));
 }
 
 // ── LineIndex ─────────────────────────────────────────────────────────────────

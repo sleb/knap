@@ -33,15 +33,15 @@ required for the common single-folder case.
 
 **Goal:** Reorganizing your workspace doesn't break links.
 
-| Story  | Feature                                                                |
-| ------ | ---------------------------------------------------------------------- |
-| US-04  | Rename file → update all `[[links]]`                                   |
-| US-05  | Aliased links `[[Note\|display text]]` — completion + Go to Definition |
-| US-07b | Diagnostic for ambiguous stems (multiple files, same name)             |
-| US-21  | Config: file extensions treated as notes                               |
-| US-22  | Config: link resolution strategy (stem vs. full path)                  |
-| US-26  | Attachment links (`[[image.png]]`) resolve against non-md files        |
-| US-27  | External URL links (`[[https://...]]`) are never flagged broken        |
+| Story  | Feature                                                                                    |
+| ------ | ------------------------------------------------------------------------------------------ |
+| US-04  | Rename file → update all `[[links]]`                                                       |
+| US-05  | Aliased links `[[Note\|display text]]` — rename support; completion showing alias as label |
+| US-07b | Diagnostic for ambiguous stems (multiple files, same name)                                 |
+| US-21  | Config: file extensions treated as notes                                                   |
+| US-22  | Config: link resolution strategy (stem vs. full path)                                      |
+| US-26  | Attachment links (`[[image.png]]`) resolve against non-md files                            |
+| US-27  | External URL links (`[[https://...]]`) are never flagged broken                            |
 
 **LSP capabilities delivered:** `workspace/willRenameFiles`,
 `textDocument/completion` (alias support)
@@ -52,12 +52,12 @@ required for the common single-folder case.
 
 **Goal:** Navigate within notes, not just between them.
 
-| Story | Feature                                                |
-| ----- | ------------------------------------------------------ |
-| US-06 | `[[Note#Heading]]` — link to heading, Go to Definition |
-| US-08 | Diagnostic when heading anchor no longer exists        |
-| US-11 | Document Symbols — jump to heading within file         |
-| US-12 | Workspace Symbols — search headings across all files   |
+| Story | Feature                                                                                          |
+| ----- | ------------------------------------------------------------------------------------------------ |
+| US-06 | `[[Note#Heading]]` — Go to Definition navigates to the heading line (v0.1 navigates to file top) |
+| US-08 | Diagnostic when heading anchor no longer exists                                                  |
+| US-11 | Document Symbols — jump to heading within file                                                   |
+| US-12 | Workspace Symbols — search headings across all files                                             |
 
 **LSP capabilities delivered:** `textDocument/documentSymbol`,
 `workspace/symbol`

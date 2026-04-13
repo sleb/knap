@@ -136,23 +136,30 @@ fn scan_wiki_links(
 
         if let Some(close_offset) = line_slice.find("]]") {
             let inner = &line_slice[..close_offset];
+            let close = after_open + close_offset + 2; // byte offset after ]]
 
-            // Skip aliased links, heading anchors, and empty/whitespace-only content
-            // (these forms are introduced in later releases).
-            if !inner.trim().is_empty() && !inner.contains('|') && !inner.contains('#') {
-                let inner_start = after_open;
-                let inner_end = after_open + inner.len();
-                let outer_start = open;
-                let outer_end = after_open + close_offset + 2; // include ]]
+            if !inner.trim().is_empty() {
+                // Strip alias suffix ([[note|display]]) then anchor suffix
+                // ([[note#section]]) to isolate the target note stem.
+                let note_part = inner.split('|').next().unwrap_or(inner);
+                let note_part = note_part.split('#').next().unwrap_or(note_part);
+                let stem = note_part.trim();
 
-                links.push(WikiLink {
-                    stem: inner.trim().to_string(),
-                    range: line_index.range(outer_start..outer_end),
-                    inner_range: line_index.range(inner_start..inner_end),
-                });
+                // Skip if only a `#section` or `|alias` with no note name.
+                if !stem.is_empty() {
+                    let leading = note_part.len() - note_part.trim_start().len();
+                    let inner_start = after_open + leading;
+                    let inner_end = inner_start + stem.len();
+
+                    links.push(WikiLink {
+                        stem: stem.to_string(),
+                        range: line_index.range(open..close),
+                        inner_range: line_index.range(inner_start..inner_end),
+                    });
+                }
             }
 
-            search_from = after_open + close_offset + 2;
+            search_from = close;
         } else {
             // No closing ]] on this line — advance past the opening [[.
             search_from = after_open;
