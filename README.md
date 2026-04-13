@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-unreleased-lightgrey)
+![Version](https://img.shields.io/badge/version-0.1.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -12,11 +12,7 @@ LSP-compatible editor.
 
 - `[[wiki-link]]` completions, Go to Definition, and Find References
 - Broken link diagnostics
-- File rename that updates all links automatically
-- Heading navigation within and across files
-- Hover previews of linked notes
-- Frontmatter tag completions and references
-- Backlinks for the current note
+- Incremental index — the workspace index stays live as files change
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 
@@ -32,7 +28,7 @@ passed via your editor's native LSP settings, using `initializationOptions`.
 
 ## Status
 
-Early design phase. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.1.0 — MVP. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

@@ -5,7 +5,7 @@ from v0.1 alone and accumulate more with each release.
 
 ---
 
-## v0.1 — MVP: Navigate your workspace
+## v0.1 — MVP: Navigate your workspace _(released 2026-04-12)_
 
 **Goal:** The minimum useful knowledge base tool. A writer can jump between
 notes and catch broken links.
