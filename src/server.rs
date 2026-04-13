@@ -11,8 +11,8 @@ use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidOpenTextDocumentParams, DidChangeWatchedFilesRegistrationOptions,
     FileChangeType, FileSystemWatcher, GlobPattern, GotoDefinitionParams, InitializeParams,
-    InitializeResult, OneOf, Registration, RegistrationParams, ServerCapabilities, ServerInfo,
-    TextDocumentSyncCapability, TextDocumentSyncKind,
+    InitializeResult, OneOf, ReferenceParams, Registration, RegistrationParams, ServerCapabilities,
+    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
 };
 
 use crate::handlers::{self, uri_to_path};
@@ -179,6 +179,14 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, location)))?;
+        }
+        "textDocument/references" => {
+            let locations = serde_json::from_value::<ReferenceParams>(req.params)
+                .map(|params| handlers::handle_references(params, index))
+                .unwrap_or_default();
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, locations)))?;
         }
         _ => {
             // Unknown methods return null (not an error) per LSP spec.

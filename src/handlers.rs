@@ -8,7 +8,7 @@ use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
-    GotoDefinitionParams, Location, Position, PublishDiagnosticsParams, Range,
+    GotoDefinitionParams, Location, Position, PublishDiagnosticsParams, Range, ReferenceParams,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -121,6 +121,24 @@ pub fn handle_definition(params: GotoDefinitionParams, index: &NoteIndex) -> Opt
         }),
         _ => None,
     }
+}
+
+// ─── Find References ──────────────────────────────────────────────────────────
+
+pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Location> {
+    let pos = params.text_document_position.position;
+    let path = uri_to_path(&params.text_document_position.text_document.uri);
+    let Some(note) = index.get_note(&path) else { return vec![] };
+    let Some(link) = find_link_at_position(note, pos) else { return vec![] };
+    let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else { return vec![] };
+    index
+        .links_to(&target_path)
+        .iter()
+        .map(|located| Location {
+            uri: path_to_uri(&located.source_path),
+            range: located.wiki_link.range,
+        })
+        .collect()
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ untested code for the next step to build on.
 | 6 — Diagnostics      | ✅ Done | 6/6 tests passing; `crossbeam-channel` added as direct dep for sender type                  |
 | 7 — Completion       | ✅ Done | 4/4 tests passing; `dispatch_request` now takes `&NoteIndex` for routing                    |
 | 8 — Go to Definition | ✅ Done | 6/6 tests passing; `[[stem\|alias]]` and `[[stem#anchor]]` links navigate to file top (0,0) |
-| 9 — Find References  | —       |                                                                                             |
+| 9 — Find References  | ✅ Done | 4/4 tests passing; returns all `LocatedLink` entries from `linksTo` for the resolved target |
 
 ### Implementation notes
 
