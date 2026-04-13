@@ -1,16 +1,22 @@
-// Step 4: LSP lifecycle, message loop, request/notification routing.
+// LSP lifecycle, message loop, request/notification routing.
 // See docs/design/components/protocol-handler.md
 
 use std::path::PathBuf;
 
 use anyhow::Result;
-use log::{debug, info};
-use lsp_server::{Connection, Message, Request, Response};
+use log::{debug, info, warn};
+use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
-    CompletionOptions, DidChangeWatchedFilesRegistrationOptions, FileSystemWatcher, GlobPattern,
-    InitializeParams, InitializeResult, OneOf, Registration, RegistrationParams, ServerCapabilities,
-    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
+    CompletionOptions, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    DidOpenTextDocumentParams, DidChangeWatchedFilesRegistrationOptions,
+    FileChangeType, FileSystemWatcher, GlobPattern, InitializeParams, InitializeResult, OneOf,
+    Registration, RegistrationParams, ServerCapabilities, ServerInfo, TextDocumentSyncCapability,
+    TextDocumentSyncKind,
 };
+
+use crate::handlers::uri_to_path;
+use crate::index::{self, NoteIndex};
+use crate::parser;
 
 struct Config {
     index_roots: Vec<PathBuf>,
@@ -18,10 +24,22 @@ struct Config {
 }
 
 impl Config {
-    fn from_params(_params: &InitializeParams) -> Self {
-        // Workspace folder → PathBuf conversion wired in Step 5.
+    fn from_params(params: &InitializeParams) -> Self {
+        let index_roots = params
+            .workspace_folders
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .filter_map(|folder| {
+                url::Url::parse(folder.uri.as_str())
+                    .ok()?
+                    .to_file_path()
+                    .ok()
+            })
+            .collect();
+
         Config {
-            index_roots: Vec::new(),
+            index_roots,
             extensions: vec!["md".to_string()],
         }
     }
@@ -78,6 +96,11 @@ pub fn run(connection: Connection) -> Result<()> {
     let mut next_request_id: i32 = 1;
     register_file_watcher(&connection, &config, &mut next_request_id)?;
 
+    let exts: Vec<&str> = config.extensions.iter().map(|s| s.as_str()).collect();
+    let (mut index, _initial_delta) = index::build(&config.index_roots, &exts);
+    info!("index ready: {} notes", index.all_notes().count());
+    // _initial_delta will be used for initial diagnostics in Step 6.
+
     for msg in &connection.receiver {
         match msg {
             Message::Request(req) => {
@@ -90,7 +113,7 @@ pub fn run(connection: Connection) -> Result<()> {
             }
             Message::Notification(notif) => {
                 debug!("notification: method={}", notif.method);
-                // Document sync notifications wired in Step 5.
+                dispatch_notification(notif, &mut index);
             }
             Message::Response(_) => {
                 // Responses to our outbound requests (e.g. registerCapability) — ignored.
@@ -145,4 +168,72 @@ fn dispatch_request(req: Request, connection: &Connection) -> Result<()> {
         .sender
         .send(Message::Response(Response::new_ok(req.id, ())))?;
     Ok(())
+}
+
+fn dispatch_notification(notif: Notification, index: &mut NoteIndex) {
+    match notif.method.as_str() {
+        "textDocument/didOpen" => on_did_open(notif, index),
+        "textDocument/didChange" => on_did_change(notif, index),
+        "textDocument/didClose" => {} // no-op: on-disk version already indexed
+        "workspace/didChangeWatchedFiles" => on_did_change_watched_files(notif, index),
+        _ => {}
+    }
+}
+
+fn on_did_open(notif: Notification, index: &mut NoteIndex) {
+    let params: DidOpenTextDocumentParams = match serde_json::from_value(notif.params) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("didOpen: bad params: {e}");
+            return;
+        }
+    };
+    let path = uri_to_path(&params.text_document.uri);
+    let note = parser::parse(&path, &params.text_document.text);
+    index.index(note);
+}
+
+fn on_did_change(notif: Notification, index: &mut NoteIndex) {
+    let params: DidChangeTextDocumentParams = match serde_json::from_value(notif.params) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("didChange: bad params: {e}");
+            return;
+        }
+    };
+    let content = match params.content_changes.into_iter().next() {
+        Some(c) => c.text,
+        None => {
+            warn!("didChange: no content changes");
+            return;
+        }
+    };
+    let path = uri_to_path(&params.text_document.uri);
+    let note = parser::parse(&path, &content);
+    index.index(note);
+}
+
+fn on_did_change_watched_files(notif: Notification, index: &mut NoteIndex) {
+    let params: DidChangeWatchedFilesParams = match serde_json::from_value(notif.params) {
+        Ok(p) => p,
+        Err(e) => {
+            warn!("didChangeWatchedFiles: bad params: {e}");
+            return;
+        }
+    };
+    for event in params.changes {
+        let path = uri_to_path(&event.uri);
+        if event.typ == FileChangeType::CREATED || event.typ == FileChangeType::CHANGED {
+            match std::fs::read_to_string(&path) {
+                Ok(content) => {
+                    index.index(parser::parse(&path, &content));
+                }
+                Err(e) => {
+                    warn!("cannot read {}: {e}", path.display());
+                }
+            }
+        } else if event.typ == FileChangeType::DELETED {
+            index.remove(&path);
+        }
+    }
 }

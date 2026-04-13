@@ -2,13 +2,17 @@
 
 Covers all LSP request handlers and the diagnostic publisher for v0.1.
 
-Each request handler receives the decoded params, a shared reference to the `NoteIndex`, and the `Config`. Handlers are pure functions — they do not mutate the index or send messages directly. They return a value that the Protocol Handler serialises and sends.
+Each request handler receives the decoded params, a shared reference to the
+`NoteIndex`, and the `Config`. Handlers are pure functions — they do not mutate
+the index or send messages directly. They return a value that the Protocol
+Handler serialises and sends.
 
 ---
 
 ## Helper: find_link_at_position()
 
-Shared by Definition and References. Finds the wiki-link in a note whose range contains a given cursor position.
+Shared by Definition and References. Finds the wiki-link in a note whose range
+contains a given cursor position.
 
 ```rust
 fn find_link_at_position<'a>(note: &'a Note, pos: Position) -> Option<&'a WikiLink> {
@@ -29,7 +33,10 @@ fn contains(range: Range, pos: Position) -> bool {
 
 ### When it fires
 
-The client sends a completion request when the user types `[` (registered as a trigger character). Before building the list, the handler checks the document content to confirm the cursor is preceded by `[[` — a single `[` should not trigger note completions.
+The client sends a completion request when the user types `[` (registered as a
+trigger character). Before building the list, the handler checks the document
+content to confirm the cursor is preceded by `[[` — a single `[` should not
+trigger note completions.
 
 ```rust
 fn check_trigger(content: &str, pos: Position) -> bool {
@@ -73,7 +80,8 @@ fn handle_completion(
 }
 ```
 
-`insertText` is left unset — the editor inserts the `label` by default. The closing `]]` is not auto-inserted in v0.1; this can be revisited.
+`insertText` is left unset — the editor inserts the `label` by default. The
+closing `]]` is not auto-inserted in v0.1; this can be revisited.
 
 ---
 
@@ -101,7 +109,8 @@ fn handle_definition(
 }
 ```
 
-Returns `None` for broken and ambiguous links — the diagnostic already flags these, so silently returning nothing is the right behaviour.
+Returns `None` for broken and ambiguous links — the diagnostic already flags
+these, so silently returning nothing is the right behaviour.
 
 ---
 
@@ -144,7 +153,9 @@ fn handle_references(
 
 ## Diagnostics
 
-Diagnostics are not a request handler — they are published proactively by the Protocol Handler whenever the index changes. The Protocol Handler calls `publish_diagnostics` with the set of affected paths returned by `IndexDelta`.
+Diagnostics are not a request handler — they are published proactively by the
+Protocol Handler whenever the index changes. The Protocol Handler calls
+`publish_diagnostics` with the set of affected paths returned by `IndexDelta`.
 
 ```rust
 fn publish_diagnostics(
@@ -208,14 +219,24 @@ fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
 
 ## Utilities
 
-These small helpers are used across multiple handlers and are not part of any single component.
+These small helpers are used across multiple handlers and are not part of any
+single component.
 
 ```rust
-fn uri_to_path(uri: &Url) -> PathBuf {
-    uri.to_file_path().expect("non-file URI")
+// lsp-types 0.97 uses its own `Uri` type (backed by fluent-uri), not url::Url.
+// Conversion goes through url::Url as an intermediate step.
+fn uri_to_path(uri: &lsp_types::Uri) -> PathBuf {
+    url::Url::parse(uri.as_str())
+        .expect("invalid URI")
+        .to_file_path()
+        .expect("non-file URI")
 }
 
-fn path_to_uri(path: &Path) -> Url {
-    Url::from_file_path(path).expect("non-absolute path")
+fn path_to_uri(path: &Path) -> lsp_types::Uri {
+    url::Url::from_file_path(path)
+        .expect("non-absolute path")
+        .as_str()
+        .parse()
+        .expect("file URL should parse as Uri")
 }
 ```

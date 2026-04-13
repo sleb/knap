@@ -17,7 +17,7 @@ untested code for the next step to build on.
 | 2 — Parser           | ✅ Done | 18/18 tests passing; design doc updated to reflect exclusion-zone approach |
 | 3 — Note Index       | ✅ Done | 11/11 tests passing; `remove_internal` drops `links_to[path]` explicitly   |
 | 4 — Server skeleton  | ✅ Done | 3/3 tests passing; workspace folder parsing deferred to Step 5             |
-| 5 — Document sync    | —       |                                                                            |
+| 5 — Document sync    | ✅ Done | 5/5 tests passing; `url` crate added for URI↔PathBuf conversion            |
 | 6 — Diagnostics      | —       |                                                                            |
 | 7 — Completion       | —       |                                                                            |
 | 8 — Go to Definition | —       |                                                                            |
@@ -52,6 +52,15 @@ deferred to Step 5 where it is actually needed. LSP method name constants
 (`METHOD`) are defined on traits (`lsp_types::request::Request`,
 `lsp_types::notification::Notification`) that conflict with the same-named types
 from `lsp_server`; string literals are used instead to avoid the ambiguity.
+
+**Step 5:** Added `url = "2"` as a direct dependency. `lsp_types::Uri` (backed
+by `fluent_uri::Uri<String>`) has `as_str()` via `Deref` and `FromStr`, which
+lets `uri_to_path` round-trip through `url::Url`. `FileChangeType` is a newtype
+struct with associated constants (`CREATED`, `CHANGED`, `DELETED`), not an enum,
+so pattern matching uses `if`/`else if` equality checks rather than match arms.
+`DidCloseTextDocument` is a no-op (the on-disk version was already indexed);
+`didChangeWatchedFiles` for created/changed files reads from disk and skips with
+a warning if the file cannot be read.
 
 ---
 
