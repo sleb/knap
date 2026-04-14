@@ -11,8 +11,8 @@ use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidOpenTextDocumentParams, DidChangeWatchedFilesRegistrationOptions,
     FileChangeType, FileSystemWatcher, GlobPattern, GotoDefinitionParams, InitializeParams,
-    InitializeResult, OneOf, ReferenceParams, Registration, RegistrationParams, ServerCapabilities,
-    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind,
+    InitializeResult, OneOf, ReferenceParams, Registration, RegistrationParams, RelativePattern,
+    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
 };
 
 use crate::handlers::{self, uri_to_path};
@@ -22,6 +22,15 @@ use crate::parser;
 struct Config {
     index_roots: Vec<PathBuf>,
     extensions: Vec<String>,
+    attachments_dir: Option<PathBuf>,
+}
+
+/// Mirrors the shape of `initializationOptions` sent by the editor.
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct InitOptions {
+    extensions: Option<Vec<String>>,
+    attachments_dir: Option<String>,
 }
 
 impl Config {
@@ -39,12 +48,23 @@ impl Config {
             })
             .collect();
 
+        let opts: InitOptions = params
+            .initialization_options
+            .as_ref()
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
         Config {
             index_roots,
-            extensions: vec!["md".to_string()],
+            extensions: opts.extensions.unwrap_or_else(|| vec!["md".to_string()]),
+            attachments_dir: opts.attachments_dir.map(PathBuf::from),
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
+
 
 pub fn run(connection: Connection) -> Result<()> {
     info!("knap starting");
@@ -134,14 +154,37 @@ fn register_file_watcher(
     let id = *next_id;
     *next_id += 1;
 
-    let watchers = config
+    let mut watchers: Vec<FileSystemWatcher> = config
         .extensions
         .iter()
-        .map(|ext| FileSystemWatcher {
-            glob_pattern: GlobPattern::String(format!("**/*.{ext}")),
-            kind: None,
+        .map(|ext| {
+            debug!("registering file watcher for extension: {ext}");
+            FileSystemWatcher {
+                glob_pattern: GlobPattern::String(format!("**/*.{ext}")),
+                kind: None,
+            }
         })
         .collect();
+
+    // If an attachments directory is configured, watch all files inside it.
+    if let Some(ref attachments_dir) = config.attachments_dir {
+        for root in &config.index_roots {
+            let base_url = url::Url::from_file_path(root.join(attachments_dir))
+                .expect("attachment dir path must be convertible to a URL");
+            let base_uri: Uri = base_url
+                .as_str()
+                .parse()
+                .expect("attachment dir URL must be a valid URI");
+            debug!("registering attachment watcher for: {base_url}");
+            watchers.push(FileSystemWatcher {
+                glob_pattern: GlobPattern::Relative(RelativePattern {
+                    base_uri: OneOf::Right(base_uri),
+                    pattern: "**/*".to_string(),
+                }),
+                kind: None,
+            });
+        }
+    }
 
     let registration = Registration {
         id: "file-watcher".to_string(),
