@@ -33,18 +33,15 @@ required for the common single-folder case.
 
 **Goal:** Reorganizing your workspace doesn't break links.
 
-| Story  | Feature                                                                                    |
-| ------ | ------------------------------------------------------------------------------------------ |
-| US-04  | Rename file → update all `[[links]]`                                                       |
-| US-05  | Aliased links `[[Note\|display text]]` — rename support; completion showing alias as label |
-| US-07b | Diagnostic for ambiguous stems (multiple files, same name)                                 |
-| US-21  | Config: file extensions treated as notes                                                   |
-| US-22  | Config: link resolution strategy (stem vs. full path)                                      |
-| US-26  | Attachment links (`[[image.png]]`) resolve against non-md files                            |
-| US-27  | External URL links (`[[https://...]]`) are never flagged broken                            |
+| Story  | Feature                                                         |
+| ------ | --------------------------------------------------------------- |
+| US-04  | Rename file → update all `[[links]]`                            |
+| US-05  | Aliased links `[[Note\|display text]]` — rename preserves alias |
+| US-07b | Diagnostic for ambiguous stems (multiple files, same name)      |
+| US-21  | Config: file extensions treated as notes                        |
+| US-26  | Attachment links (`[[image.png]]`) resolve against non-md files |
 
-**LSP capabilities delivered:** `workspace/willRenameFiles`,
-`textDocument/completion` (alias support)
+**LSP capabilities delivered:** `workspace/willRenameFiles`
 
 ---
 
@@ -141,6 +138,12 @@ These were explicitly deferred and are not scheduled:
 - Git integration
 - Graph visualization
 - Sync / publishing
+- US-22 — Config: link resolution strategy (stem vs. full path). Path-mode adds
+  significant index complexity for a niche use case. Revisit if stem collisions
+  become a real pain point.
+- US-27 — External URL links (`[[https://...]]`) never flagged broken. Not
+  idiomatic wiki-link syntax; external URLs belong in standard `[text](url)`
+  links. Defer unless user complaints surface.
 
 ---
 
