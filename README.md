@@ -36,6 +36,8 @@ v0.2.0 — Rename & Refactor. See the [roadmap](docs/ROADMAP.md) for planned rel
 
 ## Documentation
 
+- [Getting Started](docs/GETTING_STARTED.md) — install the server, connect your
+  editor, and understand what each feature does
 - [User Stories](docs/USER_STORIES.md) — what knap does, told from the writer's
   perspective
 - [Roadmap](docs/ROADMAP.md) — features grouped into releases, starting with the
