@@ -15,7 +15,7 @@ untested code for the next step to build on.
 | ---------------------------- | ------- | ----- |
 | 1 — Config                   | ✅ Done |       |
 | 2 — Attachment file tracking | ✅ Done |       |
-| 3 — Rename handler           | ⬜ Todo |       |
+| 3 — Rename handler           | ✅ Done |       |
 
 **US-07b** (ambiguous stem diagnostics) was implemented as part of v0.1 and
 requires no work in v0.2.
