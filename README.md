@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -11,7 +11,11 @@ LSP-compatible editor.
 ## What it does
 
 - `[[wiki-link]]` completions, Go to Definition, and Find References
-- Broken link diagnostics
+- Broken and ambiguous link diagnostics
+- Rename a file — all `[[links]]` pointing to it are updated automatically
+- Aliased links `[[Note|display text]]` — rename preserves the alias
+- Attachment links `[[image.png]]` resolve against non-note files
+- Configurable file extensions (e.g. `.md`, `.mdx`) via `initializationOptions`
 - Incremental index — the workspace index stays live as files change
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
@@ -28,7 +32,7 @@ passed via your editor's native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.1.0 — MVP. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.2.0 — Rename & Refactor. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

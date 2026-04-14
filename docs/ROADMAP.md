@@ -29,7 +29,7 @@ required for the common single-folder case.
 
 ---
 
-## v0.2 — Rename & Refactor
+## v0.2 — Rename & Refactor _(released 2026-04-13)_
 
 **Goal:** Reorganizing your workspace doesn't break links.
 
