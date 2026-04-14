@@ -343,6 +343,176 @@ fn diagnostic_range_is_stem_only() {
     do_shutdown(&client, 3);
 }
 
+/// A `[[image.png]]` link with no matching file in the index → warning.
+#[test]
+fn attachment_link_absent_diagnostic() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "textDocument/didOpen".to_string(),
+            params: json!({
+                "textDocument": {
+                    "uri": "file:///tmp/knap_diag/has_png_link.md",
+                    "languageId": "markdown",
+                    "version": 1,
+                    "text": "[[missing_image.png]]\n"
+                }
+            }),
+        }))
+        .unwrap();
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags = diags
+        .iter()
+        .find(|d| d.uri.as_str().ends_with("has_png_link.md"))
+        .expect("no diagnostics published for has_png_link.md");
+    assert_eq!(file_diags.diagnostics.len(), 1);
+    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+
+    do_shutdown(&client, 3);
+}
+
+/// A `[[image.png]]` link clears once the file is registered as an attachment.
+#[test]
+fn attachment_link_present_no_diagnostic() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // Open a note with a broken attachment link.
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "textDocument/didOpen".to_string(),
+            params: json!({
+                "textDocument": {
+                    "uri": "file:///tmp/knap_diag/wants_png.md",
+                    "languageId": "markdown",
+                    "version": 1,
+                    "text": "[[logo.png]]\n"
+                }
+            }),
+        }))
+        .unwrap();
+
+    // Simulate the watcher seeing a new attachment file.
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "workspace/didChangeWatchedFiles".to_string(),
+            params: json!({ "changes": [{ "uri": "file:///tmp/knap_diag/logo.png", "type": 1 }] }),
+        }))
+        .unwrap();
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("wants_png.md"))
+        .collect();
+    let last = file_diags.last().expect("no diagnostics published for wants_png.md");
+    assert!(
+        last.diagnostics.is_empty(),
+        "expected no diagnostics after attachment registered, got {:?}",
+        last.diagnostics
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// Broken note link message uses the new link-agnostic wording.
+#[test]
+fn diagnostic_message_broken() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "textDocument/didOpen".to_string(),
+            params: json!({
+                "textDocument": {
+                    "uri": "file:///tmp/knap_diag/msg_broken.md",
+                    "languageId": "markdown",
+                    "version": 1,
+                    "text": "[[ghost]]\n"
+                }
+            }),
+        }))
+        .unwrap();
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags = diags
+        .iter()
+        .find(|d| d.uri.as_str().ends_with("msg_broken.md"))
+        .expect("no diagnostics for msg_broken.md");
+    assert_eq!(file_diags.diagnostics.len(), 1);
+    assert_eq!(
+        file_diags.diagnostics[0].message,
+        "Link target not found: '[[ghost]]'"
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// Ambiguous stem message uses the new link-agnostic wording.
+#[test]
+fn diagnostic_message_ambiguous() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    for uri in [
+        "file:///tmp/knap_diag/msg_amb_dir1/shared.md",
+        "file:///tmp/knap_diag/msg_amb_dir2/shared.md",
+    ] {
+        client
+            .sender
+            .send(Message::Notification(Notification {
+                method: "textDocument/didOpen".to_string(),
+                params: json!({
+                    "textDocument": {
+                        "uri": uri,
+                        "languageId": "markdown",
+                        "version": 1,
+                        "text": "# Shared\n"
+                    }
+                }),
+            }))
+            .unwrap();
+    }
+
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "textDocument/didOpen".to_string(),
+            params: json!({
+                "textDocument": {
+                    "uri": "file:///tmp/knap_diag/msg_amb_linker.md",
+                    "languageId": "markdown",
+                    "version": 1,
+                    "text": "[[shared]]\n"
+                }
+            }),
+        }))
+        .unwrap();
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("msg_amb_linker.md"))
+        .collect();
+    let last = file_diags.last().expect("no diagnostics for msg_amb_linker.md");
+    assert_eq!(last.diagnostics.len(), 1);
+    assert!(
+        last.diagnostics[0].message.starts_with("'[[shared]]' matches multiple files:"),
+        "unexpected message: {}",
+        last.diagnostics[0].message
+    );
+
+    do_shutdown(&client, 3);
+}
+
 /// Deleting a linked file publishes a diagnostic in the file that linked to it.
 #[test]
 fn cascade_on_delete() {

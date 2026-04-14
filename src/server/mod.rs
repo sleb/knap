@@ -134,7 +134,7 @@ pub fn run(connection: Connection) -> Result<()> {
             }
             Message::Notification(notif) => {
                 debug!("notification: method={}", notif.method);
-                dispatch_notification(notif, &mut index, &connection.sender);
+                dispatch_notification(notif, &mut index, &connection.sender, &config.extensions);
             }
             Message::Response(_) => {
                 // Responses to our outbound requests (e.g. registerCapability) — ignored.
@@ -241,12 +241,19 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
     Ok(())
 }
 
-fn dispatch_notification(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>) {
+fn dispatch_notification(
+    notif: Notification,
+    index: &mut NoteIndex,
+    sender: &Sender<Message>,
+    extensions: &[String],
+) {
     match notif.method.as_str() {
         "textDocument/didOpen" => on_did_open(notif, index, sender),
         "textDocument/didChange" => on_did_change(notif, index, sender),
         "textDocument/didClose" => {} // no-op: on-disk version already indexed
-        "workspace/didChangeWatchedFiles" => on_did_change_watched_files(notif, index, sender),
+        "workspace/didChangeWatchedFiles" => {
+            on_did_change_watched_files(notif, index, sender, extensions)
+        }
         _ => {}
     }
 }
@@ -286,7 +293,12 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
     handlers::publish_diagnostics(&delta.affected_paths, index, sender);
 }
 
-fn on_did_change_watched_files(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>) {
+fn on_did_change_watched_files(
+    notif: Notification,
+    index: &mut NoteIndex,
+    sender: &Sender<Message>,
+    extensions: &[String],
+) {
     let params: DidChangeWatchedFilesParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -296,19 +308,37 @@ fn on_did_change_watched_files(notif: Notification, index: &mut NoteIndex, sende
     };
     for event in params.changes {
         let path = uri_to_path(&event.uri);
-        if event.typ == FileChangeType::CREATED || event.typ == FileChangeType::CHANGED {
-            match std::fs::read_to_string(&path) {
-                Ok(content) => {
-                    let delta = index.index(parser::parse(&path, &content));
-                    handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+        let is_note = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| extensions.iter().any(|e| e == ext))
+            .unwrap_or(false);
+
+        if is_note {
+            if event.typ == FileChangeType::CREATED || event.typ == FileChangeType::CHANGED {
+                match std::fs::read_to_string(&path) {
+                    Ok(content) => {
+                        let delta = index.index(parser::parse(&path, &content));
+                        handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+                    }
+                    Err(e) => {
+                        warn!("cannot read {}: {e}", path.display());
+                    }
                 }
-                Err(e) => {
-                    warn!("cannot read {}: {e}", path.display());
-                }
+            } else if event.typ == FileChangeType::DELETED {
+                let delta = index.remove(&path);
+                handlers::publish_diagnostics(&delta.affected_paths, index, sender);
             }
-        } else if event.typ == FileChangeType::DELETED {
-            let delta = index.remove(&path);
-            handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+        } else {
+            // Non-note file (attachment): update by_filename only.
+            if event.typ == FileChangeType::CREATED {
+                let delta = index.add_attachment(path);
+                handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+            } else if event.typ == FileChangeType::DELETED {
+                let delta = index.remove_attachment(&path);
+                handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+            }
+            // Changed → no-op for attachments
         }
     }
 }

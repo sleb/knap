@@ -16,6 +16,17 @@ pub struct Note {
     pub content: String, // raw source text, retained for trigger checking in completion
 }
 
+impl Note {
+    /// Full filename including extension (e.g. `"my-note.md"`).
+    pub fn filename(&self) -> String {
+        self.path
+            .file_name()
+            .expect("note path must have a filename")
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
 /// A `[[wiki-link]]` found in the file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WikiLink {

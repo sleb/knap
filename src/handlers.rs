@@ -28,7 +28,7 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
             ResolvedLink::Broken => Some(Diagnostic {
                 range: link.inner_range,
                 severity: Some(DiagnosticSeverity::WARNING),
-                message: format!("No note found for '[[{}]]'", link.stem),
+                message: format!("Link target not found: '[[{}]]'", link.stem),
                 source: Some("knap".to_string()),
                 ..Default::default()
             }),
@@ -36,7 +36,7 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
                 range: link.inner_range,
                 severity: Some(DiagnosticSeverity::WARNING),
                 message: format!(
-                    "'[[{}]]' matches multiple notes: {}",
+                    "'[[{}]]' matches multiple files: {}",
                     link.stem,
                     paths
                         .iter()

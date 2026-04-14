@@ -121,3 +121,56 @@ fn ambiguous_becomes_found() {
     idx.remove(Path::new("dir1/foo.md"));
     assert!(matches!(idx.resolve("foo"), ResolvedLink::Found(_)));
 }
+
+// ── by_filename ───────────────────────────────────────────────────────────────
+
+#[test]
+fn by_filename_populated_for_note() {
+    // index(note) must also register the full filename so [[foo.md]] resolves.
+    let mut idx = NoteIndex::default();
+    idx.index(note("foo.md", ""));
+    // "foo" resolves via by_stem; "foo.md" must resolve via by_filename.
+    assert!(matches!(idx.resolve("foo.md"), ResolvedLink::Found(_)));
+}
+
+#[test]
+fn by_filename_cleared_on_remove() {
+    let mut idx = NoteIndex::default();
+    idx.index(note("foo.md", ""));
+    idx.remove(Path::new("foo.md"));
+    assert!(matches!(idx.resolve("foo.md"), ResolvedLink::Broken));
+}
+
+#[test]
+fn resolve_falls_through_to_filename() {
+    // A non-note attachment registered via add_attachment must be Found.
+    let mut idx = NoteIndex::default();
+    idx.add_attachment(PathBuf::from("/workspace/image.png"));
+    assert!(matches!(idx.resolve("image.png"), ResolvedLink::Found(_)));
+}
+
+#[test]
+fn resolve_prefers_stem_over_filename() {
+    // A note "foo.md" is in by_stem["foo"]. An attachment named "foo" (no
+    // extension) is in by_filename["foo"]. by_stem must win.
+    let mut idx = NoteIndex::default();
+    idx.index(note("foo.md", ""));
+    idx.add_attachment(PathBuf::from("/workspace/foo")); // no extension
+    match idx.resolve("foo") {
+        ResolvedLink::Found(p) => assert!(p.to_string_lossy().ends_with("foo.md")),
+        other => panic!("expected Found(foo.md), got {other:?}"),
+    }
+}
+
+#[test]
+fn resolve_broken_in_both_maps() {
+    let idx = NoteIndex::default();
+    assert!(matches!(idx.resolve("nonexistent.png"), ResolvedLink::Broken));
+}
+
+#[test]
+fn non_note_file_registered() {
+    let mut idx = NoteIndex::default();
+    idx.add_attachment(PathBuf::from("/workspace/diagram.png"));
+    assert!(matches!(idx.resolve("diagram.png"), ResolvedLink::Found(_)));
+}

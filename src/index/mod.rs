@@ -15,6 +15,10 @@ pub struct NoteIndex {
     /// Length 0: broken. Length 1: resolved. Length >1: ambiguous.
     by_stem: HashMap<String, Vec<PathBuf>>,
 
+    /// Full filename (including extension) → all paths that have that filename.
+    /// Covers every file in the workspace, not just note extensions.
+    by_filename: HashMap<String, Vec<PathBuf>>,
+
     /// Reverse index: target path → all wiki-links pointing to it.
     /// Only contains links that resolved successfully at index time.
     links_to: HashMap<PathBuf, Vec<LocatedLink>>,
@@ -26,6 +30,7 @@ pub struct LocatedLink {
     pub wiki_link: WikiLink,
 }
 
+#[derive(Debug)]
 pub enum ResolvedLink {
     Found(PathBuf),
     Ambiguous(Vec<PathBuf>),
@@ -42,12 +47,19 @@ pub struct IndexDelta {
 }
 
 impl NoteIndex {
-    /// Stem lookup with no side effects.
-    pub fn resolve(&self, stem: &str) -> ResolvedLink {
-        match self.by_stem.get(stem).map(|v| v.as_slice()) {
+    /// Resolve a link target. Checks `by_stem` first; if not found, falls
+    /// through to `by_filename`. This handles both note links (`[[stem]]`)
+    /// and attachment links (`[[image.png]]`) without any classification step.
+    pub fn resolve(&self, target: &str) -> ResolvedLink {
+        match self.by_stem.get(target).map(|v| v.as_slice()) {
+            Some([path]) => return ResolvedLink::Found(path.clone()),
+            Some(paths) => return ResolvedLink::Ambiguous(paths.to_vec()),
+            None => {}
+        }
+        match self.by_filename.get(target).map(|v| v.as_slice()) {
             Some([path]) => ResolvedLink::Found(path.clone()),
             Some(paths) => ResolvedLink::Ambiguous(paths.to_vec()),
-            _ => ResolvedLink::Broken,
+            None => ResolvedLink::Broken,
         }
     }
 
@@ -61,8 +73,9 @@ impl NoteIndex {
             AffectedPaths::default()
         };
 
-        // 2. Add to by_stem.
+        // 2. Add to by_stem and by_filename.
         self.by_stem.entry(note.stem.clone()).or_default().push(note.path.clone());
+        self.by_filename.entry(note.filename()).or_default().push(note.path.clone());
 
         // 3. Resolve each wiki-link and populate links_to.
         for link in &note.wiki_links {
@@ -140,6 +153,15 @@ impl NoteIndex {
             }
         }
 
+        // Remove from by_filename.
+        let filename = note.filename();
+        if let Some(paths) = self.by_filename.get_mut(&filename) {
+            paths.retain(|p| p != path);
+            if paths.is_empty() {
+                self.by_filename.remove(&filename);
+            }
+        }
+
         // Files that link TO this note now have broken links — republish their diagnostics.
         // Remove the entry for this path from the reverse index at the same time.
         if let Some(incoming) = self.links_to.remove(path) {
@@ -178,18 +200,67 @@ impl NoteIndex {
     pub fn links_to(&self, path: &Path) -> &[LocatedLink] {
         self.links_to.get(path).map(Vec::as_slice).unwrap_or(&[])
     }
+
+    /// Register a non-note file (attachment) in `by_filename`. Rechecks all
+    /// existing notes that link to this filename so their diagnostics clear.
+    pub fn add_attachment(&mut self, path: PathBuf) -> IndexDelta {
+        let filename = path
+            .file_name()
+            .expect("attachment path must have a filename")
+            .to_string_lossy()
+            .into_owned();
+        self.by_filename.entry(filename.clone()).or_default().push(path);
+        let affected = self.recheck_links_to(&filename);
+        IndexDelta { affected_paths: affected }
+    }
+
+    /// Remove a non-note file from `by_filename`. Notes that linked to it now
+    /// have broken links and are returned in the delta.
+    pub fn remove_attachment(&mut self, path: &Path) -> IndexDelta {
+        let filename = path
+            .file_name()
+            .expect("attachment path must have a filename")
+            .to_string_lossy()
+            .into_owned();
+        if let Some(paths) = self.by_filename.get_mut(&filename) {
+            paths.retain(|p| p != path);
+            if paths.is_empty() {
+                self.by_filename.remove(&filename);
+            }
+        }
+        let mut affected = AffectedPaths::default();
+        if let Some(incoming) = self.links_to.remove(path) {
+            for l in &incoming {
+                affected.insert(l.source_path.clone());
+            }
+        }
+        affected.insert(path.to_path_buf());
+        IndexDelta { affected_paths: affected }
+    }
 }
 
-/// Build an initial index by crawling `roots` for files with the given extensions.
+/// Build an initial index by crawling `roots`. Note files (matching
+/// `extensions`) are fully parsed; all other files are registered in
+/// `by_filename` only so attachment links resolve immediately.
 pub fn build(roots: &[PathBuf], extensions: &[&str]) -> (NoteIndex, IndexDelta) {
     let mut index = NoteIndex::default();
     let mut all_affected = HashSet::new();
 
     for root in roots {
-        for path in walk_files(root, extensions) {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                let note = parser::parse(&path, &content);
-                let delta = index.index(note);
+        for path in walk_files(root) {
+            let is_note = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|ext| extensions.contains(&ext))
+                .unwrap_or(false);
+
+            if is_note {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    let delta = index.index(parser::parse(&path, &content));
+                    all_affected.extend(delta.affected_paths);
+                }
+            } else {
+                let delta = index.add_attachment(path);
                 all_affected.extend(delta.affected_paths);
             }
         }
@@ -198,21 +269,19 @@ pub fn build(roots: &[PathBuf], extensions: &[&str]) -> (NoteIndex, IndexDelta) 
     (index, IndexDelta { affected_paths: all_affected })
 }
 
-fn walk_files(root: &Path, extensions: &[&str]) -> Vec<PathBuf> {
+fn walk_files(root: &Path) -> Vec<PathBuf> {
     let mut results = Vec::new();
-    walk_dir(root, extensions, &mut results);
+    walk_dir(root, &mut results);
     results
 }
 
-fn walk_dir(dir: &Path, extensions: &[&str], out: &mut Vec<PathBuf>) {
+fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            walk_dir(&path, extensions, out);
-        } else if let Some(ext) = path.extension().and_then(|e| e.to_str())
-            && extensions.contains(&ext)
-        {
+            walk_dir(&path, out);
+        } else {
             out.push(path);
         }
     }
