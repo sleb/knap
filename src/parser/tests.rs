@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use lsp_types::{Position, Range};
-use super::{LineIndex, parse, WikiLink};
+use super::{Heading, LineIndex, parse, WikiLink};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -15,6 +15,10 @@ fn range(start: (u32, u32), end: (u32, u32)) -> Range {
 
 fn links(content: &str) -> Vec<WikiLink> {
     parse(Path::new("note.md"), content).wiki_links
+}
+
+fn headings(content: &str) -> Vec<Heading> {
+    parse(Path::new("note.md"), content).headings
 }
 
 // ── parse() ──────────────────────────────────────────────────────────────────
@@ -184,4 +188,87 @@ fn line_index_positions() {
 fn line_index_range() {
     let idx = LineIndex::new("ab\ncd");
     assert_eq!(idx.range(3..5), range((1, 0), (1, 2)));
+}
+
+// ── headings ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn heading_single() {
+    let result = headings("## My Heading\n");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].text, "My Heading");
+    assert_eq!(result[0].level, 2);
+}
+
+#[test]
+fn heading_multiple_levels() {
+    let content = "# Title\n\n## Section\n\n### Subsection\n";
+    let result = headings(content);
+    assert_eq!(result.len(), 3);
+    assert_eq!(result[0].text, "Title");
+    assert_eq!(result[0].level, 1);
+    assert_eq!(result[1].text, "Section");
+    assert_eq!(result[1].level, 2);
+    assert_eq!(result[2].text, "Subsection");
+    assert_eq!(result[2].level, 3);
+}
+
+#[test]
+fn heading_in_code_block_ignored() {
+    let content = "```\n## Not a heading\n```\n";
+    assert!(headings(content).is_empty());
+}
+
+#[test]
+fn heading_text_range() {
+    // "## My Heading\n"
+    //  0123456789012345
+    // "## " is bytes 0–2, "My Heading" is bytes 3–13 (chars 3..13 on line 0)
+    let result = headings("## My Heading\n");
+    assert_eq!(result[0].text_range, range((0, 3), (0, 13)));
+}
+
+// ── wiki-link anchor capture ──────────────────────────────────────────────────
+
+#[test]
+fn wiki_link_anchor_captured() {
+    let result = links("[[note#Section]]");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].stem, "note");
+    assert_eq!(result[0].anchor, Some("Section".to_string()));
+}
+
+#[test]
+fn wiki_link_anchor_range() {
+    // "[[note#Section]]"
+    //  0123456789012345
+    // "Section" occupies bytes 7–14 → chars (0,7)–(0,14)
+    let result = links("[[note#Section]]");
+    assert_eq!(result[0].anchor_range, Some(range((0, 7), (0, 14))));
+}
+
+#[test]
+fn wiki_link_no_anchor() {
+    let result = links("[[note]]");
+    assert_eq!(result[0].anchor, None);
+    assert_eq!(result[0].anchor_range, None);
+}
+
+#[test]
+fn wiki_link_alias_and_anchor() {
+    // Anchor comes before alias in the syntax: [[note#Section|alias]]
+    let result = links("[[note#Section|alias]]");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].stem, "note");
+    assert_eq!(result[0].anchor, Some("Section".to_string()));
+}
+
+#[test]
+fn wiki_link_empty_anchor_treated_as_none() {
+    // [[note#]] — hash present but no text after it → anchor: None
+    let result = links("[[note#]]");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].stem, "note");
+    assert_eq!(result[0].anchor, None);
+    assert_eq!(result[0].anchor_range, None);
 }

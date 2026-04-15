@@ -20,8 +20,12 @@ pub fn cmd_parse(args: &[String]) -> anyhow::Result<()> {
         for link in &note.wiki_links {
             let r = &link.range;
             let ir = &link.inner_range;
+            let anchor_str = match &link.anchor {
+                Some(a) => format!("  anchor: #{a}"),
+                None => String::new(),
+            };
             println!(
-                "  [[{}]]  {}:{}\u{2013}{}:{}  (inner: {}:{}\u{2013}{}:{})",
+                "  [[{}]]  {}:{}\u{2013}{}:{}  (inner: {}:{}\u{2013}{}:{}){}",
                 link.stem,
                 r.start.line,
                 r.start.character,
@@ -31,6 +35,30 @@ pub fn cmd_parse(args: &[String]) -> anyhow::Result<()> {
                 ir.start.character,
                 ir.end.line,
                 ir.end.character,
+                anchor_str,
+            );
+        }
+    }
+
+    if note.headings.is_empty() {
+        println!("headings: none");
+    } else {
+        println!("headings: {}", note.headings.len());
+        for h in &note.headings {
+            let r = &h.range;
+            let tr = &h.text_range;
+            println!(
+                "  h{}  \"{}\"  {}:{}\u{2013}{}:{}  (text: {}:{}\u{2013}{}:{})",
+                h.level,
+                h.text,
+                r.start.line,
+                r.start.character,
+                r.end.line,
+                r.end.character,
+                tr.start.line,
+                tr.start.character,
+                tr.end.line,
+                tr.end.character,
             );
         }
     }

@@ -3,7 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use lsp_types::{Position, Range as LspRange};
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 #[cfg(test)]
 mod tests;
@@ -14,6 +14,16 @@ pub struct Note {
     pub stem: String,
     pub wiki_links: Vec<WikiLink>,
     pub content: String, // raw source text, retained for trigger checking in completion
+    pub headings: Vec<Heading>,
+}
+
+/// An ATX heading found in a note file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Heading {
+    pub text: String,       // raw heading text, e.g. "My Section"
+    pub level: u8,          // ATX heading level 1–6
+    pub range: LspRange,    // full heading line range (for navigation and DocumentSymbol)
+    pub text_range: LspRange, // text-only range, excluding `## ` prefix (for rename)
 }
 
 impl Note {
@@ -31,8 +41,10 @@ impl Note {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WikiLink {
     pub stem: String,
-    pub range: LspRange,       // full [[...]] range, for Go to Definition
-    pub inner_range: LspRange, // stem text only, for diagnostics
+    pub anchor: Option<String>,       // text after `#`, before `|`, trimmed; None when absent or empty
+    pub range: LspRange,              // full [[...]] range, for Go to Definition
+    pub inner_range: LspRange,        // stem text only, for diagnostics and file rename
+    pub anchor_range: Option<LspRange>, // anchor text only (for heading rename and code action)
 }
 
 /// Maps byte offsets (from pulldown-cmark) to LSP line/character positions.
@@ -76,8 +88,9 @@ pub fn parse(path: &Path, content: &str) -> Note {
 
     let line_index = LineIndex::new(content);
     let wiki_links = extract_wiki_links(content, &line_index);
+    let headings = extract_headings(content, &line_index);
 
-    Note { path: path.to_path_buf(), stem, wiki_links, content: content.to_string() }
+    Note { path: path.to_path_buf(), stem, wiki_links, content: content.to_string(), headings }
 }
 
 fn extract_wiki_links(content: &str, line_index: &LineIndex) -> Vec<WikiLink> {
@@ -117,6 +130,66 @@ fn collect_exclusions(content: &str) -> Vec<Range<usize>> {
     exclusions
 }
 
+/// Extract all ATX headings from `content` using pulldown-cmark's offset iterator.
+/// Headings inside fenced code blocks are automatically excluded by the parser.
+fn extract_headings(content: &str, line_index: &LineIndex) -> Vec<Heading> {
+    let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
+    let mut headings = Vec::new();
+    // (level, heading_byte_start, accumulated_text, first_text_byte, last_text_end_byte)
+    let mut current: Option<(u8, usize, String, Option<usize>, usize)> = None;
+
+    for (event, byte_range) in parser {
+        match event {
+            Event::Start(Tag::Heading { level, .. }) => {
+                let lvl = heading_level_to_u8(level);
+                current = Some((lvl, byte_range.start, String::new(), None, byte_range.start));
+            }
+            Event::Text(s) => {
+                if let Some((_, _, ref mut text, ref mut first_start, ref mut last_end)) =
+                    current
+                {
+                    if first_start.is_none() {
+                        *first_start = Some(byte_range.start);
+                    }
+                    *last_end = byte_range.end;
+                    text.push_str(&s);
+                }
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                if let Some((level, heading_start, text, first_start, last_text_end)) =
+                    current.take()
+                {
+                    let range = line_index.range(heading_start..byte_range.end);
+                    let text_range = match first_start {
+                        Some(ts) => line_index.range(ts..last_text_end),
+                        None => line_index.range(heading_start..heading_start),
+                    };
+                    headings.push(Heading {
+                        text: text.trim().to_string(),
+                        level,
+                        range,
+                        text_range,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    headings
+}
+
+fn heading_level_to_u8(level: HeadingLevel) -> u8 {
+    match level {
+        HeadingLevel::H1 => 1,
+        HeadingLevel::H2 => 2,
+        HeadingLevel::H3 => 3,
+        HeadingLevel::H4 => 4,
+        HeadingLevel::H5 => 5,
+        HeadingLevel::H6 => 6,
+    }
+}
+
 /// Scan `content` for `[[stem]]` patterns, skipping any position inside an exclusion zone.
 fn scan_wiki_links(
     content: &str,
@@ -150,10 +223,32 @@ fn scan_wiki_links(
             let close = after_open + close_offset + 2; // byte offset after ]]
 
             if !inner.trim().is_empty() {
-                // Strip alias suffix ([[note|display]]) then anchor suffix
-                // ([[note#section]]) to isolate the target note stem.
-                let note_part = inner.split('|').next().unwrap_or(inner);
-                let note_part = note_part.split('#').next().unwrap_or(note_part);
+                // Strip alias suffix ([[note|display]]) to isolate the note+anchor part.
+                let pipe_part = inner.split('|').next().unwrap_or(inner);
+
+                // Split on `#` to capture the optional anchor.
+                // pipe_part starts at after_open in content (it's always the prefix of inner).
+                let (note_part, anchor, anchor_range) = match pipe_part.find('#') {
+                    Some(hash_pos) => {
+                        let stem_part = &pipe_part[..hash_pos];
+                        let anchor_raw = &pipe_part[hash_pos + 1..];
+                        let trimmed = anchor_raw.trim();
+                        if trimmed.is_empty() {
+                            (stem_part, None, None)
+                        } else {
+                            let leading_ws = anchor_raw.len() - anchor_raw.trim_start().len();
+                            let anchor_byte_start = after_open + hash_pos + 1 + leading_ws;
+                            let anchor_byte_end = anchor_byte_start + trimmed.len();
+                            (
+                                stem_part,
+                                Some(trimmed.to_string()),
+                                Some(line_index.range(anchor_byte_start..anchor_byte_end)),
+                            )
+                        }
+                    }
+                    None => (pipe_part, None, None),
+                };
+
                 let stem = note_part.trim();
 
                 // Skip if only a `#section` or `|alias` with no note name.
@@ -164,8 +259,10 @@ fn scan_wiki_links(
 
                     links.push(WikiLink {
                         stem: stem.to_string(),
+                        anchor,
                         range: line_index.range(open..close),
                         inner_range: line_index.range(inner_start..inner_end),
+                        anchor_range,
                     });
                 }
             }
