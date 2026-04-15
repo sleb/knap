@@ -32,6 +32,10 @@ and still get Go to Definition and completions, so my prose reads naturally.
 **US-06** — As a writer, I can link to a heading within a file using
 `[[Note#Heading]]` syntax and navigate directly to that heading.
 
+**US-28** — As a writer, I can rename a heading and have all
+`[[Note#OldHeading]]` anchor links across my workspace updated automatically,
+so reorganising a note's structure doesn't silently break cross-file references.
+
 ---
 
 ## Diagnostics
@@ -118,6 +122,10 @@ leaving the file.
 
 **US-18** — As a writer, when I'm on a broken `[[link]]`, a code action lets me
 create the missing file, so I can stub out notes without leaving my editor.
+
+**US-29** — As a writer, when I'm on a `[[Note#MissingAnchor]]` diagnostic, a
+code action shows me the available headings from the target file so I can pick
+the right one and fix the broken anchor without leaving my editor.
 
 ---
 

@@ -55,9 +55,10 @@ required for the common single-folder case.
 | US-08 | Diagnostic when heading anchor no longer exists                                                  |
 | US-11 | Document Symbols — jump to heading within file                                                   |
 | US-12 | Workspace Symbols — search headings across all files                                             |
+| US-28 | Rename a heading → all `[[Note#OldHeading]]` anchor links updated                                |
 
 **LSP capabilities delivered:** `textDocument/documentSymbol`,
-`workspace/symbol`
+`workspace/symbol`, `textDocument/rename`
 
 ---
 
@@ -94,9 +95,10 @@ required for the common single-folder case.
 
 **Goal:** Fix broken links without leaving the editor.
 
-| Story | Feature                                                 |
-| ----- | ------------------------------------------------------- |
-| US-18 | Code action: create missing file from broken `[[link]]` |
+| Story | Feature                                                           |
+| ----- | ----------------------------------------------------------------- |
+| US-18 | Code action: create missing file from broken `[[link]]`           |
+| US-29 | Code action: fix broken anchor by picking from available headings |
 
 **LSP capabilities delivered:** `textDocument/codeAction`
 
