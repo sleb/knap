@@ -209,6 +209,35 @@ fn definition_on_aliased_link() {
     do_shutdown(&client, 3);
 }
 
+/// Cursor on `[[note#Heading]]` where the heading exists → Location on heading line.
+#[test]
+fn definition_with_anchor() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // "## My Section\n" — heading is on line 0
+    open_note(&client, "file:///tmp/knap_def/with_anchor_target.md", "## My Section\n");
+    // "[[with_anchor_target#My Section]]" — cursor anywhere inside the stem
+    open_note(
+        &client,
+        "file:///tmp/knap_def/with_anchor_src.md",
+        "[[with_anchor_target#My Section]]\n",
+    );
+
+    // Cursor at (0, 5) — inside "with_anchor_target"
+    let loc =
+        request_definition(&client, 2, "file:///tmp/knap_def/with_anchor_src.md", 0, 5);
+    let loc = loc.expect("expected a Location when heading exists");
+    assert!(
+        loc.uri.as_str().ends_with("with_anchor_target.md"),
+        "expected uri ending with with_anchor_target.md, got {}",
+        loc.uri.as_str()
+    );
+    assert_eq!(loc.range.start.line, 0, "expected to navigate to heading line 0");
+
+    do_shutdown(&client, 3);
+}
+
 /// Cursor on an ambiguous wiki-link (multiple notes with same stem) returns null.
 #[test]
 fn definition_on_ambiguous_link() {

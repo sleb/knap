@@ -115,13 +115,29 @@ pub fn handle_definition(params: GotoDefinitionParams, index: &NoteIndex) -> Opt
     let path = uri_to_path(&params.text_document_position_params.text_document.uri);
     let note = index.get_note(&path)?;
     let link = find_link_at_position(note, pos)?;
-    match index.resolve(&link.stem) {
-        ResolvedLink::Found(target_path) => Some(Location {
-            uri: path_to_uri(&target_path),
-            range: Range::default(),
-        }),
-        _ => None,
+    let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else {
+        return None;
+    };
+
+    // If the link carries an anchor, navigate to the matching heading.
+    // Returns Some(range) when both the target note and a matching heading exist.
+    let anchor_range = link.anchor.as_ref().and_then(|anchor| {
+        let target_note = index.get_note(&target_path)?;
+        let heading = target_note
+            .headings
+            .iter()
+            .find(|h| h.text.to_lowercase() == anchor.to_lowercase())?;
+        Some(heading.range)
+    });
+    if let Some(range) = anchor_range {
+        return Some(Location { uri: path_to_uri(&target_path), range });
     }
+    // No anchor, or anchor not found → fall through to file top.
+
+    Some(Location {
+        uri: path_to_uri(&target_path),
+        range: Range::default(),
+    })
 }
 
 // ─── Find References ──────────────────────────────────────────────────────────
@@ -282,6 +298,61 @@ mod tests {
         assert_eq!(edits[0].range.start.character, 2);
         assert_eq!(edits[0].range.end.character, 5);
     }
+
+    // ── Go to Definition — anchor navigation ─────────────────────────────────
+
+    fn make_definition_params(path: &str, line: u32, character: u32) -> GotoDefinitionParams {
+        GotoDefinitionParams {
+            text_document_position_params: lsp_types::TextDocumentPositionParams {
+                text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+                position: Position { line, character },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    }
+
+    /// `[[b#Section]]` with b.md having `## Section` → Location on heading line.
+    #[test]
+    fn definition_anchor_navigates_to_heading() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "## Section\n"));
+        idx.index(note("/vault/a.md", "[[b#Section]]\n"));
+
+        let params = make_definition_params("/vault/a.md", 0, 3);
+        let loc = handle_definition(params, &idx).expect("expected a location");
+        assert!(loc.uri.as_str().ends_with("b.md"));
+        assert_eq!(loc.range.start.line, 0, "expected to navigate to heading line");
+        assert_ne!(loc.range, Range::default(), "expected heading range, not file top");
+    }
+
+    /// `[[b#Missing]]` with no matching heading → Location at file top (line 0, col 0).
+    #[test]
+    fn definition_anchor_not_found_falls_back() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "## Section\n"));
+        idx.index(note("/vault/a.md", "[[b#Missing]]\n"));
+
+        let params = make_definition_params("/vault/a.md", 0, 3);
+        let loc = handle_definition(params, &idx).expect("expected a location");
+        assert!(loc.uri.as_str().ends_with("b.md"));
+        assert_eq!(loc.range, Range::default(), "expected file top on anchor miss");
+    }
+
+    /// `[[b]]` (no anchor) → Location at file top, same as before.
+    #[test]
+    fn definition_no_anchor_unchanged() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "## Section\n"));
+        idx.index(note("/vault/a.md", "[[b]]\n"));
+
+        let params = make_definition_params("/vault/a.md", 0, 3);
+        let loc = handle_definition(params, &idx).expect("expected a location");
+        assert!(loc.uri.as_str().ends_with("b.md"));
+        assert_eq!(loc.range, Range::default(), "expected file top for plain link");
+    }
+
+    // ── File rename ───────────────────────────────────────────────────────────
 
     /// Two files renamed in one batch → edits produced for both.
     #[test]
