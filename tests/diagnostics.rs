@@ -513,6 +513,105 @@ fn diagnostic_message_ambiguous() {
     do_shutdown(&client, 3);
 }
 
+/// `[[note#Nonexistent]]` where note exists but has no matching heading → Warning.
+#[test]
+fn broken_anchor_diagnostic() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "textDocument/didOpen".to_string(),
+            params: json!({
+                "textDocument": {
+                    "uri": "file:///tmp/knap_diag/anchor_target.md",
+                    "languageId": "markdown",
+                    "version": 1,
+                    "text": "## Real Heading\n"
+                }
+            }),
+        }))
+        .unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "textDocument/didOpen".to_string(),
+            params: json!({
+                "textDocument": {
+                    "uri": "file:///tmp/knap_diag/anchor_src.md",
+                    "languageId": "markdown",
+                    "version": 1,
+                    "text": "[[anchor_target#Nonexistent]]\n"
+                }
+            }),
+        }))
+        .unwrap();
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags: Vec<_> =
+        diags.iter().filter(|d| d.uri.as_str().ends_with("anchor_src.md")).collect();
+    let last = file_diags.last().expect("no diagnostics published for anchor_src.md");
+    assert_eq!(last.diagnostics.len(), 1);
+    assert_eq!(last.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(
+        last.diagnostics[0].message,
+        "Heading not found: '#Nonexistent' in '[[anchor_target#Nonexistent]]'"
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// `[[note#Real Heading]]` where the heading exists → no anchor diagnostic.
+#[test]
+fn valid_anchor_no_diagnostic() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "textDocument/didOpen".to_string(),
+            params: json!({
+                "textDocument": {
+                    "uri": "file:///tmp/knap_diag/valid_anchor_target.md",
+                    "languageId": "markdown",
+                    "version": 1,
+                    "text": "## Real Heading\n"
+                }
+            }),
+        }))
+        .unwrap();
+
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "textDocument/didOpen".to_string(),
+            params: json!({
+                "textDocument": {
+                    "uri": "file:///tmp/knap_diag/valid_anchor_src.md",
+                    "languageId": "markdown",
+                    "version": 1,
+                    "text": "[[valid_anchor_target#Real Heading]]\n"
+                }
+            }),
+        }))
+        .unwrap();
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags: Vec<_> =
+        diags.iter().filter(|d| d.uri.as_str().ends_with("valid_anchor_src.md")).collect();
+    let last = file_diags.last().expect("no diagnostics published for valid_anchor_src.md");
+    assert!(
+        last.diagnostics.is_empty(),
+        "expected no diagnostic for valid anchor, got {:?}",
+        last.diagnostics
+    );
+
+    do_shutdown(&client, 3);
+}
+
 /// Deleting a linked file publishes a diagnostic in the file that linked to it.
 #[test]
 fn cascade_on_delete() {

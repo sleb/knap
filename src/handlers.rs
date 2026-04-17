@@ -48,7 +48,26 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
                 source: Some("knap".to_string()),
                 ..Default::default()
             }),
-            ResolvedLink::Found(_) => None,
+            ResolvedLink::Found(target_path) => link.anchor.as_ref().and_then(|anchor| {
+                let target_note = index.get_note(&target_path)?;
+                let found = target_note
+                    .headings
+                    .iter()
+                    .any(|h| h.text.to_lowercase() == anchor.to_lowercase());
+                if found {
+                    return None;
+                }
+                Some(Diagnostic {
+                    range: link.inner_range,
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: format!(
+                        "Heading not found: '#{}' in '[[{}#{}]]'",
+                        anchor, link.stem, anchor
+                    ),
+                    source: Some("knap".to_string()),
+                    ..Default::default()
+                })
+            }),
         })
         .collect()
 }
@@ -350,6 +369,43 @@ mod tests {
         let loc = handle_definition(params, &idx).expect("expected a location");
         assert!(loc.uri.as_str().ends_with("b.md"));
         assert_eq!(loc.range, Range::default(), "expected file top for plain link");
+    }
+
+    // ── Anchor diagnostics ───────────────────────────────────────────────────
+
+    /// `[[b#Missing]]` with no matching heading in b.md → Warning diagnostic.
+    #[test]
+    fn anchor_diagnostic_missing() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "## Exists\n"));
+        idx.index(note("/vault/a.md", "[[b#Missing]]\n"));
+
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
+        assert_eq!(diags[0].message, "Heading not found: '#Missing' in '[[b#Missing]]'");
+    }
+
+    /// `[[b#Exists]]` with a matching heading → no diagnostic.
+    #[test]
+    fn anchor_diagnostic_present() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "## Exists\n"));
+        idx.index(note("/vault/a.md", "[[b#Exists]]\n"));
+
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert!(diags.is_empty(), "expected no diagnostic when heading exists");
+    }
+
+    /// `[[b#my section]]` matches `## My Section` case-insensitively → no diagnostic.
+    #[test]
+    fn anchor_diagnostic_case_insensitive() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "## My Section\n"));
+        idx.index(note("/vault/a.md", "[[b#my section]]\n"));
+
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert!(diags.is_empty(), "expected no diagnostic for case-insensitive match");
     }
 
     // ── File rename ───────────────────────────────────────────────────────────
