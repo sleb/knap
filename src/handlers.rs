@@ -110,10 +110,22 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
     }
     index
         .all_notes()
-        .map(|n| CompletionItem {
-            label: n.stem.clone(),
-            kind: Some(CompletionItemKind::FILE),
-            ..Default::default()
+        .map(|n| {
+            let title = n
+                .frontmatter
+                .as_ref()
+                .and_then(|fm| fm.title.as_deref())
+                .map(str::to_owned);
+            let label = title.clone().unwrap_or_else(|| n.stem.clone());
+            let detail = if title.is_some() { Some(n.stem.clone()) } else { None };
+            CompletionItem {
+                label,
+                kind: Some(CompletionItemKind::FILE),
+                filter_text: Some(n.stem.clone()),
+                insert_text: Some(n.stem.clone()),
+                detail,
+                ..Default::default()
+            }
         })
         .collect()
 }
@@ -735,5 +747,65 @@ mod tests {
         let texts: Vec<&str> = edits.iter().map(|e| e.new_text.as_str()).collect();
         assert!(texts.contains(&"new-x"), "expected new-x in edits");
         assert!(texts.contains(&"new-y"), "expected new-y in edits");
+    }
+
+    // ── completion ────────────────────────────────────────────────────────────
+
+    /// Note with a frontmatter title → label is the title; insert_text and
+    /// filter_text are the stem; detail disambiguates with the stem.
+    #[test]
+    fn completion_uses_title_as_label() {
+        use lsp_types::TextDocumentIdentifier;
+
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/titled.md", "---\ntitle: My Title\n---\nBody.\n"));
+        idx.index(note("/vault/cursor.md", "[["));
+
+        let params = CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: file_uri("/vault/cursor.md") },
+                position: Position { line: 0, character: 2 },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let items = handle_completion(params, &idx);
+        let item = items
+            .iter()
+            .find(|i| i.filter_text.as_deref() == Some("titled"))
+            .expect("item for titled.md not found");
+        assert_eq!(item.label, "My Title");
+        assert_eq!(item.insert_text.as_deref(), Some("titled"));
+        assert_eq!(item.detail.as_deref(), Some("titled"));
+    }
+
+    /// Note without frontmatter → label equals stem; no detail or insert_text
+    /// override needed, but they are still set for consistency.
+    #[test]
+    fn completion_falls_back_to_stem() {
+        use lsp_types::TextDocumentIdentifier;
+
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/plain.md", "Body with no frontmatter.\n"));
+        idx.index(note("/vault/cursor.md", "[["));
+
+        let params = CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: file_uri("/vault/cursor.md") },
+                position: Position { line: 0, character: 2 },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        let items = handle_completion(params, &idx);
+        let item = items
+            .iter()
+            .find(|i| i.filter_text.as_deref() == Some("plain"))
+            .expect("item for plain.md not found");
+        assert_eq!(item.label, "plain");
+        assert_eq!(item.insert_text.as_deref(), Some("plain"));
+        assert_eq!(item.detail, None);
     }
 }

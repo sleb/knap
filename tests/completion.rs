@@ -158,6 +158,38 @@ fn completion_includes_all_notes() {
     do_shutdown(&client, 3);
 }
 
+/// A note with a frontmatter `title:` field shows the title as the completion
+/// label while the insert_text remains the stem.
+#[test]
+fn completion_title_as_label() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // titled.md has a frontmatter title.
+    open_note(
+        &client,
+        "file:///tmp/knap_comp/titled.md",
+        "---\ntitle: My Titled Note\n---\nBody.\n",
+    );
+    // cursor.md is where completion is triggered.
+    open_note(&client, "file:///tmp/knap_comp/cursor2.md", "[[");
+
+    let items = request_completion(&client, 2, "file:///tmp/knap_comp/cursor2.md", 0, 2);
+
+    let titled = items
+        .iter()
+        .find(|i| i.filter_text.as_deref() == Some("titled"))
+        .expect("item for titled.md not found");
+    assert_eq!(titled.label, "My Titled Note", "label should be the frontmatter title");
+    assert_eq!(
+        titled.insert_text.as_deref(),
+        Some("titled"),
+        "insert_text should be the stem"
+    );
+
+    do_shutdown(&client, 3);
+}
+
 /// Every completion item has kind `File` (17).
 #[test]
 fn completion_item_is_file_kind() {
