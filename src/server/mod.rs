@@ -11,6 +11,7 @@ use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidOpenTextDocumentParams, DidChangeWatchedFilesRegistrationOptions,
     DocumentSymbolParams, FileChangeType, FileOperationFilter, FileOperationPattern,
+    WorkspaceSymbolParams,
     FileOperationRegistrationOptions, FileSystemWatcher, GlobPattern, GotoDefinitionParams,
     InitializeParams, InitializeResult, OneOf, ReferenceParams, Registration, RegistrationParams,
     RelativePattern, RenameFilesParams, ServerCapabilities, ServerInfo,
@@ -100,6 +101,7 @@ pub fn run(connection: Connection) -> Result<()> {
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
+        workspace_symbol_provider: Some(OneOf::Left(true)),
         workspace: Some(WorkspaceServerCapabilities {
             file_operations: Some(WorkspaceFileOperationsServerCapabilities {
                 will_rename: Some(FileOperationRegistrationOptions {
@@ -263,6 +265,14 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, locations)))?;
+        }
+        "workspace/symbol" => {
+            let symbols = serde_json::from_value::<WorkspaceSymbolParams>(req.params)
+                .map(|params| handlers::handle_workspace_symbols(params, index))
+                .unwrap_or_default();
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, symbols)))?;
         }
         "textDocument/documentSymbol" => {
             let response = serde_json::from_value::<DocumentSymbolParams>(req.params)

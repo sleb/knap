@@ -9,8 +9,8 @@ use lsp_server::{Message, Notification};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, Location,
-    Position, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams, SymbolKind,
-    TextEdit, WorkspaceEdit,
+    Position, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams, SymbolInformation,
+    SymbolKind, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -144,6 +144,34 @@ pub fn handle_document_symbols(
         })
         .unwrap_or_default();
     DocumentSymbolResponse::Nested(symbols)
+}
+
+// ─── Workspace Symbols ────────────────────────────────────────────────────────
+
+#[allow(deprecated)] // SymbolInformation.deprecated field
+pub fn handle_workspace_symbols(
+    params: WorkspaceSymbolParams,
+    index: &NoteIndex,
+) -> Vec<SymbolInformation> {
+    let query = params.query.to_lowercase();
+    index
+        .all_notes()
+        .flat_map(|note| {
+            note.headings.iter().filter_map(|h| {
+                if !query.is_empty() && !h.text.to_lowercase().contains(&query) {
+                    return None;
+                }
+                Some(SymbolInformation {
+                    name: h.text.clone(),
+                    kind: SymbolKind::STRING,
+                    location: Location { uri: path_to_uri(&note.path), range: h.range },
+                    container_name: Some(note.stem.clone()),
+                    tags: None,
+                    deprecated: None,
+                })
+            })
+        })
+        .collect()
 }
 
 // ─── Go to Definition ─────────────────────────────────────────────────────────
@@ -440,6 +468,36 @@ mod tests {
             panic!("expected Nested response");
         };
         assert!(symbols.is_empty(), "expected no symbols for a file with no headings");
+    }
+
+    // ── Workspace Symbols ────────────────────────────────────────────────────
+
+    /// Query "sec" matches only headings containing "sec" (case-insensitive).
+    #[test]
+    fn workspace_symbols_filtered() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "# Title\n\n## Section\n"));
+        idx.index(note("/vault/b.md", "## Other\n"));
+
+        let params = WorkspaceSymbolParams {
+            query: "sec".to_string(),
+            ..Default::default()
+        };
+        let symbols = handle_workspace_symbols(params, &idx);
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name, "Section");
+    }
+
+    /// Empty query returns all headings across all indexed notes.
+    #[test]
+    fn workspace_symbols_empty_query() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "# Alpha\n\n## Beta\n"));
+        idx.index(note("/vault/b.md", "# Gamma\n"));
+
+        let params = WorkspaceSymbolParams { query: String::new(), ..Default::default() };
+        let symbols = handle_workspace_symbols(params, &idx);
+        assert_eq!(symbols.len(), 3);
     }
 
     // ── Anchor diagnostics ───────────────────────────────────────────────────

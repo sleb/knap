@@ -1,7 +1,7 @@
 use std::thread;
 
 use lsp_server::{Connection, Message, Notification, Request};
-use lsp_types::DocumentSymbol;
+use lsp_types::{DocumentSymbol, SymbolInformation};
 use serde_json::json;
 
 fn spawn_server() -> Connection {
@@ -128,6 +128,36 @@ fn document_symbols_round_trip() {
     assert_eq!(symbols[0].name, "Title");
     assert_eq!(symbols[1].name, "Section");
     assert_eq!(symbols[2].name, "Subsection");
+
+    do_shutdown(&client, 3);
+}
+
+/// workspace/symbol query returns matching headings from multiple files.
+#[test]
+fn workspace_symbols_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    open_note(&client, "file:///tmp/knap_sym/ws_a.md", "## Introduction\n\n## Summary\n");
+    open_note(&client, "file:///tmp/knap_sym/ws_b.md", "## Introduction\n\n## Conclusion\n");
+
+    // Query "intro" should match both "Introduction" headings.
+    client
+        .sender
+        .send(Message::Request(Request {
+            id: lsp_server::RequestId::from(2i32),
+            method: "workspace/symbol".to_string(),
+            params: json!({ "query": "intro" }),
+        }))
+        .unwrap();
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    assert!(resp.error.is_none(), "workspace/symbol returned error: {:?}", resp.error);
+    let symbols: Vec<SymbolInformation> =
+        serde_json::from_value(resp.result.unwrap_or(json!([]))).expect("deserialize symbols");
+
+    assert_eq!(symbols.len(), 2, "expected 2 matches for 'intro', got {:?}", symbols);
+    assert!(symbols.iter().all(|s| s.name == "Introduction"));
 
     do_shutdown(&client, 3);
 }

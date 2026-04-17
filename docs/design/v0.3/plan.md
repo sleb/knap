@@ -17,7 +17,7 @@ untested code for the next step to build on.
 | 2 — Go to Definition (US-06)  | Done        |       |
 | 3 — Broken anchor diagnostics | Done        |       |
 | 4 — Document Symbols (US-11)  | Done        |       |
-| 5 — Workspace Symbols (US-12) | Not started |       |
+| 5 — Workspace Symbols (US-12) | Done        |       |
 | 6 — Heading rename (US-28)    | Not started |       |
 
 ---
