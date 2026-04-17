@@ -13,6 +13,14 @@ pub fn cmd_parse(args: &[String]) -> anyhow::Result<()> {
     println!("path:  {}", note.path.display());
     println!("stem:  {}", note.stem);
 
+    match &note.frontmatter {
+        None => println!("title: (no frontmatter)"),
+        Some(fm) => match &fm.title {
+            None => println!("title: (none)"),
+            Some(t) => println!("title: {t}"),
+        },
+    }
+
     if note.wiki_links.is_empty() {
         println!("links: none");
     } else {

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use lsp_types::{Position, Range};
-use super::{Heading, LineIndex, parse, WikiLink};
+use super::{extract_frontmatter, Frontmatter, Heading, LineIndex, parse, WikiLink};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -271,4 +271,57 @@ fn wiki_link_empty_anchor_treated_as_none() {
     assert_eq!(result[0].stem, "note");
     assert_eq!(result[0].anchor, None);
     assert_eq!(result[0].anchor_range, None);
+}
+
+// ── frontmatter ───────────────────────────────────────────────────────────────
+
+#[test]
+fn frontmatter_title_plain() {
+    let content = "---\ntitle: My Title\n---\nBody.\n";
+    let fm = extract_frontmatter(content).expect("should have frontmatter");
+    assert_eq!(fm.title, Some("My Title".to_string()));
+}
+
+#[test]
+fn frontmatter_title_double_quoted() {
+    let content = "---\ntitle: \"Quoted\"\n---\nBody.\n";
+    let fm = extract_frontmatter(content).expect("should have frontmatter");
+    assert_eq!(fm.title, Some("Quoted".to_string()));
+}
+
+#[test]
+fn frontmatter_title_single_quoted() {
+    let content = "---\ntitle: 'Quoted'\n---\nBody.\n";
+    let fm = extract_frontmatter(content).expect("should have frontmatter");
+    assert_eq!(fm.title, Some("Quoted".to_string()));
+}
+
+#[test]
+fn frontmatter_title_absent() {
+    // Block exists but has no title key.
+    let content = "---\ntags: [foo, bar]\n---\nBody.\n";
+    let fm = extract_frontmatter(content).expect("should have frontmatter");
+    assert_eq!(fm, Frontmatter { title: None });
+}
+
+#[test]
+fn frontmatter_no_block() {
+    // No leading --- → note.frontmatter is None.
+    let note = parse(Path::new("note.md"), "No frontmatter here.\n");
+    assert_eq!(note.frontmatter, None);
+}
+
+#[test]
+fn frontmatter_unclosed() {
+    // Opening --- with no closing --- → treat as absent.
+    let content = "---\ntitle: My Title\nBody without closing.\n";
+    assert_eq!(extract_frontmatter(content), None);
+}
+
+#[test]
+fn frontmatter_block_scalar_ignored() {
+    // title: | → block scalar, treated as None.
+    let content = "---\ntitle: |\n  multi-line\n---\nBody.\n";
+    let fm = extract_frontmatter(content).expect("should have frontmatter");
+    assert_eq!(fm.title, None);
 }

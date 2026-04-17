@@ -8,6 +8,14 @@ use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 #[cfg(test)]
 mod tests;
 
+/// YAML frontmatter extracted from the top of a note file.
+/// `None` when no `---…---` block is present; `Some` when the block exists
+/// (even if `title` is absent from it).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Frontmatter {
+    pub title: Option<String>,
+}
+
 /// The parsed representation of a single note file.
 pub struct Note {
     pub path: PathBuf,
@@ -15,6 +23,7 @@ pub struct Note {
     pub wiki_links: Vec<WikiLink>,
     pub content: String, // raw source text, retained for trigger checking in completion
     pub headings: Vec<Heading>,
+    pub frontmatter: Option<Frontmatter>,
 }
 
 /// An ATX heading found in a note file.
@@ -86,11 +95,68 @@ pub fn parse(path: &Path, content: &str) -> Note {
         .to_string_lossy()
         .into_owned();
 
+    let frontmatter = extract_frontmatter(content);
     let line_index = LineIndex::new(content);
     let wiki_links = extract_wiki_links(content, &line_index);
     let headings = extract_headings(content, &line_index);
 
-    Note { path: path.to_path_buf(), stem, wiki_links, content: content.to_string(), headings }
+    Note {
+        path: path.to_path_buf(),
+        stem,
+        wiki_links,
+        content: content.to_string(),
+        headings,
+        frontmatter,
+    }
+}
+
+/// Extract YAML frontmatter from the start of `content`.
+///
+/// Returns `None` if no valid `---…---` block is found.
+/// Returns `Some(Frontmatter { title: None })` if the block exists but has no
+/// `title:` key (or the value is empty / a block scalar).
+pub fn extract_frontmatter(content: &str) -> Option<Frontmatter> {
+    if !content.starts_with("---\n") {
+        return None;
+    }
+    let rest = &content[4..]; // content after the opening "---\n"
+
+    // Locate the closing "---" — either followed by "\n" or at end-of-input.
+    let block = if let Some(i) = rest.find("\n---\n") {
+        &rest[..i]
+    } else if let Some(stripped) = rest.strip_suffix("\n---") {
+        stripped
+    } else {
+        return None; // opening "---" with no matching close
+    };
+
+    // Scan block lines for the first `title:` key.
+    let mut title: Option<String> = None;
+    for line in block.lines() {
+        if let Some(raw) = line.strip_prefix("title:") {
+            let value = raw.trim();
+            if value.is_empty() || value.starts_with('|') || value.starts_with('>') {
+                // empty value or block scalar — treat as absent
+            } else {
+                // Strip matching surrounding quotes.
+                let inner = if value.len() >= 2
+                    && ((value.starts_with('"') && value.ends_with('"'))
+                        || (value.starts_with('\'') && value.ends_with('\'')))
+                {
+                    &value[1..value.len() - 1]
+                } else {
+                    value
+                };
+                let inner = inner.trim();
+                if !inner.is_empty() {
+                    title = Some(inner.to_string());
+                }
+            }
+            break; // first `title:` line wins
+        }
+    }
+
+    Some(Frontmatter { title })
 }
 
 fn extract_wiki_links(content: &str, line_index: &LineIndex) -> Vec<WikiLink> {
