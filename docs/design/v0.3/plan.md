@@ -11,14 +11,14 @@ untested code for the next step to build on.
 
 ## Status
 
-| Step                          | Status      | Notes |
-| ----------------------------- | ----------- | ----- |
-| 1 — Parser: headings + anchor | Done        |       |
-| 2 — Go to Definition (US-06)  | Done        |       |
-| 3 — Broken anchor diagnostics | Done        |       |
-| 4 — Document Symbols (US-11)  | Done        |       |
-| 5 — Workspace Symbols (US-12) | Done        |       |
-| 6 — Heading rename (US-28)    | Not started |       |
+| Step                          | Status | Notes |
+| ----------------------------- | ------ | ----- |
+| 1 — Parser: headings + anchor | Done   |       |
+| 2 — Go to Definition (US-06)  | Done   |       |
+| 3 — Broken anchor diagnostics | Done   |       |
+| 4 — Document Symbols (US-11)  | Done   |       |
+| 5 — Workspace Symbols (US-12) | Done   |       |
+| 6 — Heading rename (US-28)    | Done   |       |
 
 ---
 

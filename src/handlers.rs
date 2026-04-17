@@ -9,8 +9,9 @@ use lsp_server::{Message, Notification};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
     DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, Location,
-    Position, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams, SymbolInformation,
-    SymbolKind, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
+    Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
+    RenameFilesParams, RenameParams, SymbolInformation, SymbolKind, TextDocumentPositionParams,
+    TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -235,7 +236,73 @@ pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Loca
         .collect()
 }
 
-// ─── Rename ───────────────────────────────────────────────────────────────────
+// ─── Heading Rename ───────────────────────────────────────────────────────────
+
+/// Returns `RangeWithPlaceholder` covering the heading text when the cursor is
+/// on a heading line; `None` otherwise (editor shows "nothing to rename").
+pub fn handle_prepare_rename(
+    params: TextDocumentPositionParams,
+    index: &NoteIndex,
+) -> Option<PrepareRenameResponse> {
+    let path = uri_to_path(&params.text_document.uri);
+    let note = index.get_note(&path)?;
+    let heading = note.headings.iter().find(|h| contains(h.range, params.position))?;
+    Some(PrepareRenameResponse::RangeWithPlaceholder {
+        range: heading.text_range,
+        placeholder: heading.text.clone(),
+    })
+}
+
+/// Builds a `WorkspaceEdit` that:
+/// 1. Rewrites the heading text in its own file.
+/// 2. Rewrites every `[[note#OldText]]` anchor whose stem resolves to the
+///    heading's file and whose anchor matches the old text (case-insensitive).
+///
+/// Returns `None` when the cursor is not on any heading.
+#[allow(clippy::mutable_key_type)]
+pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<WorkspaceEdit> {
+    let path = uri_to_path(&params.text_document_position.text_document.uri);
+    let pos = params.text_document_position.position;
+
+    // Extract the heading's data in a scoped block so the borrow of `index`
+    // via `get_note` is released before the iterator loop below.
+    let (old_text, text_range) = {
+        let note = index.get_note(&path)?;
+        let h = note.headings.iter().find(|h| contains(h.range, pos))?;
+        (h.text.clone(), h.text_range)
+    };
+
+    let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
+
+    // 1. Rewrite the heading text itself.
+    changes
+        .entry(path_to_uri(&path))
+        .or_default()
+        .push(TextEdit { range: text_range, new_text: params.new_name.clone() });
+
+    // 2. Rewrite every anchor link that resolves to this heading.
+    for note in index.all_notes() {
+        for link in &note.wiki_links {
+            let Some(anchor) = &link.anchor else { continue };
+            if anchor.to_lowercase() != old_text.to_lowercase() {
+                continue;
+            }
+            let ResolvedLink::Found(target) = index.resolve(&link.stem) else { continue };
+            if target != path {
+                continue;
+            }
+            let Some(anchor_range) = link.anchor_range else { continue };
+            changes
+                .entry(path_to_uri(&note.path))
+                .or_default()
+                .push(TextEdit { range: anchor_range, new_text: params.new_name.clone() });
+        }
+    }
+
+    Some(WorkspaceEdit { changes: Some(changes), ..Default::default() })
+}
+
+// ─── File Rename ──────────────────────────────────────────────────────────────
 
 /// Returns a `WorkspaceEdit` that rewrites every `[[old-stem]]` backlink to
 /// use the new stem. The editor applies this edit before performing the rename.
@@ -498,6 +565,107 @@ mod tests {
         let params = WorkspaceSymbolParams { query: String::new(), ..Default::default() };
         let symbols = handle_workspace_symbols(params, &idx);
         assert_eq!(symbols.len(), 3);
+    }
+
+    // ── Heading rename ───────────────────────────────────────────────────────
+
+    fn make_position_params(path: &str, line: u32, character: u32) -> TextDocumentPositionParams {
+        TextDocumentPositionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            position: Position { line, character },
+        }
+    }
+
+    fn make_rename_params(path: &str, line: u32, character: u32, new_name: &str) -> RenameParams {
+        RenameParams {
+            text_document_position: make_position_params(path, line, character),
+            new_name: new_name.to_string(),
+            work_done_progress_params: Default::default(),
+        }
+    }
+
+    /// Cursor on heading → WorkspaceEdit contains TextEdit at text_range.
+    #[test]
+    fn rename_heading_updates_heading_text() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/target.md", "## Old Text\n"));
+
+        let params = make_rename_params("/vault/target.md", 0, 5, "New Text");
+        let edit = handle_rename(params, &idx).expect("expected a WorkspaceEdit");
+        let changes = edit.changes.expect("expected changes");
+        let edits = changes.get(&file_uri("/vault/target.md")).expect("expected edits");
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "New Text");
+        // text_range covers "Old Text": chars 3–11 on line 0
+        assert_eq!(edits[0].range.start.character, 3);
+        assert_eq!(edits[0].range.end.character, 11);
+    }
+
+    /// Two files with `[[target#Old Text]]` → both anchor_range edits included.
+    #[test]
+    fn rename_heading_updates_anchor_links() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/target.md", "## Old Text\n"));
+        idx.index(note("/vault/s1.md", "[[target#Old Text]]\n"));
+        idx.index(note("/vault/s2.md", "[[target#Old Text]]\n"));
+
+        let params = make_rename_params("/vault/target.md", 0, 5, "New Text");
+        let edit = handle_rename(params, &idx).expect("expected a WorkspaceEdit");
+        let changes = edit.changes.expect("expected changes");
+        assert!(changes.contains_key(&file_uri("/vault/s1.md")), "expected edit for s1.md");
+        assert!(changes.contains_key(&file_uri("/vault/s2.md")), "expected edit for s2.md");
+        assert_eq!(changes[&file_uri("/vault/s1.md")][0].new_text, "New Text");
+        assert_eq!(changes[&file_uri("/vault/s2.md")][0].new_text, "New Text");
+    }
+
+    /// `[[target#old text]]` (lowercase) matches `## Old Text` → anchor edit included.
+    #[test]
+    fn rename_heading_case_insensitive_match() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/target.md", "## Old Text\n"));
+        idx.index(note("/vault/src.md", "[[target#old text]]\n"));
+
+        let params = make_rename_params("/vault/target.md", 0, 5, "New Text");
+        let edit = handle_rename(params, &idx).expect("expected a WorkspaceEdit");
+        let changes = edit.changes.expect("expected changes");
+        assert!(changes.contains_key(&file_uri("/vault/src.md")), "expected edit for src.md");
+    }
+
+    /// Cursor not on any heading → `None`.
+    #[test]
+    fn rename_heading_no_match_returns_none() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/prose.md", "## Heading\n\nJust prose here.\n"));
+
+        // Cursor on the prose line (line 2), not on the heading
+        let params = make_rename_params("/vault/prose.md", 2, 5, "Anything");
+        assert!(handle_rename(params, &idx).is_none(), "expected None for cursor off heading");
+    }
+
+    /// Cursor on heading → `RangeWithPlaceholder` with text_range and heading text.
+    #[test]
+    fn prepare_rename_on_heading() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/target.md", "## Old Text\n"));
+
+        let params = make_position_params("/vault/target.md", 0, 5);
+        let resp = handle_prepare_rename(params, &idx).expect("expected a response");
+        let PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } = resp else {
+            panic!("expected RangeWithPlaceholder");
+        };
+        assert_eq!(placeholder, "Old Text");
+        assert_eq!(range.start.character, 3, "range should start after '## '");
+        assert_eq!(range.end.character, 11, "range should end at end of text");
+    }
+
+    /// Cursor not on any heading → `None`.
+    #[test]
+    fn prepare_rename_not_on_heading() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/prose.md", "## Heading\n\nJust prose here.\n"));
+
+        let params = make_position_params("/vault/prose.md", 2, 5);
+        assert!(handle_prepare_rename(params, &idx).is_none(), "expected None off heading");
     }
 
     // ── Anchor diagnostics ───────────────────────────────────────────────────

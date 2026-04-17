@@ -263,6 +263,56 @@ fn will_rename_no_backlinks() {
     do_shutdown(&client, 3);
 }
 
+/// Full round-trip: rename heading, verify WorkspaceEdit rewrites heading text
+/// and every `[[note#OldText]]` anchor that resolves to that heading's file.
+#[test]
+fn heading_rename_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // target.md has heading "Old Heading" on line 0.
+    // "## Old Heading\n" — text starts at char 3, ends at char 14.
+    open_note(&client, "file:///tmp/knap_rename5/target.md", "## Old Heading\n");
+    // source.md links to that heading via an anchor.
+    open_note(&client, "file:///tmp/knap_rename5/source.md", "[[target#Old Heading]]\n");
+
+    client
+        .sender
+        .send(Message::Request(Request {
+            id: lsp_server::RequestId::from(2i32),
+            method: "textDocument/rename".to_string(),
+            params: json!({
+                "textDocument": { "uri": "file:///tmp/knap_rename5/target.md" },
+                "position": { "line": 0, "character": 5 },
+                "newName": "New Heading"
+            }),
+        }))
+        .unwrap();
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    assert!(resp.error.is_none(), "rename returned error: {:?}", resp.error);
+
+    let edit: WorkspaceEdit =
+        serde_json::from_value(resp.result.expect("expected result"))
+            .expect("deserialize WorkspaceEdit");
+    let changes = edit.changes.expect("expected changes");
+
+    let target_uri: lsp_types::Uri =
+        "file:///tmp/knap_rename5/target.md".parse().expect("valid URI");
+    let source_uri: lsp_types::Uri =
+        "file:///tmp/knap_rename5/source.md".parse().expect("valid URI");
+
+    let target_edits = changes.get(&target_uri).expect("expected edits for target.md");
+    assert_eq!(target_edits.len(), 1);
+    assert_eq!(target_edits[0].new_text, "New Heading", "heading text should be rewritten");
+
+    let source_edits = changes.get(&source_uri).expect("expected edits for source.md");
+    assert_eq!(source_edits.len(), 1);
+    assert_eq!(source_edits[0].new_text, "New Heading", "anchor text should be rewritten");
+
+    do_shutdown(&client, 3);
+}
+
 /// A note with an aliased link `[[old|alias]]` — only the stem range is rewritten.
 #[test]
 fn will_rename_aliased_link() {
