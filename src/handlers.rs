@@ -8,8 +8,9 @@ use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
-    GotoDefinitionParams, Location, Position, PublishDiagnosticsParams, Range, ReferenceParams,
-    RenameFilesParams, TextEdit, WorkspaceEdit,
+    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, Location,
+    Position, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams, SymbolKind,
+    TextEdit, WorkspaceEdit,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -114,6 +115,35 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
             ..Default::default()
         })
         .collect()
+}
+
+// ─── Document Symbols ─────────────────────────────────────────────────────────
+
+#[allow(deprecated)] // DocumentSymbol.deprecated field
+pub fn handle_document_symbols(
+    params: DocumentSymbolParams,
+    index: &NoteIndex,
+) -> DocumentSymbolResponse {
+    let path = uri_to_path(&params.text_document.uri);
+    let symbols = index
+        .get_note(&path)
+        .map(|note| {
+            note.headings
+                .iter()
+                .map(|h| DocumentSymbol {
+                    name: h.text.clone(),
+                    kind: SymbolKind::STRING,
+                    range: h.range,
+                    selection_range: h.text_range,
+                    detail: None,
+                    tags: None,
+                    deprecated: None,
+                    children: None,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    DocumentSymbolResponse::Nested(symbols)
 }
 
 // ─── Go to Definition ─────────────────────────────────────────────────────────
@@ -369,6 +399,47 @@ mod tests {
         let loc = handle_definition(params, &idx).expect("expected a location");
         assert!(loc.uri.as_str().ends_with("b.md"));
         assert_eq!(loc.range, Range::default(), "expected file top for plain link");
+    }
+
+    // ── Document Symbols ─────────────────────────────────────────────────────
+
+    /// Note with 3 headings → 3 DocumentSymbols with correct text and level kind.
+    #[test]
+    fn document_symbols_returns_headings() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "# Title\n\n## Section\n\n### Sub\n"));
+
+        let params = DocumentSymbolParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let DocumentSymbolResponse::Nested(symbols) = handle_document_symbols(params, &idx)
+        else {
+            panic!("expected Nested response");
+        };
+        assert_eq!(symbols.len(), 3);
+        assert_eq!(symbols[0].name, "Title");
+        assert_eq!(symbols[1].name, "Section");
+        assert_eq!(symbols[2].name, "Sub");
+    }
+
+    /// Note with no headings → empty symbol list.
+    #[test]
+    fn document_symbols_empty() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/plain.md", "Just some prose.\n"));
+
+        let params = DocumentSymbolParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/plain.md") },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let DocumentSymbolResponse::Nested(symbols) = handle_document_symbols(params, &idx)
+        else {
+            panic!("expected Nested response");
+        };
+        assert!(symbols.is_empty(), "expected no symbols for a file with no headings");
     }
 
     // ── Anchor diagnostics ───────────────────────────────────────────────────
