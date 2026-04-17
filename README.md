@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
+![Version](https://img.shields.io/badge/version-0.3.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -17,6 +17,11 @@ LSP-compatible editor.
 - Attachment links `[[image.png]]` resolve against non-note files
 - Configurable file extensions (e.g. `.md`, `.mdx`) via `initializationOptions`
 - Incremental index — the workspace index stays live as files change
+- `[[Note#Heading]]` Go to Definition navigates to the heading line
+- Broken anchor diagnostics — warning when a linked heading no longer exists
+- Document Symbols — jump to any heading within the current file
+- Workspace Symbols — search headings by name across all files
+- Rename a heading — all `[[Note#OldHeading]]` anchor links updated automatically
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 
@@ -32,7 +37,7 @@ passed via your editor's native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.2.0 — Rename & Refactor. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.3.0 — Heading Navigation & Anchors. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

@@ -45,7 +45,7 @@ required for the common single-folder case.
 
 ---
 
-## v0.3 — Heading Navigation & Anchors
+## v0.3 — Heading Navigation & Anchors _(released 2026-04-16)_
 
 **Goal:** Navigate within notes, not just between them.
 
