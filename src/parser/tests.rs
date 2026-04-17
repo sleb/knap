@@ -325,3 +325,36 @@ fn frontmatter_block_scalar_ignored() {
     let fm = extract_frontmatter(content).expect("should have frontmatter");
     assert_eq!(fm.title, None);
 }
+
+#[test]
+fn frontmatter_wiki_links_not_scanned() {
+    // [[hidden]] lives inside the frontmatter block and must not be collected.
+    // [[real]] lives in the body and must be collected.
+    let content = "---\ntitle: foo\n[[hidden]]\n---\nBody [[real]].\n";
+    let note = parse(Path::new("note.md"), content);
+    assert_eq!(note.wiki_links.len(), 1);
+    assert_eq!(note.wiki_links[0].stem, "real");
+}
+
+#[test]
+fn frontmatter_headings_not_scanned() {
+    // Without the body-offset fix, pulldown-cmark treats the closing `---` of
+    // the frontmatter as a setext-H2 underline and emits a spurious heading.
+    // With the fix, only the ATX heading in the body is collected.
+    let content = "---\ntitle: My Title\ntags: [foo]\n---\n\n## Real Heading\n";
+    let note = parse(Path::new("note.md"), content);
+    assert_eq!(note.headings.len(), 1);
+    assert_eq!(note.headings[0].text, "Real Heading");
+}
+
+#[test]
+fn wiki_link_range_after_frontmatter() {
+    // "---\ntitle: foo\n---\n[[note]]\n"
+    // frontmatter_body_offset = 4 ("---\n") + 10 ("title: foo") + 5 ("\n---\n") = 19
+    // "[[note]]" is at body byte 0..8, which maps to full-file line 3, cols 0–8.
+    let content = "---\ntitle: foo\n---\n[[note]]\n";
+    let note = parse(Path::new("note.md"), content);
+    assert_eq!(note.wiki_links.len(), 1);
+    assert_eq!(note.wiki_links[0].range, range((3, 0), (3, 8)));
+    assert_eq!(note.wiki_links[0].inner_range, range((3, 2), (3, 6)));
+}

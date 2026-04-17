@@ -99,8 +99,20 @@ Algorithm:
 5. If the stripped value is empty, or starts with `|` or `>`, store `None` for
    `title`. Otherwise store `Some(trimmed_value)`.
 
-This runs before the pulldown-cmark pass so frontmatter is not misinterpreted as
-Markdown content. (pulldown-cmark itself does not strip frontmatter by default.)
+Add a companion `frontmatter_body_offset(content: &str) -> usize` that returns the
+byte offset at which the document body starts. Uses the same two-branch check
+(`\n---\n` or end-of-input `\n---`) to compute `4 + i + 5` / `content.len()`.
+Returns `0` for no frontmatter or a malformed (unclosed) block.
+
+pulldown-cmark does not strip frontmatter. Without the offset, it treats the
+closing `---` line as a setext H2 underline, producing a spurious heading from
+the frontmatter content. The fix: `parse()` passes only `content[body_offset..]`
+to pulldown-cmark for heading and wiki-link extraction, while `LineIndex` still
+covers the full content. All byte ranges coming back from pulldown-cmark are
+relative to the body slice; `extract_headings` and `extract_wiki_links` (and
+`scan_wiki_links` inside it) each accept a `body_offset: usize` parameter and
+add it to every byte position before calling `line_index.range()`, keeping LSP
+positions correct.
 
 ### Standard Markdown link extraction
 

@@ -13,7 +13,7 @@ untested code for the next step to build on.
 
 | Step                               | Status      | Notes |
 | ---------------------------------- | ----------- | ----- |
-| 1 — Parser: frontmatter            | Not started |       |
+| 1 — Parser: frontmatter            | Done        |       |
 | 2 — Completions with title (US-23) | Not started |       |
 | 3 — Parser: Markdown links         | Not started |       |
 | 4 — Hover: wiki-links (US-09)      | Not started |       |
@@ -30,28 +30,38 @@ frontmatter block at the top of each file. This is the foundation for US-23
 **Deliverables:**
 
 - `Frontmatter { pub title: Option<String> }` added to `src/parser/mod.rs`
-- `extract_frontmatter(content: &str) -> Option<Frontmatter>` — runs before the
-  pulldown-cmark pass; looks for `---\n…\n---` at the start of the file and
-  extracts the `title:` value, stripping surrounding quotes; treats block scalars
-  (`|`, `>`) and empty values as `None`
+- `extract_frontmatter(content: &str) -> Option<Frontmatter>` — looks for
+  `---\n…\n---` at the start of the file and extracts the `title:` value,
+  stripping surrounding quotes; treats block scalars (`|`, `>`) and empty
+  values as `None`
+- `frontmatter_body_offset(content: &str) -> usize` — returns the byte offset
+  where the body starts (after the closing `---\n`); returns `0` for no
+  frontmatter or a malformed block
+- `parse()` passes `content[body_offset..]` to pulldown-cmark and threads
+  `body_offset` through `extract_headings` and `extract_wiki_links` so that
+  all LSP positions remain correct relative to the full file
 - `Note` gains `frontmatter: Option<Frontmatter>`
 - `knap parse <file>` CLI output includes the title (if any)
 
 **Unit tests** (`src/parser/tests.rs`):
 
-| Test                               | What it verifies                                                 |
-| ---------------------------------- | ---------------------------------------------------------------- |
-| `frontmatter_title_plain`          | `title: My Title` → `Some("My Title")`                           |
-| `frontmatter_title_double_quoted`  | `title: "Quoted"` → `Some("Quoted")` (quotes stripped)           |
-| `frontmatter_title_single_quoted`  | `title: 'Quoted'` → `Some("Quoted")`                             |
-| `frontmatter_title_absent`         | Frontmatter block with no `title:` key → `title: None`           |
-| `frontmatter_no_block`             | No leading `---` → `note.frontmatter == None`                    |
-| `frontmatter_unclosed`             | Opening `---` without closing `---` → `note.frontmatter == None` |
-| `frontmatter_block_scalar_ignored` | `title: \|` → `title: None`                                      |
+| Test                                 | What it verifies                                                    |
+| ------------------------------------ | ------------------------------------------------------------------- |
+| `frontmatter_title_plain`            | `title: My Title` → `Some("My Title")`                              |
+| `frontmatter_title_double_quoted`    | `title: "Quoted"` → `Some("Quoted")` (quotes stripped)              |
+| `frontmatter_title_single_quoted`    | `title: 'Quoted'` → `Some("Quoted")`                                |
+| `frontmatter_title_absent`           | Frontmatter block with no `title:` key → `title: None`              |
+| `frontmatter_no_block`               | No leading `---` → `note.frontmatter == None`                       |
+| `frontmatter_unclosed`               | Opening `---` without closing `---` → `note.frontmatter == None`    |
+| `frontmatter_block_scalar_ignored`   | `title: \|` → `title: None`                                         |
+| `frontmatter_wiki_links_not_scanned` | `[[link]]` inside frontmatter block → not collected in `wiki_links` |
+| `frontmatter_headings_not_scanned`   | Frontmatter block → no spurious setext heading in `headings`        |
+| `wiki_link_range_after_frontmatter`  | `[[note]]` on body line → range is correct relative to full file    |
 
 > **Manual checkpoint:** `cargo run -- parse <file>` on a file with a
 > `title:` frontmatter field should print the title alongside the stem. A file
-> without frontmatter should behave identically to before.
+> without frontmatter should behave identically to before. A file with
+> frontmatter should show no spurious headings from the frontmatter block.
 
 ---
 

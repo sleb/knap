@@ -96,9 +96,11 @@ pub fn parse(path: &Path, content: &str) -> Note {
         .into_owned();
 
     let frontmatter = extract_frontmatter(content);
-    let line_index = LineIndex::new(content);
-    let wiki_links = extract_wiki_links(content, &line_index);
-    let headings = extract_headings(content, &line_index);
+    let body_offset = frontmatter_body_offset(content);
+    let body = &content[body_offset..];
+    let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
+    let wiki_links = extract_wiki_links(body, body_offset, &line_index);
+    let headings = extract_headings(body, body_offset, &line_index);
 
     Note {
         path: path.to_path_buf(),
@@ -159,14 +161,33 @@ pub fn extract_frontmatter(content: &str) -> Option<Frontmatter> {
     Some(Frontmatter { title })
 }
 
-fn extract_wiki_links(content: &str, line_index: &LineIndex) -> Vec<WikiLink> {
+/// Return the byte offset at which the document body starts — i.e. the first
+/// byte after the closing `---\n` of the frontmatter block.
+///
+/// Returns `0` when there is no frontmatter or the opening `---` is unclosed
+/// (same condition under which `extract_frontmatter` returns `None`).
+pub fn frontmatter_body_offset(content: &str) -> usize {
+    if !content.starts_with("---\n") {
+        return 0;
+    }
+    let rest = &content[4..];
+    if let Some(i) = rest.find("\n---\n") {
+        4 + i + 5 // "---\n"(4) + block + "\n---\n"(5)
+    } else if rest.strip_suffix("\n---").is_some() {
+        content.len() // entire file is frontmatter; body is empty
+    } else {
+        0 // malformed / unclosed block — don't skip anything
+    }
+}
+
+fn extract_wiki_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec<WikiLink> {
     // pulldown-cmark fragments `[[note]]` into individual character Text events,
     // so we can't scan within Text events directly. Instead we use the event
     // stream only to collect byte ranges that must be excluded from scanning
     // (fenced code blocks and inline code spans), then do a raw scan of the
-    // full content string.
+    // body slice. `content` here is already the post-frontmatter body.
     let exclusions = collect_exclusions(content);
-    scan_wiki_links(content, &exclusions, line_index)
+    scan_wiki_links(content, offset, &exclusions, line_index)
 }
 
 /// Collect byte ranges that must not be scanned for wiki-links:
@@ -196,9 +217,10 @@ fn collect_exclusions(content: &str) -> Vec<Range<usize>> {
     exclusions
 }
 
-/// Extract all ATX headings from `content` using pulldown-cmark's offset iterator.
+/// Extract all ATX headings from `content` (the body slice, post-frontmatter).
+/// `offset` is added to every byte position before calling `line_index.range()`.
 /// Headings inside fenced code blocks are automatically excluded by the parser.
-fn extract_headings(content: &str, line_index: &LineIndex) -> Vec<Heading> {
+fn extract_headings(content: &str, offset: usize, line_index: &LineIndex) -> Vec<Heading> {
     let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
     let mut headings = Vec::new();
     // (level, heading_byte_start, accumulated_text, first_text_byte, last_text_end_byte)
@@ -225,10 +247,12 @@ fn extract_headings(content: &str, line_index: &LineIndex) -> Vec<Heading> {
                 if let Some((level, heading_start, text, first_start, last_text_end)) =
                     current.take()
                 {
-                    let range = line_index.range(heading_start..byte_range.end);
+                    let range = line_index
+                        .range((heading_start + offset)..(byte_range.end + offset));
                     let text_range = match first_start {
-                        Some(ts) => line_index.range(ts..last_text_end),
-                        None => line_index.range(heading_start..heading_start),
+                        Some(ts) => line_index.range((ts + offset)..(last_text_end + offset)),
+                        None => line_index
+                            .range((heading_start + offset)..(heading_start + offset)),
                     };
                     headings.push(Heading {
                         text: text.trim().to_string(),
@@ -256,9 +280,13 @@ fn heading_level_to_u8(level: HeadingLevel) -> u8 {
     }
 }
 
-/// Scan `content` for `[[stem]]` patterns, skipping any position inside an exclusion zone.
+/// Scan `content` (the body slice, post-frontmatter) for `[[stem]]` patterns,
+/// skipping positions inside exclusion zones. `offset` is the byte distance
+/// from the start of the full file to the start of `content`; it is added to
+/// every byte position before calling `line_index.range()`.
 fn scan_wiki_links(
     content: &str,
+    offset: usize,
     exclusions: &[Range<usize>],
     line_index: &LineIndex,
 ) -> Vec<WikiLink> {
@@ -308,7 +336,9 @@ fn scan_wiki_links(
                             (
                                 stem_part,
                                 Some(trimmed.to_string()),
-                                Some(line_index.range(anchor_byte_start..anchor_byte_end)),
+                                Some(line_index.range(
+                                    (anchor_byte_start + offset)..(anchor_byte_end + offset),
+                                )),
                             )
                         }
                     }
@@ -326,8 +356,9 @@ fn scan_wiki_links(
                     links.push(WikiLink {
                         stem: stem.to_string(),
                         anchor,
-                        range: line_index.range(open..close),
-                        inner_range: line_index.range(inner_start..inner_end),
+                        range: line_index.range((open + offset)..(close + offset)),
+                        inner_range: line_index
+                            .range((inner_start + offset)..(inner_end + offset)),
                         anchor_range,
                     });
                 }
