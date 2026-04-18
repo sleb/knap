@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use lsp_types::{Position, Range};
-use super::{extract_frontmatter, Frontmatter, Heading, LineIndex, parse, WikiLink};
+use super::{extract_frontmatter, Frontmatter, Heading, LineIndex, MarkdownLink, parse, WikiLink};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -345,6 +345,43 @@ fn frontmatter_headings_not_scanned() {
     let note = parse(Path::new("note.md"), content);
     assert_eq!(note.headings.len(), 1);
     assert_eq!(note.headings[0].text, "Real Heading");
+}
+
+// ── Markdown links ────────────────────────────────────────────────────────────
+
+fn md_links(content: &str) -> Vec<MarkdownLink> {
+    parse(Path::new("note.md"), content).md_links
+}
+
+#[test]
+fn md_link_basic() {
+    let result = md_links("[text](url)");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].text, "text");
+    assert_eq!(result[0].target, "url");
+    assert_eq!(result[0].is_image, false);
+}
+
+#[test]
+fn md_link_image() {
+    let result = md_links("![alt text](img.png)");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].text, "alt text");
+    assert_eq!(result[0].target, "img.png");
+    assert_eq!(result[0].is_image, true);
+}
+
+#[test]
+fn md_link_range() {
+    // "[text](url)" — 11 bytes at column 0; range should span the full construct.
+    let result = md_links("[text](url)");
+    assert_eq!(result[0].range, range((0, 0), (0, 11)));
+}
+
+#[test]
+fn md_link_in_fenced_code_ignored() {
+    let content = "```\n[hidden](url)\n```\n";
+    assert!(md_links(content).is_empty());
 }
 
 #[test]

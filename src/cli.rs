@@ -71,6 +71,25 @@ pub fn cmd_parse(args: &[String]) -> anyhow::Result<()> {
         }
     }
 
+    if note.md_links.is_empty() {
+        println!("md_links: none");
+    } else {
+        println!("md_links: {}", note.md_links.len());
+        for link in &note.md_links {
+            let r = &link.range;
+            let kind = if link.is_image { "image" } else { "link" };
+            println!(
+                "  [{kind}]  \"{}\"  →  {}  {}:{}\u{2013}{}:{}",
+                link.text,
+                link.target,
+                r.start.line,
+                r.start.character,
+                r.end.line,
+                r.end.character,
+            );
+        }
+    }
+
     Ok(())
 }
 

@@ -16,6 +16,15 @@ pub struct Frontmatter {
     pub title: Option<String>,
 }
 
+/// A standard Markdown link or image found in the file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkdownLink {
+    pub text: String,    // link text or image alt text
+    pub target: String,  // URL or relative path, raw (unresolved)
+    pub is_image: bool,  // true for `![alt](url)`
+    pub range: LspRange, // full `[text](url)` or `![alt](url)` span
+}
+
 /// The parsed representation of a single note file.
 pub struct Note {
     pub path: PathBuf,
@@ -24,6 +33,7 @@ pub struct Note {
     pub content: String, // raw source text, retained for trigger checking in completion
     pub headings: Vec<Heading>,
     pub frontmatter: Option<Frontmatter>,
+    pub md_links: Vec<MarkdownLink>,
 }
 
 /// An ATX heading found in a note file.
@@ -101,6 +111,7 @@ pub fn parse(path: &Path, content: &str) -> Note {
     let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
     let wiki_links = extract_wiki_links(body, body_offset, &line_index);
     let headings = extract_headings(body, body_offset, &line_index);
+    let md_links = extract_md_links(body, body_offset, &line_index);
 
     Note {
         path: path.to_path_buf(),
@@ -109,6 +120,7 @@ pub fn parse(path: &Path, content: &str) -> Note {
         content: content.to_string(),
         headings,
         frontmatter,
+        md_links,
     }
 }
 
@@ -267,6 +279,48 @@ fn extract_headings(content: &str, offset: usize, line_index: &LineIndex) -> Vec
     }
 
     headings
+}
+
+/// Extract standard Markdown links and images from `content` (the body slice,
+/// post-frontmatter) using pulldown-cmark's offset iterator.
+/// `offset` is added to every byte position before calling `line_index.range()`.
+/// Links inside fenced code blocks are not emitted by pulldown-cmark and are
+/// therefore not collected.
+fn extract_md_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec<MarkdownLink> {
+    let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
+    let mut links = Vec::new();
+    // (target, range_start_in_body, text_buf, is_image)
+    let mut current: Option<(String, usize, String, bool)> = None;
+
+    for (event, byte_range) in parser {
+        match event {
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                current = Some((dest_url.to_string(), byte_range.start, String::new(), false));
+            }
+            Event::Start(Tag::Image { dest_url, .. }) => {
+                current = Some((dest_url.to_string(), byte_range.start, String::new(), true));
+            }
+            Event::Text(s) => {
+                if let Some((_, _, ref mut text, _)) = current {
+                    text.push_str(&s);
+                }
+            }
+            Event::End(TagEnd::Link) | Event::End(TagEnd::Image) => {
+                if let Some((target, range_start, text, is_image)) = current.take() {
+                    links.push(MarkdownLink {
+                        text: text.trim().to_string(),
+                        target,
+                        is_image,
+                        range: line_index
+                            .range((range_start + offset)..(byte_range.end + offset)),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    links
 }
 
 fn heading_level_to_u8(level: HeadingLevel) -> u8 {
