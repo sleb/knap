@@ -12,11 +12,11 @@ use lsp_types::{
     DidOpenTextDocumentParams, DidChangeWatchedFilesRegistrationOptions,
     DocumentSymbolParams, FileChangeType, FileOperationFilter, FileOperationPattern,
     FileOperationRegistrationOptions, FileSystemWatcher, GlobPattern, GotoDefinitionParams,
-    InitializeParams, InitializeResult, OneOf, ReferenceParams, Registration, RegistrationParams,
-    RelativePattern, RenameFilesParams, RenameOptions, RenameParams, ServerCapabilities,
-    ServerInfo, TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind,
-    Uri, WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities,
-    WorkspaceSymbolParams,
+    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, OneOf,
+    ReferenceParams, Registration, RegistrationParams, RelativePattern, RenameFilesParams,
+    RenameOptions, RenameParams, ServerCapabilities, ServerInfo, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
 
 use crate::handlers::{self, uri_to_path};
@@ -102,6 +102,7 @@ pub fn run(connection: Connection) -> Result<()> {
         references_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         workspace_symbol_provider: Some(OneOf::Left(true)),
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
         rename_provider: Some(OneOf::Right(RenameOptions {
             prepare_provider: Some(true),
             work_done_progress_options: Default::default(),
@@ -253,6 +254,14 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, items)))?;
+        }
+        "textDocument/hover" => {
+            let hover = serde_json::from_value::<HoverParams>(req.params)
+                .ok()
+                .and_then(|params| handlers::handle_hover(params, index));
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, hover)))?;
         }
         "textDocument/definition" => {
             let location = serde_json::from_value::<GotoDefinitionParams>(req.params)

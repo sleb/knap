@@ -8,10 +8,11 @@ use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
-    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, Location,
-    Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
-    RenameFilesParams, RenameParams, SymbolInformation, SymbolKind, TextDocumentPositionParams,
-    TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
+    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, Hover,
+    HoverContents, HoverParams, Location, MarkupContent, MarkupKind, Position,
+    PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams,
+    RenameParams, SymbolInformation, SymbolKind, TextDocumentPositionParams, TextEdit,
+    WorkspaceEdit, WorkspaceSymbolParams,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -128,6 +129,62 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
             }
         })
         .collect()
+}
+
+// ─── Hover ────────────────────────────────────────────────────────────────────
+
+const PREVIEW_LINES: usize = 10;
+
+/// Returns the body of `content` with the YAML frontmatter block stripped.
+/// Delegates to `frontmatter_body_offset` so the logic stays in one place.
+fn body_after_frontmatter(content: &str) -> &str {
+    &content[crate::parser::frontmatter_body_offset(content)..]
+}
+
+/// Build a Markdown hover-preview string: `**title**\n\n<body>` where body is
+/// the first `PREVIEW_LINES` lines after any frontmatter, followed by `\n…`
+/// when truncated.
+pub fn render_preview(note: &crate::parser::Note) -> String {
+    let title = note
+        .frontmatter
+        .as_ref()
+        .and_then(|fm| fm.title.as_deref())
+        .unwrap_or(&note.stem);
+
+    let body = body_after_frontmatter(&note.content);
+    let lines: Vec<&str> = body.lines().collect();
+
+    let (preview, truncated) = if lines.len() <= PREVIEW_LINES {
+        (lines.join("\n"), false)
+    } else {
+        (lines[..PREVIEW_LINES].join("\n"), true)
+    };
+
+    let suffix = if truncated { "\n\u{2026}" } else { "" };
+    format!("**{title}**\n\n{preview}{suffix}")
+}
+
+pub fn handle_hover(params: HoverParams, index: &NoteIndex) -> Option<Hover> {
+    let pos = params.text_document_position_params.position;
+    let path = uri_to_path(&params.text_document_position_params.text_document.uri);
+    let note = index.get_note(&path)?;
+
+    // Wiki-link at cursor position.
+    if let Some(link) = find_link_at_position(note, pos) {
+        let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else {
+            return None; // broken or ambiguous — diagnostic already covers this
+        };
+        let target = index.get_note(&target_path)?;
+        return Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: render_preview(target),
+            }),
+            range: Some(link.range),
+        });
+    }
+
+    None
 }
 
 // ─── Document Symbols ─────────────────────────────────────────────────────────
