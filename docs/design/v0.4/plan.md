@@ -16,7 +16,7 @@ untested code for the next step to build on.
 | 1 — Parser: frontmatter            | Done        |       |
 | 2 — Completions with title (US-23) | Done        |       |
 | 3 — Parser: Markdown links         | Done        |       |
-| 4 — Hover: wiki-links (US-09)      | Not started |       |
+| 4 — Hover: wiki-links (US-09)      | Done        |       |
 | 5 — Hover: Markdown links (US-10)  | Not started |       |
 
 ---

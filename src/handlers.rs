@@ -865,4 +865,86 @@ mod tests {
         assert_eq!(item.insert_text.as_deref(), Some("plain"));
         assert_eq!(item.detail, None);
     }
+
+    // ── hover ─────────────────────────────────────────────────────────────────
+
+    fn hover_params(path: &str, line: u32, character: u32) -> HoverParams {
+        use lsp_types::TextDocumentIdentifier;
+        HoverParams {
+            text_document_position_params: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: file_uri(path) },
+                position: Position { line, character },
+            },
+            work_done_progress_params: Default::default(),
+        }
+    }
+
+    /// Resolved wiki-link on a note with a frontmatter title → hover contains
+    /// the bold title.
+    #[test]
+    fn hover_wiki_link_resolved() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "---\ntitle: B Note\n---\nSome content.\n"));
+        idx.index(note("/vault/a.md", "[[b]]"));
+
+        let hover = handle_hover(hover_params("/vault/a.md", 0, 2), &idx)
+            .expect("expected a hover result");
+        let HoverContents::Markup(mc) = hover.contents else {
+            panic!("expected Markup hover contents");
+        };
+        assert!(mc.value.contains("**B Note**"), "expected bold title: {}", mc.value);
+    }
+
+    /// Broken wiki-link → `None`.
+    #[test]
+    fn hover_wiki_link_broken_returns_none() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "[[missing]]"));
+
+        assert!(handle_hover(hover_params("/vault/a.md", 0, 3), &idx).is_none());
+    }
+
+    /// Target with more than PREVIEW_LINES body lines → body truncated with `…`.
+    #[test]
+    fn hover_wiki_link_shows_preview_lines() {
+        let body: String = (1..=20).map(|i| format!("line {i}\n")).collect();
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", &body));
+        idx.index(note("/vault/a.md", "[[b]]"));
+
+        let hover = handle_hover(hover_params("/vault/a.md", 0, 2), &idx)
+            .expect("expected hover");
+        let HoverContents::Markup(mc) = hover.contents else {
+            panic!("expected Markup");
+        };
+        assert!(mc.value.contains('\u{2026}'), "expected truncation marker");
+        assert!(mc.value.contains("line 10"), "line 10 should be present");
+        assert!(!mc.value.contains("line 11"), "line 11 should be truncated");
+    }
+
+    /// Target with frontmatter → hover body omits the `---` delimiters.
+    #[test]
+    fn hover_wiki_link_skips_frontmatter() {
+        let content = "---\ntitle: My Note\n---\nBody line here.\n";
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", content));
+        idx.index(note("/vault/a.md", "[[b]]"));
+
+        let hover = handle_hover(hover_params("/vault/a.md", 0, 2), &idx)
+            .expect("expected hover");
+        let HoverContents::Markup(mc) = hover.contents else {
+            panic!("expected Markup");
+        };
+        assert!(!mc.value.contains("---"), "frontmatter delimiters must not appear: {}", mc.value);
+        assert!(mc.value.contains("Body line here."), "body must appear: {}", mc.value);
+    }
+
+    /// Cursor not on any link → `None`.
+    #[test]
+    fn hover_off_link_returns_none() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "plain text [[b]]"));
+
+        assert!(handle_hover(hover_params("/vault/a.md", 0, 0), &idx).is_none());
+    }
 }
