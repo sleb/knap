@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.3.0-blue)
+![Version](https://img.shields.io/badge/version-0.4.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -22,6 +22,9 @@ LSP-compatible editor.
 - Document Symbols — jump to any heading within the current file
 - Workspace Symbols — search headings by name across all files
 - Rename a heading — all `[[Note#OldHeading]]` anchor links updated automatically
+- Hover on `[[wiki-link]]` → preview of the target note (title + first 10 lines)
+- Hover on `[text](./note.md)` → same note preview; images and external URLs show a summary
+- Frontmatter `title:` used as the display label in completions and hover
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 
@@ -37,7 +40,7 @@ passed via your editor's native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.3.0 — Heading Navigation & Anchors. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.4.0 — Hover Previews. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

@@ -62,7 +62,7 @@ required for the common single-folder case.
 
 ---
 
-## v0.4 — Hover Previews
+## v0.4 — Hover Previews _(released 2026-04-19)_
 
 **Goal:** See note contents without switching files.
 
