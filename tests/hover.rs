@@ -160,3 +160,49 @@ fn hover_no_link_round_trip() {
 
     do_shutdown(&client, 3);
 }
+
+/// Hover on a local Markdown link `[text](./other.md)` → note preview.
+#[test]
+fn hover_md_link_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    open_note(
+        &client,
+        "file:///tmp/knap_hover2/other.md",
+        "---\ntitle: Linked Note\n---\nLinked body content.\n",
+    );
+    // "[text](./other.md)" — cursor at (0, 5) is inside the link span.
+    open_note(&client, "file:///tmp/knap_hover2/cursor.md", "[text](./other.md)");
+
+    let hover = request_hover(&client, 2, "file:///tmp/knap_hover2/cursor.md", 0, 5)
+        .expect("expected hover for local md link");
+
+    let lsp_types::HoverContents::Markup(mc) = hover.contents else {
+        panic!("expected Markup hover contents");
+    };
+    assert!(mc.value.contains("**Linked Note**"), "title missing: {}", mc.value);
+    assert!(mc.value.contains("Linked body content."), "body missing: {}", mc.value);
+
+    do_shutdown(&client, 3);
+}
+
+/// Hover on an external URL link `[text](https://…)` → formatted link string.
+#[test]
+fn hover_external_url_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // "[visit](https://example.com)" — cursor at (0, 5) is inside the link.
+    open_note(&client, "file:///tmp/knap_hover2/ext.md", "[visit](https://example.com)");
+
+    let hover = request_hover(&client, 2, "file:///tmp/knap_hover2/ext.md", 0, 5)
+        .expect("expected hover for external URL");
+
+    let lsp_types::HoverContents::Markup(mc) = hover.contents else {
+        panic!("expected Markup hover contents");
+    };
+    assert_eq!(mc.value, "[visit](https://example.com)");
+
+    do_shutdown(&client, 3);
+}

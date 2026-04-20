@@ -164,12 +164,43 @@ pub fn render_preview(note: &crate::parser::Note) -> String {
     format!("**{title}**\n\n{preview}{suffix}")
 }
 
+/// Returns `true` for targets that are external URLs (http, https, //, mailto,
+/// ftp). Local relative paths return `false`.
+fn is_external_url(target: &str) -> bool {
+    target.starts_with("http://")
+        || target.starts_with("https://")
+        || target.starts_with("//")
+        || target.starts_with("mailto:")
+        || target.starts_with("ftp://")
+}
+
+/// Normalize `.` and `..` components in `path` without touching the filesystem.
+fn normalize_path(path: &std::path::Path) -> PathBuf {
+    use std::path::Component;
+    let mut out: Vec<Component> = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}                    // drop `.`
+            Component::ParentDir => { out.pop(); }     // resolve `..`
+            c => out.push(c),
+        }
+    }
+    out.iter().collect()
+}
+
+fn find_md_link_at_position(
+    note: &crate::parser::Note,
+    pos: Position,
+) -> Option<&crate::parser::MarkdownLink> {
+    note.md_links.iter().find(|link| contains(link.range, pos))
+}
+
 pub fn handle_hover(params: HoverParams, index: &NoteIndex) -> Option<Hover> {
     let pos = params.text_document_position_params.position;
     let path = uri_to_path(&params.text_document_position_params.text_document.uri);
     let note = index.get_note(&path)?;
 
-    // Wiki-link at cursor position.
+    // 1. Wiki-link at cursor position.
     if let Some(link) = find_link_at_position(note, pos) {
         let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else {
             return None; // broken or ambiguous — diagnostic already covers this
@@ -181,6 +212,32 @@ pub fn handle_hover(params: HoverParams, index: &NoteIndex) -> Option<Hover> {
                 value: render_preview(target),
             }),
             range: Some(link.range),
+        });
+    }
+
+    // 2. Standard Markdown link or image at cursor position.
+    if let Some(md_link) = find_md_link_at_position(note, pos) {
+        let value = if md_link.is_image {
+            format!("**Image**\n\n`{}`", md_link.target)
+        } else if is_external_url(&md_link.target) {
+            format!("[{}]({})", md_link.text, md_link.target)
+        } else {
+            // Local path: resolve relative to the current file's directory.
+            let parent = path.parent().unwrap_or_else(|| std::path::Path::new(""));
+            let resolved = normalize_path(&parent.join(&md_link.target));
+            if let Some(target_note) = index.get_note(&resolved) {
+                render_preview(target_note)
+            } else {
+                format!("`{}`", md_link.target)
+            }
+        };
+        let range = md_link.range;
+        return Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value,
+            }),
+            range: Some(range),
         });
     }
 
@@ -946,5 +1003,54 @@ mod tests {
         idx.index(note("/vault/a.md", "plain text [[b]]"));
 
         assert!(handle_hover(hover_params("/vault/a.md", 0, 0), &idx).is_none());
+    }
+
+    /// External URL Markdown link → formatted `[text](url)` hover.
+    #[test]
+    fn hover_md_link_external_url() {
+        let mut idx = NoteIndex::default();
+        // "[text](https://example.com)" is 28 chars; (0,5) is inside
+        idx.index(note("/vault/a.md", "[text](https://example.com)"));
+
+        let hover = handle_hover(hover_params("/vault/a.md", 0, 5), &idx)
+            .expect("expected hover for external URL");
+        let HoverContents::Markup(mc) = hover.contents else {
+            panic!("expected Markup");
+        };
+        assert_eq!(mc.value, "[text](https://example.com)");
+    }
+
+    /// Local relative link that resolves to an indexed note → note preview.
+    #[test]
+    fn hover_md_link_local_note() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/other.md", "---\ntitle: Other\n---\nContent here.\n"));
+        // "[text](./other.md)" is 19 chars; path.parent() = /vault,
+        // normalized resolved = /vault/other.md which is indexed.
+        idx.index(note("/vault/a.md", "[text](./other.md)"));
+
+        let hover = handle_hover(hover_params("/vault/a.md", 0, 5), &idx)
+            .expect("expected hover for local note link");
+        let HoverContents::Markup(mc) = hover.contents else {
+            panic!("expected Markup");
+        };
+        assert!(mc.value.contains("**Other**"), "expected note title: {}", mc.value);
+        assert!(mc.value.contains("Content here."), "expected note body: {}", mc.value);
+    }
+
+    /// Image link → "**Image**" header with the path.
+    #[test]
+    fn hover_md_link_image() {
+        let mut idx = NoteIndex::default();
+        // "![alt](img.png)" is 15 chars; (0,3) is inside
+        idx.index(note("/vault/a.md", "![alt](img.png)"));
+
+        let hover = handle_hover(hover_params("/vault/a.md", 0, 3), &idx)
+            .expect("expected hover for image");
+        let HoverContents::Markup(mc) = hover.contents else {
+            panic!("expected Markup");
+        };
+        assert!(mc.value.contains("**Image**"), "expected Image header: {}", mc.value);
+        assert!(mc.value.contains("img.png"), "expected path: {}", mc.value);
     }
 }
