@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use lsp_types::{Position, Range};
-use super::{extract_frontmatter, Frontmatter, Heading, LineIndex, MarkdownLink, parse, WikiLink};
+use super::{extract_frontmatter, Frontmatter, Heading, LineIndex, MarkdownLink, parse, Tag, WikiLink};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -301,7 +301,7 @@ fn frontmatter_title_absent() {
     // Block exists but has no title key.
     let content = "---\ntags: [foo, bar]\n---\nBody.\n";
     let fm = extract_frontmatter(content).expect("should have frontmatter");
-    assert_eq!(fm, Frontmatter { title: None });
+    assert_eq!(fm, Frontmatter { title: None, tags: vec![] });
 }
 
 #[test]
@@ -394,4 +394,95 @@ fn wiki_link_range_after_frontmatter() {
     assert_eq!(note.wiki_links.len(), 1);
     assert_eq!(note.wiki_links[0].range, range((3, 0), (3, 8)));
     assert_eq!(note.wiki_links[0].inner_range, range((3, 2), (3, 6)));
+}
+
+// ── tags ──────────────────────────────────────────────────────────────────────
+
+fn tags(content: &str) -> Vec<Tag> {
+    parse(Path::new("note.md"), content)
+        .frontmatter
+        .map(|fm| fm.tags)
+        .unwrap_or_default()
+}
+
+#[test]
+fn tags_inline_list() {
+    let result = tags("---\ntags: [foo, bar]\n---\n");
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].name, "foo");
+    assert_eq!(result[1].name, "bar");
+}
+
+#[test]
+fn tags_block_list() {
+    let result = tags("---\ntags:\n  - foo\n  - bar\n---\n");
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].name, "foo");
+    assert_eq!(result[1].name, "bar");
+}
+
+#[test]
+fn tags_bare_scalar() {
+    let result = tags("---\ntags: productivity\n---\n");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].name, "productivity");
+}
+
+#[test]
+fn tags_absent() {
+    let result = tags("---\ntitle: Note\n---\n");
+    assert!(result.is_empty());
+}
+
+#[test]
+fn tags_empty_value_no_list_items() {
+    // `tags:` with nothing after and no list items below → empty
+    let result = tags("---\ntags:\ntitle: foo\n---\n");
+    assert!(result.is_empty());
+}
+
+#[test]
+fn tags_block_scalar_ignored() {
+    let result = tags("---\ntags: |\n  block scalar\n---\n");
+    assert!(result.is_empty());
+}
+
+#[test]
+fn tags_no_frontmatter() {
+    let result = tags("No frontmatter here.\n");
+    assert!(result.is_empty());
+}
+
+#[test]
+fn tags_trimmed() {
+    // Leading/trailing whitespace inside brackets or on list items is stripped.
+    let result = tags("---\ntags: [  foo  ,  bar  ]\n---\n");
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].name, "foo");
+    assert_eq!(result[1].name, "bar");
+}
+
+#[test]
+fn tags_inline_range() {
+    // "---\ntags: [foo, bar]\n---\n"
+    //  line 0: ---       (0..4)
+    //  line 1: tags: [foo, bar]  (4..21)
+    //          t=4 a=5 g=6 s=7 :=8 ' '=9 [=10 f=11 o=12 o=13 ,=14 ' '=15 b=16 a=17 r=18 ]=19 \n=20
+    //  foo: line 1, chars 7–10
+    //  bar: line 1, chars 12–15
+    let result = tags("---\ntags: [foo, bar]\n---\n");
+    assert_eq!(result[0].range, range((1, 7), (1, 10)));
+    assert_eq!(result[1].range, range((1, 12), (1, 15)));
+}
+
+#[test]
+fn tags_block_range() {
+    // "---\ntags:\n  - foo\n  - bar\n---\n"
+    //  line 0: ---         (0..4)
+    //  line 1: tags:       (4..10)
+    //  line 2:   - foo     (10..18)  foo at byte 14, col 4
+    //  line 3:   - bar     (18..26)  bar at byte 22, col 4
+    let result = tags("---\ntags:\n  - foo\n  - bar\n---\n");
+    assert_eq!(result[0].range, range((2, 4), (2, 7)));
+    assert_eq!(result[1].range, range((3, 4), (3, 7)));
 }

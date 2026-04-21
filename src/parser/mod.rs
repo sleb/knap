@@ -3,17 +3,25 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use lsp_types::{Position, Range as LspRange};
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag as PdTag, TagEnd};
 
 #[cfg(test)]
 mod tests;
 
+/// A single tag extracted from the `tags:` frontmatter key.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tag {
+    pub name: String,    // tag text as written (original casing)
+    pub range: LspRange, // tag name's span in the full file (for cursor hit-testing)
+}
+
 /// YAML frontmatter extracted from the top of a note file.
 /// `None` when no `---…---` block is present; `Some` when the block exists
-/// (even if `title` is absent from it).
+/// (even if `title` or `tags` are absent from it).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frontmatter {
     pub title: Option<String>,
+    pub tags: Vec<Tag>,
 }
 
 /// A standard Markdown link or image found in the file.
@@ -105,10 +113,13 @@ pub fn parse(path: &Path, content: &str) -> Note {
         .to_string_lossy()
         .into_owned();
 
-    let frontmatter = extract_frontmatter(content);
+    let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
+    let frontmatter = extract_frontmatter(content).map(|mut fm| {
+        fm.tags = extract_tags(content, &line_index);
+        fm
+    });
     let body_offset = frontmatter_body_offset(content);
     let body = &content[body_offset..];
-    let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
     let wiki_links = extract_wiki_links(body, body_offset, &line_index);
     let headings = extract_headings(body, body_offset, &line_index);
     let md_links = extract_md_links(body, body_offset, &line_index);
@@ -170,7 +181,7 @@ pub fn extract_frontmatter(content: &str) -> Option<Frontmatter> {
         }
     }
 
-    Some(Frontmatter { title })
+    Some(Frontmatter { title, tags: vec![] })
 }
 
 /// Return the byte offset at which the document body starts — i.e. the first
@@ -192,6 +203,111 @@ pub fn frontmatter_body_offset(content: &str) -> usize {
     }
 }
 
+/// Extract tags from the frontmatter `tags:` key. Supports three forms:
+/// - Inline list: `tags: [foo, bar]`
+/// - Block list: `tags:\n  - foo\n  - bar`
+/// - Bare scalar: `tags: productivity`
+///
+/// Returns `vec![]` when there is no frontmatter, no `tags:` key, or the value
+/// is a block scalar (`|`, `>`).
+fn extract_tags(content: &str, line_index: &LineIndex) -> Vec<Tag> {
+    if !content.starts_with("---\n") {
+        return vec![];
+    }
+    let rest = &content[4..]; // after opening "---\n"
+    let block = if let Some(i) = rest.find("\n---\n") {
+        &rest[..i]
+    } else if let Some(stripped) = rest.strip_suffix("\n---") {
+        stripped
+    } else {
+        return vec![];
+    };
+
+    let block_start = 4_usize; // byte offset of block start in full content
+    let mut tags = vec![];
+    let mut offset = block_start;
+    let mut remaining = block;
+
+    while !remaining.is_empty() {
+        let (line, after) = match remaining.find('\n') {
+            Some(nl) => (&remaining[..nl], &remaining[nl + 1..]),
+            None => (remaining, ""),
+        };
+        let line_start = offset;
+
+        if let Some(after_colon) = line.strip_prefix("tags:") {
+            let value = after_colon.trim_start();
+
+            if value.is_empty() {
+                // Block list: scan subsequent lines for `- tag`
+                let mut sub_offset = offset + line.len() + 1;
+                let mut sub_rem = after;
+                while !sub_rem.is_empty() {
+                    let (sub_line, sub_after) = match sub_rem.find('\n') {
+                        Some(nl) => (&sub_rem[..nl], &sub_rem[nl + 1..]),
+                        None => (sub_rem, ""),
+                    };
+                    let stripped = sub_line.trim_start();
+                    if let Some(after_dash) = stripped.strip_prefix('-') {
+                        let tag_name = after_dash.trim();
+                        if !tag_name.is_empty() {
+                            let leading_ws = sub_line.len() - stripped.len();
+                            let after_dash_offset = sub_offset + leading_ws + 1;
+                            let tag_ws = after_dash.len() - after_dash.trim_start().len();
+                            let tag_start = after_dash_offset + tag_ws;
+                            tags.push(Tag {
+                                name: tag_name.to_string(),
+                                range: line_index.range(tag_start..tag_start + tag_name.len()),
+                            });
+                        }
+                        sub_offset += sub_line.len() + 1;
+                        sub_rem = sub_after;
+                    } else {
+                        break;
+                    }
+                }
+            } else if value.starts_with('|') || value.starts_with('>') {
+                // Block scalar — ignored
+            } else if value.starts_with('[') {
+                // Inline list: `tags: [foo, bar]`
+                let leading_ws_len = after_colon.len() - after_colon.trim_start().len();
+                let inner_start = line_start + "tags:".len() + leading_ws_len + 1; // +1 skips '['
+                let inner = value
+                    .strip_prefix('[')
+                    .unwrap_or(value)
+                    .trim_end_matches(']');
+                let mut pos_in_inner = 0;
+                for part in inner.split(',') {
+                    let leading = part.len() - part.trim_start().len();
+                    let tag_name = part.trim();
+                    if !tag_name.is_empty() {
+                        let tag_start = inner_start + pos_in_inner + leading;
+                        tags.push(Tag {
+                            name: tag_name.to_string(),
+                            range: line_index.range(tag_start..tag_start + tag_name.len()),
+                        });
+                    }
+                    pos_in_inner += part.len() + 1; // +1 for ','
+                }
+            } else {
+                // Bare scalar: `tags: productivity`
+                let leading_ws_len = after_colon.len() - after_colon.trim_start().len();
+                let tag_start = line_start + "tags:".len() + leading_ws_len;
+                tags.push(Tag {
+                    name: value.to_string(),
+                    range: line_index.range(tag_start..tag_start + value.len()),
+                });
+            }
+            break; // Only the first `tags:` key is processed
+        }
+
+        offset += line.len() + 1;
+        remaining = after;
+    }
+
+    tags
+}
+
 fn extract_wiki_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec<WikiLink> {
     // pulldown-cmark fragments `[[note]]` into individual character Text events,
     // so we can't scan within Text events directly. Instead we use the event
@@ -211,7 +327,7 @@ fn collect_exclusions(content: &str) -> Vec<Range<usize>> {
 
     for (event, range) in parser {
         match event {
-            Event::Start(Tag::CodeBlock(_)) => {
+            Event::Start(PdTag::CodeBlock(_)) => {
                 code_block_start = Some(range.start);
             }
             Event::End(TagEnd::CodeBlock) => {
@@ -240,7 +356,7 @@ fn extract_headings(content: &str, offset: usize, line_index: &LineIndex) -> Vec
 
     for (event, byte_range) in parser {
         match event {
-            Event::Start(Tag::Heading { level, .. }) => {
+            Event::Start(PdTag::Heading { level, .. }) => {
                 let lvl = heading_level_to_u8(level);
                 current = Some((lvl, byte_range.start, String::new(), None, byte_range.start));
             }
@@ -294,10 +410,10 @@ fn extract_md_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec
 
     for (event, byte_range) in parser {
         match event {
-            Event::Start(Tag::Link { dest_url, .. }) => {
+            Event::Start(PdTag::Link { dest_url, .. }) => {
                 current = Some((dest_url.to_string(), byte_range.start, String::new(), false));
             }
-            Event::Start(Tag::Image { dest_url, .. }) => {
+            Event::Start(PdTag::Image { dest_url, .. }) => {
                 current = Some((dest_url.to_string(), byte_range.start, String::new(), true));
             }
             Event::Text(s) => {

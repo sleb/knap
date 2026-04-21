@@ -15,10 +15,16 @@ pub fn cmd_parse(args: &[String]) -> anyhow::Result<()> {
 
     match &note.frontmatter {
         None => println!("title: (no frontmatter)"),
-        Some(fm) => match &fm.title {
-            None => println!("title: (none)"),
-            Some(t) => println!("title: {t}"),
-        },
+        Some(fm) => {
+            match &fm.title {
+                None => println!("title: (none)"),
+                Some(t) => println!("title: {t}"),
+            }
+            if !fm.tags.is_empty() {
+                let names: Vec<&str> = fm.tags.iter().map(|t| t.name.as_str()).collect();
+                println!("tags:  [{}]", names.join(", "));
+            }
+        }
     }
 
     if note.wiki_links.is_empty() {
