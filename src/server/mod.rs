@@ -249,8 +249,8 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
     match req.method.as_str() {
         "textDocument/completion" => {
             let items = serde_json::from_value::<CompletionParams>(req.params)
-                .map(|params| handlers::handle_completion(params, index))
-                .unwrap_or_default();
+                .ok()
+                .map(|params| handlers::handle_completion(params, index));
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, items)))?;
@@ -273,8 +273,8 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
         }
         "textDocument/references" => {
             let locations = serde_json::from_value::<ReferenceParams>(req.params)
-                .map(|params| handlers::handle_references(params, index))
-                .unwrap_or_default();
+                .ok()
+                .map(|params| handlers::handle_references(params, index));
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, locations)))?;
