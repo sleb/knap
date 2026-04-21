@@ -264,12 +264,12 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
                 .send(Message::Response(Response::new_ok(req.id, hover)))?;
         }
         "textDocument/definition" => {
-            let location = serde_json::from_value::<GotoDefinitionParams>(req.params)
+            let response = serde_json::from_value::<GotoDefinitionParams>(req.params)
                 .ok()
                 .and_then(|params| handlers::handle_definition(params, index));
             connection
                 .sender
-                .send(Message::Response(Response::new_ok(req.id, location)))?;
+                .send(Message::Response(Response::new_ok(req.id, response)))?;
         }
         "textDocument/references" => {
             let locations = serde_json::from_value::<ReferenceParams>(req.params)

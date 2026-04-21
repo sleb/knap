@@ -8,11 +8,11 @@ use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
-    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, Hover,
-    HoverContents, HoverParams, Location, MarkupContent, MarkupKind, Position,
-    PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams,
-    RenameParams, SymbolInformation, SymbolKind, TextDocumentPositionParams, TextEdit,
-    WorkspaceEdit, WorkspaceSymbolParams,
+    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+    GotoDefinitionResponse, Hover, HoverContents, HoverParams, Location, MarkupContent,
+    MarkupKind, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
+    RenameFilesParams, RenameParams, SymbolInformation, SymbolKind, TextDocumentPositionParams,
+    TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -388,34 +388,66 @@ fn find_link_at_position(note: &crate::parser::Note, pos: Position) -> Option<&c
     note.wiki_links.iter().find(|link| contains(link.range, pos))
 }
 
-pub fn handle_definition(params: GotoDefinitionParams, index: &NoteIndex) -> Option<Location> {
+fn find_tag_at_position(note: &crate::parser::Note, pos: Position) -> Option<&crate::parser::Tag> {
+    note.frontmatter
+        .as_ref()?
+        .tags
+        .iter()
+        .find(|t| contains(t.range, pos))
+}
+
+fn locations_for_tag(tag: &str, index: &NoteIndex) -> Vec<Location> {
+    index
+        .notes_by_tag(tag)
+        .iter()
+        .filter_map(|note| {
+            let tag_range = note
+                .frontmatter
+                .as_ref()?
+                .tags
+                .iter()
+                .find(|t| t.name.to_lowercase() == tag.to_lowercase())?
+                .range;
+            Some(Location { uri: path_to_uri(&note.path), range: tag_range })
+        })
+        .collect()
+}
+
+pub fn handle_definition(
+    params: GotoDefinitionParams,
+    index: &NoteIndex,
+) -> Option<GotoDefinitionResponse> {
     let pos = params.text_document_position_params.position;
     let path = uri_to_path(&params.text_document_position_params.text_document.uri);
     let note = index.get_note(&path)?;
-    let link = find_link_at_position(note, pos)?;
-    let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else {
-        return None;
-    };
 
-    // If the link carries an anchor, navigate to the matching heading.
-    // Returns Some(range) when both the target note and a matching heading exist.
-    let anchor_range = link.anchor.as_ref().and_then(|anchor| {
-        let target_note = index.get_note(&target_path)?;
-        let heading = target_note
-            .headings
-            .iter()
-            .find(|h| h.text.to_lowercase() == anchor.to_lowercase())?;
-        Some(heading.range)
-    });
-    if let Some(range) = anchor_range {
-        return Some(Location { uri: path_to_uri(&target_path), range });
+    // 1. Wiki-link at cursor position.
+    if let Some(link) = find_link_at_position(note, pos) {
+        let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else {
+            return None;
+        };
+        let anchor_range = link.anchor.as_ref().and_then(|anchor| {
+            let target_note = index.get_note(&target_path)?;
+            let heading = target_note
+                .headings
+                .iter()
+                .find(|h| h.text.to_lowercase() == anchor.to_lowercase())?;
+            Some(heading.range)
+        });
+        let range = anchor_range.unwrap_or_default();
+        return Some(GotoDefinitionResponse::Scalar(Location {
+            uri: path_to_uri(&target_path),
+            range,
+        }));
     }
-    // No anchor, or anchor not found → fall through to file top.
 
-    Some(Location {
-        uri: path_to_uri(&target_path),
-        range: Range::default(),
-    })
+    // 2. Tag in frontmatter at cursor position.
+    if let Some(tag) = find_tag_at_position(note, pos) {
+        let locs = locations_for_tag(&tag.name, index);
+        return Some(GotoDefinitionResponse::Array(locs));
+    }
+
+    None
 }
 
 // ─── Find References ──────────────────────────────────────────────────────────
@@ -424,16 +456,26 @@ pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Loca
     let pos = params.text_document_position.position;
     let path = uri_to_path(&params.text_document_position.text_document.uri);
     let Some(note) = index.get_note(&path) else { return vec![] };
-    let Some(link) = find_link_at_position(note, pos) else { return vec![] };
-    let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else { return vec![] };
-    index
-        .links_to(&target_path)
-        .iter()
-        .map(|located| Location {
-            uri: path_to_uri(&located.source_path),
-            range: located.wiki_link.range,
-        })
-        .collect()
+
+    // 1. Wiki-link at cursor position.
+    if let Some(link) = find_link_at_position(note, pos) {
+        let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else { return vec![] };
+        return index
+            .links_to(&target_path)
+            .iter()
+            .map(|located| Location {
+                uri: path_to_uri(&located.source_path),
+                range: located.wiki_link.range,
+            })
+            .collect();
+    }
+
+    // 2. Tag in frontmatter at cursor position.
+    if let Some(tag) = find_tag_at_position(note, pos) {
+        return locations_for_tag(&tag.name, index);
+    }
+
+    vec![]
 }
 
 // ─── Heading Rename ───────────────────────────────────────────────────────────
@@ -656,6 +698,13 @@ mod tests {
         }
     }
 
+    fn unwrap_scalar(resp: Option<GotoDefinitionResponse>) -> Location {
+        match resp.expect("expected a response") {
+            GotoDefinitionResponse::Scalar(loc) => loc,
+            other => panic!("expected Scalar, got {:?}", other),
+        }
+    }
+
     /// `[[b#Section]]` with b.md having `## Section` → Location on heading line.
     #[test]
     fn definition_anchor_navigates_to_heading() {
@@ -664,7 +713,7 @@ mod tests {
         idx.index(note("/vault/a.md", "[[b#Section]]\n"));
 
         let params = make_definition_params("/vault/a.md", 0, 3);
-        let loc = handle_definition(params, &idx).expect("expected a location");
+        let loc = unwrap_scalar(handle_definition(params, &idx));
         assert!(loc.uri.as_str().ends_with("b.md"));
         assert_eq!(loc.range.start.line, 0, "expected to navigate to heading line");
         assert_ne!(loc.range, Range::default(), "expected heading range, not file top");
@@ -678,7 +727,7 @@ mod tests {
         idx.index(note("/vault/a.md", "[[b#Missing]]\n"));
 
         let params = make_definition_params("/vault/a.md", 0, 3);
-        let loc = handle_definition(params, &idx).expect("expected a location");
+        let loc = unwrap_scalar(handle_definition(params, &idx));
         assert!(loc.uri.as_str().ends_with("b.md"));
         assert_eq!(loc.range, Range::default(), "expected file top on anchor miss");
     }
@@ -691,7 +740,7 @@ mod tests {
         idx.index(note("/vault/a.md", "[[b]]\n"));
 
         let params = make_definition_params("/vault/a.md", 0, 3);
-        let loc = handle_definition(params, &idx).expect("expected a location");
+        let loc = unwrap_scalar(handle_definition(params, &idx));
         assert!(loc.uri.as_str().ends_with("b.md"));
         assert_eq!(loc.range, Range::default(), "expected file top for plain link");
     }
@@ -1219,5 +1268,106 @@ mod tests {
         assert!(labels.contains(&"alpha"));
         assert!(labels.contains(&"beta"));
         assert!(labels.contains(&"gamma"));
+    }
+
+    // ── tag definition / references ───────────────────────────────────────────
+
+    fn make_definition_params_at(path: &str, line: u32, character: u32) -> GotoDefinitionParams {
+        GotoDefinitionParams {
+            text_document_position_params: lsp_types::TextDocumentPositionParams {
+                text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+                position: Position { line, character },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    }
+
+    fn make_references_params(path: &str, line: u32, character: u32) -> ReferenceParams {
+        ReferenceParams {
+            text_document_position: lsp_types::TextDocumentPositionParams {
+                text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+                position: Position { line, character },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: lsp_types::ReferenceContext { include_declaration: false },
+        }
+    }
+
+    /// Cursor on a tag → definition returns all notes carrying that tag.
+    #[test]
+    fn definition_tag_returns_all_locations() {
+        let mut idx = NoteIndex::default();
+        // "---\ntags: [rust]\n---\n"
+        //  line 1: tags: [rust]
+        //  'rust' starts at col 8 on line 1
+        idx.index(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+        idx.index(note("/vault/b.md", "---\ntags: [rust, lsp]\n---\n"));
+        idx.index(note("/vault/c.md", "---\ntags: [lsp]\n---\n")); // no rust
+
+        // Cursor on 'rust' in a.md: line 1, char 8
+        let params = make_definition_params_at("/vault/a.md", 1, 8);
+        let resp = handle_definition(params, &idx).expect("expected a response");
+        let GotoDefinitionResponse::Array(locs) = resp else {
+            panic!("expected Array response for tag definition");
+        };
+        assert_eq!(locs.len(), 2, "expected two notes with 'rust' tag: {:?}", locs);
+        let uris: Vec<&str> = locs.iter().map(|l| l.uri.as_str()).collect();
+        assert!(uris.iter().any(|u| u.ends_with("a.md")));
+        assert!(uris.iter().any(|u| u.ends_with("b.md")));
+    }
+
+    /// Tag matching is case-insensitive.
+    #[test]
+    fn definition_tag_case_insensitive() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\ntags: [Rust]\n---\n"));
+        idx.index(note("/vault/b.md", "---\ntags: [rust]\n---\n"));
+
+        // Cursor on 'Rust' in a.md (line 1, char 8)
+        let params = make_definition_params_at("/vault/a.md", 1, 8);
+        let resp = handle_definition(params, &idx).expect("expected a response");
+        let GotoDefinitionResponse::Array(locs) = resp else {
+            panic!("expected Array");
+        };
+        assert_eq!(locs.len(), 2, "case-insensitive: both notes should match");
+    }
+
+    /// Wiki-link definition still returns Scalar (unchanged behaviour).
+    #[test]
+    fn definition_wiki_link_unchanged() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/target.md", ""));
+        idx.index(note("/vault/src.md", "[[target]]\n"));
+
+        let params = make_definition_params_at("/vault/src.md", 0, 3);
+        let resp = handle_definition(params, &idx).expect("expected a response");
+        assert!(matches!(resp, GotoDefinitionResponse::Scalar(_)),
+            "wiki-link definition should still return Scalar");
+    }
+
+    /// Cursor on a tag → references returns the same set as definition.
+    #[test]
+    fn references_tag_returns_all_locations() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+        idx.index(note("/vault/b.md", "---\ntags: [rust]\n---\n"));
+
+        // Cursor on 'rust' in a.md: line 1, char 8
+        let params = make_references_params("/vault/a.md", 1, 8);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 2, "expected references for both notes with 'rust'");
+    }
+
+    /// Cursor on non-tag frontmatter text → no tag result.
+    #[test]
+    fn tag_at_position_miss() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\ntitle: My Note\ntags: [rust]\n---\n"));
+
+        // Cursor on 'title:' line — not a tag
+        let params = make_definition_params_at("/vault/a.md", 1, 3);
+        assert!(handle_definition(params, &idx).is_none(), "title: line should not match tags");
     }
 }
