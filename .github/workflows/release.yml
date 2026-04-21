@@ -21,6 +21,8 @@ jobs:
                       os: ubuntu-latest
                     - target: aarch64-unknown-linux-gnu
                       os: ubuntu-latest
+                    - target: x86_64-pc-windows-msvc
+                      os: windows-latest
 
         runs-on: ${{ matrix.os }}
         steps:
@@ -32,12 +34,25 @@ jobs:
               if: matrix.target == 'aarch64-unknown-linux-gnu'
               run: sudo apt-get install -y gcc-aarch64-linux-gnu
             - run: cargo build --release --target ${{ matrix.target }}
-            - name: Package binary
+            - name: Package binary (Unix)
+              if: matrix.os != 'windows-latest'
               run: |
                   mkdir knap-${{ matrix.target }}
                   cp target/${{ matrix.target }}/release/knap knap-${{ matrix.target }}/
                   tar czf knap-${{ matrix.target }}.tar.gz knap-${{ matrix.target }}/
-            - name: Upload to release
+            - name: Package binary (Windows)
+              if: matrix.os == 'windows-latest'
+              run: |
+                  mkdir knap-${{ matrix.target }}
+                  cp target/${{ matrix.target }}/release/knap.exe knap-${{ matrix.target }}/
+                  Compress-Archive -Path knap-${{ matrix.target }} -DestinationPath knap-${{ matrix.target }}.zip
+            - name: Upload to release (Unix)
+              if: matrix.os != 'windows-latest'
               uses: softprops/action-gh-release@v2
               with:
                   files: knap-${{ matrix.target }}.tar.gz
+            - name: Upload to release (Windows)
+              if: matrix.os == 'windows-latest'
+              uses: softprops/action-gh-release@v2
+              with:
+                  files: knap-${{ matrix.target }}.zip
