@@ -174,3 +174,52 @@ fn non_note_file_registered() {
     idx.add_attachment(PathBuf::from("/workspace/diagram.png"));
     assert!(matches!(idx.resolve("diagram.png"), ResolvedLink::Found(_)));
 }
+
+// ── tag index ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn index_by_tag_populated() {
+    let mut idx = NoteIndex::default();
+    idx.index(note("a.md", "---\ntags: [rust, lsp]\n---\n"));
+    let tags: Vec<&str> = idx.all_tags().collect();
+    assert!(tags.contains(&"rust"), "expected 'rust' in tags");
+    assert!(tags.contains(&"lsp"), "expected 'lsp' in tags");
+}
+
+#[test]
+fn index_by_tag_removed() {
+    let mut idx = NoteIndex::default();
+    idx.index(note("a.md", "---\ntags: [rust]\n---\n"));
+    idx.remove(Path::new("a.md"));
+    assert!(idx.all_tags().next().is_none(), "expected no tags after removal");
+}
+
+#[test]
+fn notes_by_tag_case_insensitive() {
+    let mut idx = NoteIndex::default();
+    idx.index(note("a.md", "---\ntags: [Rust]\n---\n"));
+    let notes = idx.notes_by_tag("rust");
+    assert_eq!(notes.len(), 1);
+    let notes_upper = idx.notes_by_tag("RUST");
+    assert_eq!(notes_upper.len(), 1);
+}
+
+#[test]
+fn all_tags_distinct() {
+    let mut idx = NoteIndex::default();
+    idx.index(note("a.md", "---\ntags: [rust, lsp]\n---\n"));
+    idx.index(note("b.md", "---\ntags: [rust, tools]\n---\n"));
+    let mut tags: Vec<&str> = idx.all_tags().collect();
+    tags.sort();
+    assert_eq!(tags, vec!["lsp", "rust", "tools"]);
+}
+
+#[test]
+fn index_replace_updates_tags() {
+    let mut idx = NoteIndex::default();
+    idx.index(note("a.md", "---\ntags: [old]\n---\n"));
+    idx.index(note("a.md", "---\ntags: [new]\n---\n")); // replace
+    let tags: Vec<&str> = idx.all_tags().collect();
+    assert!(!tags.contains(&"old"), "old tag should be removed");
+    assert!(tags.contains(&"new"), "new tag should be present");
+}

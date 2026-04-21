@@ -22,6 +22,9 @@ pub struct NoteIndex {
     /// Reverse index: target path → all wiki-links pointing to it.
     /// Only contains links that resolved successfully at index time.
     links_to: HashMap<PathBuf, Vec<LocatedLink>>,
+
+    /// Lowercase tag name → all paths whose frontmatter carries that tag.
+    by_tag: HashMap<String, Vec<PathBuf>>,
 }
 
 /// A wiki-link together with the file it lives in.
@@ -91,7 +94,17 @@ impl NoteIndex {
         // 4. Adding this note may resolve previously broken links in other notes.
         affected.extend(self.recheck_links_to(&note.stem));
 
-        // 5. Store the note.
+        // 5. Populate by_tag.
+        if let Some(fm) = &note.frontmatter {
+            for tag in &fm.tags {
+                self.by_tag
+                    .entry(tag.name.to_lowercase())
+                    .or_default()
+                    .push(note.path.clone());
+            }
+        }
+
+        // 6. Store the note.
         affected.insert(note.path.clone());
         self.by_path.insert(note.path.clone(), note);
 
@@ -153,6 +166,19 @@ impl NoteIndex {
             }
         }
 
+        // Remove from by_tag.
+        if let Some(fm) = &note.frontmatter {
+            for tag in &fm.tags {
+                let key = tag.name.to_lowercase();
+                if let Some(paths) = self.by_tag.get_mut(&key) {
+                    paths.retain(|p| p != path);
+                    if paths.is_empty() {
+                        self.by_tag.remove(&key);
+                    }
+                }
+            }
+        }
+
         // Remove from by_filename.
         let filename = note.filename();
         if let Some(paths) = self.by_filename.get_mut(&filename) {
@@ -199,6 +225,21 @@ impl NoteIndex {
     /// All links from other notes that point to `path`.
     pub fn links_to(&self, path: &Path) -> &[LocatedLink] {
         self.links_to.get(path).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Distinct lowercase tag names across all indexed notes.
+    pub fn all_tags(&self) -> impl Iterator<Item = &str> {
+        self.by_tag.keys().map(String::as_str)
+    }
+
+    /// All notes carrying the given tag (case-insensitive match).
+    pub fn notes_by_tag(&self, tag: &str) -> Vec<&Note> {
+        self.by_tag
+            .get(&tag.to_lowercase())
+            .map(|paths| {
+                paths.iter().filter_map(|p| self.by_path.get(p)).collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Register a non-note file (attachment) in `by_filename`. Rechecks all
