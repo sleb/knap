@@ -76,7 +76,7 @@ required for the common single-folder case.
 
 ---
 
-## v0.5 — Tags
+## v0.5 — Tags _(released 2026-04-20)_
 
 **Goal:** Explore and maintain your topic taxonomy via frontmatter tags.
 

@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.4.0-blue)
+![Version](https://img.shields.io/badge/version-0.5.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -25,6 +25,8 @@ LSP-compatible editor.
 - Hover on `[[wiki-link]]` → preview of the target note (title + first 10 lines)
 - Hover on `[text](./note.md)` → same note preview; images and external URLs show a summary
 - Frontmatter `title:` used as the display label in completions and hover
+- Frontmatter `tags:` completions from the workspace tag index
+- Go to Definition and Find References on a tag value → all files sharing that tag
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 
@@ -40,7 +42,7 @@ passed via your editor's native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.4.0 — Hover Previews. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.5.0 — Tags. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 
