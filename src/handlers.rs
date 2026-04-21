@@ -100,12 +100,86 @@ fn check_trigger(content: &str, pos: Position) -> bool {
     up_to_cursor.ends_with("[[")
 }
 
+/// Returns the line number (0-indexed) of the frontmatter closing `---`, or
+/// `None` when the content has no valid frontmatter block.
+fn frontmatter_close_line(content: &str) -> Option<usize> {
+    if !content.starts_with("---\n") {
+        return None;
+    }
+    let rest = &content[4..];
+    if let Some(i) = rest.find("\n---\n") {
+        // Count newlines in content[..4+i] to get line number of closing ---
+        let before_close = &content[..4 + i];
+        Some(before_close.lines().count()) // closing --- is one line after
+    } else if rest.strip_suffix("\n---").is_some() {
+        Some(content.lines().count() - 1)
+    } else {
+        None
+    }
+}
+
+/// Returns `true` when the cursor is inside the frontmatter block in a position
+/// that calls for tag completions:
+/// 1. The cursor is on the `tags:` line itself (any column), or
+/// 2. The cursor is on a `- ` list-item line that follows a bare `tags:` key
+///    within the same frontmatter block.
+fn check_tag_trigger(content: &str, pos: Position) -> bool {
+    let close_line = match frontmatter_close_line(content) {
+        Some(l) => l,
+        None => return false,
+    };
+    // Cursor must be inside the frontmatter (after opening `---`, before closing `---`)
+    if pos.line == 0 || pos.line as usize >= close_line {
+        return false;
+    }
+
+    let lines: Vec<&str> = content.lines().collect();
+    let current = lines.get(pos.line as usize).unwrap_or(&"");
+
+    // Pattern 1: cursor is on the `tags:` line
+    if current.trim_start().starts_with("tags:") {
+        return true;
+    }
+
+    // Pattern 2: cursor is on a `- ` list item; scan backwards for a bare `tags:` key
+    let up_to_cursor = current.get(..pos.character as usize).unwrap_or(current);
+    if up_to_cursor.trim_start().starts_with('-') || up_to_cursor.trim() == "-" {
+        for i in (1..pos.line as usize).rev() {
+            let prev = lines[i].trim();
+            if prev == "tags:" {
+                return true;
+            }
+            // Any non-empty, non-list line that contains `:` is a different YAML key — stop
+            if !prev.is_empty() && !prev.starts_with('-') && prev.contains(':') {
+                break;
+            }
+        }
+    }
+
+    false
+}
+
+fn tag_completions(index: &NoteIndex) -> Vec<CompletionItem> {
+    index
+        .all_tags()
+        .map(|tag| CompletionItem {
+            label: tag.to_string(),
+            kind: Some(CompletionItemKind::VALUE),
+            insert_text: Some(tag.to_string()),
+            ..Default::default()
+        })
+        .collect()
+}
+
 pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
     let pos = params.text_document_position.position;
     let path = uri_to_path(&params.text_document_position.text_document.uri);
     let Some(note) = index.get_note(&path) else {
         return vec![];
     };
+    if check_tag_trigger(&note.content, pos) {
+        return tag_completions(index);
+    }
     if !check_trigger(&note.content, pos) {
         return vec![];
     }
@@ -1052,5 +1126,98 @@ mod tests {
         };
         assert!(mc.value.contains("**Image**"), "expected Image header: {}", mc.value);
         assert!(mc.value.contains("img.png"), "expected path: {}", mc.value);
+    }
+
+    // ── tag completion ────────────────────────────────────────────────────────
+
+    fn completion_params_at(path: &str, line: u32, character: u32) -> CompletionParams {
+        use lsp_types::TextDocumentIdentifier;
+        CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: file_uri(path) },
+                position: Position { line, character },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        }
+    }
+
+    /// Cursor on the `tags: [` line → tag completions.
+    #[test]
+    fn completion_tag_inline_trigger() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+        // b.md has tags: [lsp], cursor on the tags: [ line at col 9
+        idx.index(note("/vault/b.md", "---\ntags: [lsp]\n---\n"));
+        // cursor.md has the trigger line
+        idx.index(note("/vault/cursor.md", "---\ntags: [\n---\n"));
+
+        let params = completion_params_at("/vault/cursor.md", 1, 8);
+        let items = handle_completion(params, &idx);
+        assert!(!items.is_empty(), "expected tag completions");
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"rust"), "expected 'rust': {:?}", labels);
+        assert!(labels.contains(&"lsp"), "expected 'lsp': {:?}", labels);
+    }
+
+    /// Cursor on a `- ` list item following a bare `tags:` key → tag completions.
+    #[test]
+    fn completion_tag_block_trigger() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+        // cursor.md uses block list form
+        idx.index(note("/vault/cursor.md", "---\ntags:\n  - \n---\n"));
+
+        let params = completion_params_at("/vault/cursor.md", 2, 4);
+        let items = handle_completion(params, &idx);
+        assert!(!items.is_empty(), "expected tag completions for block list item");
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"rust"), "expected 'rust': {:?}", labels);
+    }
+
+    /// Cursor on `title:` line → no tag completions (different key).
+    #[test]
+    fn completion_tag_no_trigger_title() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/cursor.md", "---\ntitle: \n---\n"));
+
+        let params = completion_params_at("/vault/cursor.md", 1, 7);
+        let items = handle_completion(params, &idx);
+        assert!(items.is_empty(), "expected no completions on title: line");
+    }
+
+    /// Cursor in body (below frontmatter) → wiki-link trigger path, not tags.
+    #[test]
+    fn completion_tag_no_trigger_body() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+        idx.index(note("/vault/cursor.md", "---\ntags: [rust]\n---\n[["));
+
+        // line 3 is the body `[[` line — should get wiki-link completions (non-empty)
+        // but NOT tag completions. We verify by checking item kinds.
+        let params = completion_params_at("/vault/cursor.md", 3, 2);
+        let items = handle_completion(params, &idx);
+        // All items from wiki-link trigger have kind FILE, not VALUE
+        for item in &items {
+            assert_ne!(item.kind, Some(CompletionItemKind::VALUE),
+                "body line should not produce tag (VALUE) completions");
+        }
+    }
+
+    /// Tag completions contain all known tags from the index.
+    #[test]
+    fn completion_tag_items_from_index() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\ntags: [alpha, beta]\n---\n"));
+        idx.index(note("/vault/b.md", "---\ntags: [gamma]\n---\n"));
+        idx.index(note("/vault/cursor.md", "---\ntags: [\n---\n"));
+
+        let params = completion_params_at("/vault/cursor.md", 1, 8);
+        let items = handle_completion(params, &idx);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"alpha"));
+        assert!(labels.contains(&"beta"));
+        assert!(labels.contains(&"gamma"));
     }
 }
