@@ -92,12 +92,28 @@ pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: 
 
 // ─── Completion ───────────────────────────────────────────────────────────────
 
+/// Convert a UTF-16 code unit offset (LSP `Position.character`) to a UTF-8
+/// byte offset within `s`. Clamps to `s.len()` when the offset exceeds the
+/// line length.
+fn utf16_to_byte_offset(s: &str, utf16_offset: u32) -> usize {
+    let mut byte = 0;
+    let mut utf16 = 0u32;
+    for ch in s.chars() {
+        if utf16 >= utf16_offset {
+            break;
+        }
+        utf16 += ch.len_utf16() as u32;
+        byte += ch.len_utf8();
+    }
+    byte
+}
+
 /// Returns `true` if the text on the cursor's line immediately before the
 /// cursor position ends with `[[`, indicating the user wants note completion.
 fn check_trigger(content: &str, pos: Position) -> bool {
     let line = content.lines().nth(pos.line as usize).unwrap_or("");
-    let up_to_cursor = line.get(..pos.character as usize).unwrap_or(line);
-    up_to_cursor.ends_with("[[")
+    let cursor = utf16_to_byte_offset(line, pos.character);
+    line[..cursor].ends_with("[[")
 }
 
 /// Returns the line number (0-indexed) of the frontmatter closing `---`, or
@@ -131,7 +147,8 @@ fn check_tag_trigger(content: &str, pos: Position) -> bool {
     }
 
     // Pattern 2: cursor is on a `- ` list item; scan backwards for a bare `tags:` key
-    let up_to_cursor = current.get(..pos.character as usize).unwrap_or(current);
+    let cursor = utf16_to_byte_offset(current, pos.character);
+    let up_to_cursor = &current[..cursor];
     if up_to_cursor.trim_start().starts_with('-') || up_to_cursor.trim() == "-" {
         for i in (1..pos.line as usize).rev() {
             let prev = lines[i].trim();
@@ -1353,5 +1370,31 @@ mod tests {
         // Cursor on 'title:' line — not a tag
         let params = make_definition_params_at("/vault/a.md", 1, 3);
         assert!(handle_definition(params, &idx).is_none(), "title: line should not match tags");
+    }
+
+    // ── UTF-16 trigger correctness ────────────────────────────────────────────
+
+    /// `[[` after a multi-byte character (e.g. `é` = 1 UTF-16 unit, 2 UTF-8
+    /// bytes). pos.character is a UTF-16 unit count, not a byte count.
+    #[test]
+    fn check_trigger_unicode_prefix() {
+        // "café [[" — é is 2 UTF-8 bytes but 1 UTF-16 unit
+        // UTF-16 offsets: c=1 a=2 f=3 é=4 space=5 [=6 [=7
+        assert!(check_trigger("café [[", Position { line: 0, character: 7 }));
+    }
+
+    /// `[[` fires correctly when the cursor is right after it with emoji prefix.
+    #[test]
+    fn check_trigger_emoji_prefix() {
+        // "🎉 [[" — emoji is 2 UTF-16 units, 4 UTF-8 bytes
+        // UTF-16 offsets: 🎉=2 space=3 [=4 [=5
+        assert!(check_trigger("🎉 [[", Position { line: 0, character: 5 }));
+    }
+
+    /// Cursor one unit short of `[[` → no trigger.
+    #[test]
+    fn check_trigger_unicode_prefix_short() {
+        // "café [" — cursor at UTF-16 offset 6, only one `[`
+        assert!(!check_trigger("café [[", Position { line: 0, character: 6 }));
     }
 }
