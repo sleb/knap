@@ -50,7 +50,35 @@ Propose the new version to the user and ask them to confirm before continuing:
 
 ---
 
-## Step 2 — Verify implementation completeness
+## Step 2 — Verify docs are in sync with the code
+
+Before running quality gates, confirm that the long-lived architecture and
+component docs accurately reflect the current implementation. Drift accumulates
+during a milestone; the release is the forcing function to clear it.
+
+Read each of the following and cross-check it against the source:
+
+| Doc                                          | What to check                                                                                                   |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `docs/ARCHITECTURE.md`                       | `Config` shape, Note Index method names, handler table, Debug CLI table, data-flow call-sites, invariants       |
+| `docs/design/components/parser.md`           | dependency version, all public types, `parse()` body, extraction function signatures                            |
+| `docs/design/components/note-index.md`       | struct fields, `resolve()` strategy, `index()`/`remove()` steps, all read methods, `build()` signature          |
+| `docs/design/components/handlers.md`         | handler signatures (no stale `_config`), return types, diagnostic message strings, all shipped handlers present |
+| `docs/design/components/protocol-handler.md` | `Config` struct, capabilities block, notification routing table                                                 |
+| `docs/GETTING_STARTED.md`                    | CLI examples, config option table, troubleshooting commands                                                     |
+
+For each doc, briefly state whether it's clean or has drift. If drift is found:
+
+> "I found the following inconsistencies in `{doc}`: {list}. I can fix these now
+> before we continue, or you can fix them manually. Which do you prefer?"
+
+Fix or wait as the user directs. Only proceed to Step 3 once all docs are
+confirmed in sync. Note any files you changed — they'll be included in the
+release commit in Step 5.
+
+---
+
+## Step 3 — Verify implementation completeness
 
 Read `docs/design/v{N}/plan.md` for the milestone being released (substitute the
 milestone number from Step 1).
@@ -73,7 +101,7 @@ should be implemented. Call out any mismatch.
 
 ---
 
-## Step 3 — Quality gates
+## Step 4 — Quality gates
 
 Run both checks and show the output:
 
@@ -89,17 +117,17 @@ Run `cargo test` first, then `cargo clippy -- -D warnings`.
   > "Tests/clippy didn't pass. Do you want to fix these before continuing, or is
   > there something here you'd like to skip or investigate?"
 
-Do not proceed to Step 4 until both pass (or the user explicitly says to
+Do not proceed to Step 5 until both pass (or the user explicitly says to
 continue anyway — their project, their call).
 
 ---
 
-## Step 4 — Update docs
+## Step 5 — Update docs
 
 Walk through each update **one at a time**. Show the proposed change and ask for
 confirmation before applying it.
 
-### 4a. Cargo.toml — bump version
+### 5a. Cargo.toml — bump version
 
 Show:
 
@@ -108,7 +136,7 @@ Show:
 
 Apply on confirmation.
 
-### 4b. README.md — version badge and feature list
+### 5b. README.md — version badge and feature list
 
 Read `README.md`. Find the version badge and the "What it does" feature list (or
 equivalent). Show what you propose to change:
@@ -124,7 +152,7 @@ Show the proposed diff, then ask:
 
 Apply on confirmation.
 
-### 4c. docs/ROADMAP.md — add release date
+### 5c. docs/ROADMAP.md — add release date
 
 Find the heading for the milestone being released. Propose changing it to
 include the release date, e.g.:
@@ -134,14 +162,14 @@ include the release date, e.g.:
 
 Show the change and confirm before applying.
 
-### 4d. docs/design/v{N}/plan.md — final confirmation
+### 5d. docs/design/v{N}/plan.md — final confirmation
 
-Re-read the plan and confirm all steps show ✅ Done. No edits needed if Step 2
+Re-read the plan and confirm all steps show ✅ Done. No edits needed if Step 3
 already verified this — just tell the user it's clean.
 
 ---
 
-## Step 5 — Commit
+## Step 6 — Commit
 
 Run `git diff` to show all pending changes. Then propose the commit:
 
@@ -153,13 +181,16 @@ Run `git diff` to show all pending changes. Then propose the commit:
 >
 > Staged:
 > `Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/v{N}/plan.md`
+> (plus any doc files changed during the Step 2 sync check)
 >
 > OK to commit?"
 
-On confirmation:
+On confirmation, stage everything that was changed — including any architecture
+or component docs updated in Step 2:
 
 ```bash
 git add Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/v{N}/plan.md
+# also add any docs/ARCHITECTURE.md or docs/design/components/*.md changed in Step 2
 git commit -m "Release v{VERSION}"
 ```
 
@@ -167,7 +198,7 @@ If `Cargo.lock` wasn't changed (no new deps), don't stage it.
 
 ---
 
-## Step 6 — Tag
+## Step 7 — Tag
 
 Show the exact command you'll run, then confirm:
 
@@ -183,7 +214,7 @@ Run on confirmation.
 
 ---
 
-## Step 7 — Push
+## Step 8 — Push
 
 Show both push commands and confirm together (they're a natural pair):
 
@@ -200,7 +231,7 @@ Run both on confirmation.
 
 ---
 
-## Step 8 — GitHub release
+## Step 9 — GitHub release
 
 Help the user draft release notes. Use the milestone's user story table from
 `docs/ROADMAP.md` as the starting point. Draft something like:
@@ -253,7 +284,7 @@ Run on confirmation. Share the resulting URL.
 
 ---
 
-## Step 9 — Post-release
+## Step 10 — Post-release
 
 Remind the user:
 

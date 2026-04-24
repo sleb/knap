@@ -30,14 +30,41 @@ Work through these in order. Every item must pass before tagging.
 - [ ] All user stories for the milestone are implemented (cross-check
       `docs/ROADMAP.md`)
 
-### 2. Quality gates
+### 2. Verify docs are in sync with the code
+
+The long-lived architecture and component docs must accurately reflect the
+current implementation before a release is tagged. Drift accumulates during
+development; the release is the forcing function to clear it.
+
+Check each of these against the source:
+
+- [ ] **`docs/ARCHITECTURE.md`** — `Config` shape, Note Index method names,
+      handler table, Debug CLI table, data-flow descriptions, invariants
+- [ ] **`docs/design/components/parser.md`** — dependency versions, all public
+      types (`Note`, `WikiLink`, `Heading`, `Frontmatter`, `Tag`,
+      `MarkdownLink`), `parse()` body, extraction function signatures
+- [ ] **`docs/design/components/note-index.md`** — `NoteIndex` struct fields,
+      `resolve()` lookup strategy, `index()`/`remove()` steps, all read methods,
+      `build()` signature
+- [ ] **`docs/design/components/handlers.md`** — handler signatures (no stale
+      `_config` param), return types, diagnostic message strings, all handlers
+      present for shipped capabilities
+- [ ] **`docs/design/components/protocol-handler.md`** — `Config` struct,
+      capabilities block, notification routing table
+- [ ] **`docs/GETTING_STARTED.md`** — CLI examples, configuration option table,
+      troubleshooting commands
+
+Fix any drift found before continuing. These edits belong in their own commit
+(or can be squashed into the release commit if they're trivial).
+
+### 3. Quality gates
 
 ```bash
 cargo test                    # all tests pass
 cargo clippy -- -D warnings   # zero warnings
 ```
 
-### 3. Update docs
+### 4. Update docs
 
 - [ ] **`Cargo.toml`** — bump `version` to the new version string
 - [ ] **`README.md`** — update the version badge; update the "What it does"
@@ -48,29 +75,31 @@ cargo clippy -- -D warnings   # zero warnings
 - [ ] **`docs/design/v{N}/plan.md`** — confirm all steps show ✅ Done in the
       status table
 
-### 4. Commit
+### 5. Commit
 
-Stage only the files changed above:
+Stage only the files changed in steps 2–4. Include any doc files changed during
+the sync check:
 
 ```bash
 git add Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/v{N}/plan.md
+# plus any docs/ARCHITECTURE.md or docs/design/components/*.md changed in step 2
 git commit -m "Release v{VERSION}"
 ```
 
-### 5. Tag
+### 6. Tag
 
 ```bash
 git tag -a v{VERSION} -m "v{VERSION}"
 ```
 
-### 6. Push
+### 7. Push
 
 ```bash
 git push
 git push --tags
 ```
 
-### 7. Create the GitHub release
+### 8. Create the GitHub release
 
 Write the release notes in a temporary file, then:
 
