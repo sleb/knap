@@ -55,7 +55,12 @@ impl Config {
         let opts: InitOptions = params
             .initialization_options
             .as_ref()
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .map(|v| {
+                serde_json::from_value::<InitOptions>(v.clone()).unwrap_or_else(|e| {
+                    warn!("initializationOptions parse error: {e}; using defaults");
+                    InitOptions::default()
+                })
+            })
             .unwrap_or_default();
 
         Config {
