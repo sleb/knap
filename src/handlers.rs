@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification};
 use lsp_types::{
-    CodeAction, CodeActionParams, CompletionItem, CompletionItemKind,
+    CodeAction, CodeActionKind, CodeActionParams, CompletionItem, CompletionItemKind,
+    CreateFile, CreateFileOptions, DocumentChangeOperation, DocumentChanges, ResourceOp,
     CompletionParams, Diagnostic, DiagnosticSeverity, DocumentSymbol, DocumentSymbolParams,
     DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
     HoverParams, Location, MarkupContent, MarkupKind, Position, PrepareRenameResponse,
@@ -592,8 +593,37 @@ pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) ->
 pub fn handle_code_action(params: CodeActionParams, index: &NoteIndex) -> Vec<CodeAction> {
     let Some(path) = uri_to_path(&params.text_document.uri) else { return vec![] };
     let Some(note) = index.get_note(&path) else { return vec![] };
-    let Some(_link) = find_link_at_position(note, params.range.start) else { return vec![] };
-    vec![]
+    let Some(link) = find_link_at_position(note, params.range.start) else { return vec![] };
+
+    match index.resolve(&link.stem) {
+        ResolvedLink::Broken => {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("md");
+            let new_path = path
+                .parent()
+                .unwrap_or(std::path::Path::new(""))
+                .join(format!("{}.{ext}", link.stem));
+            let new_uri = path_to_uri(&new_path);
+            vec![CodeAction {
+                title: format!("Create note '{}.{ext}'", link.stem),
+                kind: Some(CodeActionKind::QUICKFIX),
+                edit: Some(WorkspaceEdit {
+                    document_changes: Some(DocumentChanges::Operations(vec![
+                        DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
+                            uri: new_uri,
+                            options: Some(CreateFileOptions {
+                                overwrite: Some(false),
+                                ignore_if_exists: Some(true),
+                            }),
+                            annotation_id: None,
+                        })),
+                    ])),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }]
+        }
+        ResolvedLink::Found(_) | ResolvedLink::Ambiguous(_) => vec![],
+    }
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
@@ -1432,6 +1462,72 @@ mod tests {
         idx.index(note("/vault/b.md", ""));
         idx.index(note("/vault/a.md", "[[b]]"));
         // cursor at column 2 — inside [[b]]
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            range: Range { start: pos(0, 2), end: pos(0, 2) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        assert!(handle_code_action(params, &idx).is_empty());
+    }
+
+    #[test]
+    fn code_action_broken_link_creates_file() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "[[missing]]"));
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            range: Range { start: pos(0, 2), end: pos(0, 2) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let actions = handle_code_action(params, &idx);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].title, "Create note 'missing.md'");
+        assert_eq!(actions[0].kind, Some(CodeActionKind::QUICKFIX));
+        let edit = actions[0].edit.as_ref().unwrap();
+        let Some(DocumentChanges::Operations(ops)) = &edit.document_changes else {
+            panic!("expected Operations");
+        };
+        assert_eq!(ops.len(), 1);
+        let DocumentChangeOperation::Op(ResourceOp::Create(create)) = &ops[0] else {
+            panic!("expected CreateFile");
+        };
+        assert!(create.uri.as_str().ends_with("/vault/missing.md"));
+    }
+
+    #[test]
+    fn code_action_broken_link_same_extension() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.mdx", "[[missing]]"));
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.mdx") },
+            range: Range { start: pos(0, 2), end: pos(0, 2) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let actions = handle_code_action(params, &idx);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].title, "Create note 'missing.mdx'");
+        let edit = actions[0].edit.as_ref().unwrap();
+        let Some(DocumentChanges::Operations(ops)) = &edit.document_changes else {
+            panic!("expected Operations");
+        };
+        let DocumentChangeOperation::Op(ResourceOp::Create(create)) = &ops[0] else {
+            panic!("expected CreateFile");
+        };
+        assert!(create.uri.as_str().ends_with("/vault/missing.mdx"));
+    }
+
+    #[test]
+    fn code_action_ambiguous_no_action() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/sub/b.md", ""));
+        idx.index(note("/vault/other/b.md", ""));
+        idx.index(note("/vault/a.md", "[[b]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             range: Range { start: pos(0, 2), end: pos(0, 2) },

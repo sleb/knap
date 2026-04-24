@@ -104,6 +104,35 @@ fn code_action(client: &Connection, request_id: i32, uri: &str, line: u32, chara
     recv_response(client, lsp_server::RequestId::from(request_id))
 }
 
+/// Broken link at cursor → response contains one CreateFile code action.
+#[test]
+fn create_file_action_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "[[missing]]");
+
+    let resp = code_action(&client, 2, "file:///vault/a.md", 0, 2);
+
+    assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+    let actions: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or(json!([]))).unwrap();
+    assert_eq!(actions.len(), 1, "expected 1 action, got: {actions:?}");
+    assert_eq!(actions[0]["title"], "Create note 'missing.md'");
+
+    let ops = &actions[0]["edit"]["documentChanges"];
+    assert!(ops.is_array() && ops.as_array().unwrap().len() == 1);
+    let op = &ops[0];
+    assert_eq!(op["kind"], "create");
+    assert!(
+        op["uri"].as_str().unwrap().ends_with("/vault/missing.md"),
+        "unexpected uri: {}",
+        op["uri"]
+    );
+
+    do_shutdown(&client, 3);
+}
+
 /// Cursor on a valid resolved link → empty code action list.
 #[test]
 fn no_action_on_valid_link() {
