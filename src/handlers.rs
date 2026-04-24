@@ -103,19 +103,8 @@ fn check_trigger(content: &str, pos: Position) -> bool {
 /// Returns the line number (0-indexed) of the frontmatter closing `---`, or
 /// `None` when the content has no valid frontmatter block.
 fn frontmatter_close_line(content: &str) -> Option<usize> {
-    if !content.starts_with("---\n") {
-        return None;
-    }
-    let rest = &content[4..];
-    if let Some(i) = rest.find("\n---\n") {
-        // Count newlines in content[..4+i] to get line number of closing ---
-        let before_close = &content[..4 + i];
-        Some(before_close.lines().count()) // closing --- is one line after
-    } else if rest.strip_suffix("\n---").is_some() {
-        Some(content.lines().count() - 1)
-    } else {
-        None
-    }
+    let offset = crate::parser::frontmatter_body_offset(content);
+    if offset == 0 { None } else { Some(content[..offset].lines().count() - 1) }
 }
 
 /// Returns `true` when the cursor is inside the frontmatter block in a position
@@ -555,13 +544,8 @@ pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) ->
     let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
 
     for rename in params.files {
-        let old_path = uri_to_path(
-            &rename.old_uri.parse().expect("willRenameFiles: invalid old_uri"),
-        );
-        let new_path = url::Url::parse(&rename.new_uri)
-            .expect("willRenameFiles: invalid new_uri")
-            .to_file_path()
-            .expect("willRenameFiles: new_uri is not a file URI");
+        let old_path = uri_to_path(&rename.old_uri.parse().expect("willRenameFiles: invalid old_uri"));
+        let new_path = uri_to_path(&rename.new_uri.parse().expect("willRenameFiles: invalid new_uri"));
         let new_stem = new_path
             .file_stem()
             .expect("willRenameFiles: new_uri has no filename")

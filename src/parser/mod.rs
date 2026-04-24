@@ -135,25 +135,27 @@ pub fn parse(path: &Path, content: &str) -> Note {
     }
 }
 
+/// Return the block of text between the frontmatter delimiters (`---`…`---`),
+/// or `None` when the content has no valid frontmatter.
+fn frontmatter_block(content: &str) -> Option<&str> {
+    if !content.starts_with("---\n") {
+        return None;
+    }
+    let rest = &content[4..];
+    if let Some(i) = rest.find("\n---\n") {
+        Some(&rest[..i])
+    } else {
+        rest.strip_suffix("\n---")
+    }
+}
+
 /// Extract YAML frontmatter from the start of `content`.
 ///
 /// Returns `None` if no valid `---…---` block is found.
 /// Returns `Some(Frontmatter { title: None })` if the block exists but has no
 /// `title:` key (or the value is empty / a block scalar).
 pub fn extract_frontmatter(content: &str) -> Option<Frontmatter> {
-    if !content.starts_with("---\n") {
-        return None;
-    }
-    let rest = &content[4..]; // content after the opening "---\n"
-
-    // Locate the closing "---" — either followed by "\n" or at end-of-input.
-    let block = if let Some(i) = rest.find("\n---\n") {
-        &rest[..i]
-    } else if let Some(stripped) = rest.strip_suffix("\n---") {
-        stripped
-    } else {
-        return None; // opening "---" with no matching close
-    };
+    let block = frontmatter_block(content)?;
 
     // Scan block lines for the first `title:` key.
     let mut title: Option<String> = None;
@@ -190,17 +192,12 @@ pub fn extract_frontmatter(content: &str) -> Option<Frontmatter> {
 /// Returns `0` when there is no frontmatter or the opening `---` is unclosed
 /// (same condition under which `extract_frontmatter` returns `None`).
 pub fn frontmatter_body_offset(content: &str) -> usize {
-    if !content.starts_with("---\n") {
-        return 0;
-    }
-    let rest = &content[4..];
-    if let Some(i) = rest.find("\n---\n") {
-        4 + i + 5 // "---\n"(4) + block + "\n---\n"(5)
-    } else if rest.strip_suffix("\n---").is_some() {
-        content.len() // entire file is frontmatter; body is empty
-    } else {
-        0 // malformed / unclosed block — don't skip anything
-    }
+    let block = match frontmatter_block(content) {
+        Some(b) => b,
+        None => return 0,
+    };
+    let block_end = 4 + block.len(); // 4 = len("---\n")
+    if block_end + 5 <= content.len() { block_end + 5 } else { content.len() }
 }
 
 /// Extract tags from the frontmatter `tags:` key. Supports three forms:
@@ -211,16 +208,9 @@ pub fn frontmatter_body_offset(content: &str) -> usize {
 /// Returns `vec![]` when there is no frontmatter, no `tags:` key, or the value
 /// is a block scalar (`|`, `>`).
 fn extract_tags(content: &str, line_index: &LineIndex) -> Vec<Tag> {
-    if !content.starts_with("---\n") {
-        return vec![];
-    }
-    let rest = &content[4..]; // after opening "---\n"
-    let block = if let Some(i) = rest.find("\n---\n") {
-        &rest[..i]
-    } else if let Some(stripped) = rest.strip_suffix("\n---") {
-        stripped
-    } else {
-        return vec![];
+    let block = match frontmatter_block(content) {
+        Some(b) => b,
+        None => return vec![],
     };
 
     let block_start = 4_usize; // byte offset of block start in full content
