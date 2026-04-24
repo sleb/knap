@@ -354,7 +354,7 @@ fn on_did_open(notif: Notification, index: &mut NoteIndex, sender: &Sender<Messa
             return;
         }
     };
-    let path = uri_to_path(&params.text_document.uri);
+    let Some(path) = uri_to_path(&params.text_document.uri) else { return; };
     let note = parser::parse(&path, &params.text_document.text);
     let delta = index.index(note);
     handlers::publish_diagnostics(&delta.affected_paths, index, sender);
@@ -375,7 +375,7 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
             return;
         }
     };
-    let path = uri_to_path(&params.text_document.uri);
+    let Some(path) = uri_to_path(&params.text_document.uri) else { return; };
     let note = parser::parse(&path, &content);
     let delta = index.index(note);
     handlers::publish_diagnostics(&delta.affected_paths, index, sender);
@@ -395,7 +395,7 @@ fn on_did_change_watched_files(
         }
     };
     for event in params.changes {
-        let path = uri_to_path(&event.uri);
+        let Some(path) = uri_to_path(&event.uri) else { continue; };
         let is_note = path
             .extension()
             .and_then(|e| e.to_str())

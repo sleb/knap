@@ -179,7 +179,9 @@ fn tag_completions(index: &NoteIndex) -> Vec<CompletionItem> {
 
 pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
     let pos = params.text_document_position.position;
-    let path = uri_to_path(&params.text_document_position.text_document.uri);
+    let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
+        return vec![];
+    };
     let Some(note) = index.get_note(&path) else {
         return vec![];
     };
@@ -277,7 +279,7 @@ fn find_md_link_at_position(
 
 pub fn handle_hover(params: HoverParams, index: &NoteIndex) -> Option<Hover> {
     let pos = params.text_document_position_params.position;
-    let path = uri_to_path(&params.text_document_position_params.text_document.uri);
+    let path = uri_to_path(&params.text_document_position_params.text_document.uri)?;
     let note = index.get_note(&path)?;
 
     // 1. Wiki-link at cursor position.
@@ -331,9 +333,9 @@ pub fn handle_document_symbols(
     params: DocumentSymbolParams,
     index: &NoteIndex,
 ) -> DocumentSymbolResponse {
-    let path = uri_to_path(&params.text_document.uri);
-    let symbols = index
-        .get_note(&path)
+    let symbols = uri_to_path(&params.text_document.uri)
+        .as_ref()
+        .and_then(|p| index.get_note(p))
         .map(|note| {
             note.headings
                 .iter()
@@ -424,7 +426,7 @@ pub fn handle_definition(
     index: &NoteIndex,
 ) -> Option<GotoDefinitionResponse> {
     let pos = params.text_document_position_params.position;
-    let path = uri_to_path(&params.text_document_position_params.text_document.uri);
+    let path = uri_to_path(&params.text_document_position_params.text_document.uri)?;
     let note = index.get_note(&path)?;
 
     // 1. Wiki-link at cursor position.
@@ -460,7 +462,7 @@ pub fn handle_definition(
 
 pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Location> {
     let pos = params.text_document_position.position;
-    let path = uri_to_path(&params.text_document_position.text_document.uri);
+    let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else { return vec![] };
     let Some(note) = index.get_note(&path) else { return vec![] };
 
     // 1. Wiki-link at cursor position.
@@ -492,7 +494,7 @@ pub fn handle_prepare_rename(
     params: TextDocumentPositionParams,
     index: &NoteIndex,
 ) -> Option<PrepareRenameResponse> {
-    let path = uri_to_path(&params.text_document.uri);
+    let path = uri_to_path(&params.text_document.uri)?;
     let note = index.get_note(&path)?;
     let heading = note.headings.iter().find(|h| contains(h.range, params.position))?;
     Some(PrepareRenameResponse::RangeWithPlaceholder {
@@ -509,7 +511,7 @@ pub fn handle_prepare_rename(
 /// Returns `None` when the cursor is not on any heading.
 #[allow(clippy::mutable_key_type)]
 pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<WorkspaceEdit> {
-    let path = uri_to_path(&params.text_document_position.text_document.uri);
+    let path = uri_to_path(&params.text_document_position.text_document.uri)?;
     let pos = params.text_document_position.position;
 
     // Extract the heading's data in a scoped block so the borrow of `index`
@@ -561,8 +563,8 @@ pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) ->
     let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
 
     for rename in params.files {
-        let old_path = uri_to_path(&rename.old_uri.parse().expect("willRenameFiles: invalid old_uri"));
-        let new_path = uri_to_path(&rename.new_uri.parse().expect("willRenameFiles: invalid new_uri"));
+        let Some(old_path) = uri_to_path(&rename.old_uri.parse().expect("willRenameFiles: invalid old_uri")) else { continue; };
+        let Some(new_path) = uri_to_path(&rename.new_uri.parse().expect("willRenameFiles: invalid new_uri")) else { continue; };
         let new_stem = new_path
             .file_stem()
             .expect("willRenameFiles: new_uri has no filename")
@@ -588,13 +590,11 @@ pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) ->
 
 /// Convert an LSP URI to an absolute filesystem path.
 ///
-/// Panics if the URI is not a `file://` URI (non-file URIs should never reach
-/// these handlers in a local Markdown LSP server).
-pub fn uri_to_path(uri: &lsp_types::Uri) -> PathBuf {
-    url::Url::parse(uri.as_str())
-        .expect("invalid URI")
-        .to_file_path()
-        .expect("non-file URI")
+/// Returns `None` for non-`file://` URIs (e.g. `untitled:` or
+/// `vscode-notebook-cell:`). Callers should silently skip `None` — there is
+/// nothing useful to index or serve for a buffer without a path.
+pub fn uri_to_path(uri: &lsp_types::Uri) -> Option<PathBuf> {
+    url::Url::parse(uri.as_str()).ok()?.to_file_path().ok()
 }
 
 /// Convert an absolute filesystem path to an LSP URI.
