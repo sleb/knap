@@ -249,12 +249,12 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic>
 
 For each wiki-link in the note:
 
-| Resolution                                | Diagnostic                                                   |
-| ----------------------------------------- | ------------------------------------------------------------ |
-| `Broken`                                  | Warning: `Link target not found: '[[stem]]'`                 |
-| `Ambiguous`                               | Warning: `'[[stem]]' matches multiple files: a.md, b.md`     |
-| `Found` + no anchor                       | No diagnostic                                                |
-| `Found` + anchor not matching any heading | Warning: `Heading not found: '#anchor' in '[[stem#anchor]]'` |
+| Resolution                                | Diagnostic                                                           |
+| ----------------------------------------- | -------------------------------------------------------------------- |
+| `Broken`                                  | Warning: `Link target not found: '[[stem]]'`                         |
+| `Ambiguous`                               | Warning: `'[[stem]]' matches multiple files: /a/stem.md, /b/stem.md` |
+| `Found` + no anchor                       | No diagnostic                                                        |
+| `Found` + anchor not matching any heading | Warning: `Heading not found: '#anchor' in '[[stem#anchor]]'`         |
 
 ---
 

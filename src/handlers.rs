@@ -44,7 +44,7 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
                     link.stem,
                     paths
                         .iter()
-                        .map(|p| p.file_name().unwrap_or_default().to_string_lossy())
+                        .map(|p| p.display().to_string())
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
