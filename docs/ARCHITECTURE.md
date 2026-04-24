@@ -44,18 +44,17 @@ component is needed.
   inside the `initialize` request. This is how all major editors expose
   per-server config (VS Code `settings.json`, Neovim `lspconfig`, Helix
   `languages.toml`).
-- **At runtime:** the client sends `workspace/didChangeConfiguration` if
-  settings change while the server is running.
 
-The Protocol Handler resolves both into a plain `Config` struct that is passed
-to components that need it:
+The Protocol Handler resolves `initializationOptions` into a plain `Config`
+struct at startup. Configuration is fixed for the lifetime of the session —
+`workspace/didChangeConfiguration` is not processed.
 
 ```
 Config {
-  noteRoot?: string       // optional subdirectory to restrict indexing (e.g. "docs/")
-                          // when absent, all workspaceFolders are indexed
-  extensions: string[]    // default: [".md"]
-  linkResolution: "stem" | "path"   // default: "stem"
+  index_roots: PathBuf[]   // workspace folders from the initialize request
+  extensions: string[]     // default: ["md"]
+  attachments_dir?: string // relative path of attachments folder; when set, a
+                           // separate file watcher is registered for it
 }
 ```
 
@@ -111,8 +110,6 @@ incoming message to the right handler.
 - Managing the `initialize` / `initialized` / `shutdown` / `exit` lifecycle
 - Resolving `workspaceFolders` and `initializationOptions` from `initialize`
   into a `Config` struct
-- Updating `Config` on `workspace/didChangeConfiguration` and triggering a
-  re-index when index-affecting fields change
 - Registering file watchers with the client via
   `workspace/didRegisterCapability` at `initialized`
 - Advertising server capabilities during `initialize` based on what handlers are
@@ -184,12 +181,14 @@ remove(path: string) → IndexDelta // delete; returns affected paths for diagno
 **Contract (reads):**
 
 ```
-resolve(stem: string) → ResolvedLink   // stem → path, or broken/ambiguous
-getNote(path: string) → Note | null
-getAllNotes() → Note[]
-getBacklinks(path: string) → WikiLink[]  // links from other notes pointing here
-getAllTags() → string[]
-getNotesByTag(tag: string) → Note[]
+resolve(target: string) → ResolvedLink  // checks by_stem first, then by_filename
+get_note(path: string) → Note | null
+all_notes() → Note[]
+links_to(path: string) → LocatedLink[]  // wiki-links from other notes pointing here
+all_tags() → string[]
+notes_by_tag(tag: string) → Note[]
+add_attachment(path: PathBuf) → IndexDelta
+remove_attachment(path: PathBuf) → IndexDelta
 ```
 
 The index is the single source of truth. Request Handlers read from it
@@ -206,12 +205,14 @@ LSP server startup.
 
 | Subcommand | Usage               | Available from |
 | ---------- | ------------------- | -------------- |
-| `parse`    | `knap parse <file>` | Step 2         |
-| `index`    | `knap index <dir>`  | Step 3         |
+| `parse`    | `knap parse <file>` | v0.1           |
+| `index`    | `knap index <dir>`  | v0.1           |
+| `check`    | `knap check`        | v0.2           |
 
 The CLI shares the same library crate as the server — `cmd_parse` calls
-`parser::parse` directly; `cmd_index` will call `index::build` directly. No LSP
-machinery is involved.
+`parser::parse` directly; `cmd_index` calls `index::build` directly; `cmd_check`
+spins up a full in-process server and exercises the LSP lifecycle as a smoke
+test. No editor is needed.
 
 ---
 
@@ -232,7 +233,9 @@ by the Protocol Handler.
 | Definition       | `textDocument/definition`         | v0.1, v0.3, v0.5       |
 | References       | `textDocument/references`         | v0.1, v0.5             |
 | Diagnostics      | `textDocument/publishDiagnostics` | v0.1, v0.2, v0.3       |
-| Rename           | `workspace/willRenameFiles`       | v0.2                   |
+| FileRename       | `workspace/willRenameFiles`       | v0.2                   |
+| PrepareRename    | `textDocument/prepareRename`      | v0.3                   |
+| HeadingRename    | `textDocument/rename`             | v0.3                   |
 | DocumentSymbols  | `textDocument/documentSymbol`     | v0.3                   |
 | WorkspaceSymbols | `workspace/symbol`                | v0.3                   |
 | Hover            | `textDocument/hover`              | v0.4                   |
@@ -256,14 +259,13 @@ by the Protocol Handler.
 ### User types `[[`
 
 1. Client sends `textDocument/completion`
-2. Completion Handler queries `index.getAllNotes()` for stems/titles
+2. Completion Handler queries `index.all_notes()` for stems/titles
 3. Returns completion list; no filesystem I/O
 
 ### File renamed in editor
 
 1. Client sends `workspace/willRenameFiles`
-2. Rename Handler queries `index.getBacklinks(oldPath)` to find all linking
-   notes
+2. Rename Handler queries `index.links_to(old_path)` to find all linking notes
 3. Returns a `WorkspaceEdit` with text edits for each linking note
 4. Client applies edits; sends `textDocument/didChange` for affected files
 5. Note Index updates affected notes
@@ -285,10 +287,6 @@ by the Protocol Handler.
 - **The Parser is stateless.** It has no knowledge of the rest of the workspace
   — link resolution is the Index's job.
 - **The Transport Layer is LSP-agnostic.** It could serve any JSON-RPC protocol.
-- **Config changes trigger a full re-index.** Changes to `noteRoot` or
-  `extensions` (via `workspace/didChangeConfiguration`) invalidate the entire
-  index. Changes to `workspaceFolders` (via
-  `workspace/didChangeWorkspaceFolders`) do the same.
 - **The client owns file change deduplication.** Open files are updated via
   `textDocument/didChange`; external changes arrive via
   `workspace/didChangeWatchedFiles`. The server never receives both for the same

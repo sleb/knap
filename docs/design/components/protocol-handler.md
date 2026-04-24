@@ -31,32 +31,23 @@ Uninitialized ──► Running ──► ShuttingDown
 
 ## Config
 
-Resolved once from `initialize` and updated on `workspace/didChangeConfiguration`. Passed by reference to all handlers and index operations that need it.
+Resolved once from `initialize`. Configuration is fixed for the session —
+`workspace/didChangeConfiguration` is not processed.
 
 ```rust
 struct Config {
-    /// Roots to index. Derived from workspaceFolders; narrowed by note_root if set.
+    /// Workspace folders from the initialize request.
     index_roots: Vec<PathBuf>,
-    /// File extensions treated as notes.
-    extensions: Vec<String>,    // default: ["md"]
-    /// Link resolution strategy.
-    link_resolution: LinkResolution,
-}
-
-enum LinkResolution {
-    Stem,   // default
-    Path,
+    /// File extensions treated as notes. Default: ["md"]
+    extensions: Vec<String>,
+    /// Optional attachments directory relative to each index root.
+    /// When set, a separate file watcher is registered for this directory.
+    attachments_dir: Option<PathBuf>,
 }
 ```
 
-`index_roots` is computed at init time:
-
-```
-if note_root is set:
-    index_roots = [note_root]
-else:
-    index_roots = workspaceFolders (from initialize params)
-```
+`index_roots` is set directly from `params.workspace_folders` at init time.
+`attachments_dir` and `extensions` come from `initializationOptions`.
 
 ---
 
@@ -66,7 +57,7 @@ else:
 
 1. Extract `InitializeParams` from the request
 2. Compute `Config` from `params.workspace_folders` and `params.initialization_options`
-3. Respond with `InitializeResult` advertising v0.1 capabilities:
+3. Respond with `InitializeResult` advertising capabilities:
 
 ```rust
 ServerCapabilities {
@@ -79,11 +70,25 @@ ServerCapabilities {
     }),
     definition_provider: Some(OneOf::Left(true)),
     references_provider: Some(OneOf::Left(true)),
+    document_symbol_provider: Some(OneOf::Left(true)),
+    workspace_symbol_provider: Some(OneOf::Left(true)),
+    hover_provider: Some(HoverProviderCapability::Simple(true)),
+    rename_provider: Some(OneOf::Right(RenameOptions {
+        prepare_provider: Some(true),
+        ..Default::default()
+    })),
+    workspace: Some(WorkspaceServerCapabilities {
+        file_operations: Some(WorkspaceFileOperationsServerCapabilities {
+            will_rename: Some(/* file operation filter for ** */),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }),
     ..Default::default()
 }
 ```
 
-`FULL` sync means the client sends the complete document content on every change — no incremental diffing in v0.1.
+`FULL` sync means the client sends the complete document content on every change.
 
 ### `initialized` notification
 
@@ -162,9 +167,8 @@ fn dispatch_notification(notif: Notification, ...) {
     match notif.method.as_str() {
         DidOpenTextDocument::METHOD         => on_did_open(notif, ...),
         DidChangeTextDocument::METHOD       => on_did_change(notif, ...),
-        DidCloseTextDocument::METHOD        => on_did_close(notif, ...),
+        DidCloseTextDocument::METHOD        => {}  // no-op: on-disk version already indexed
         DidChangeWatchedFiles::METHOD       => on_did_change_watched_files(notif, ...),
-        DidChangeConfiguration::METHOD      => on_did_change_configuration(notif, ...),
         _                                   => {}  // ignore unknown notifications
     }
 }
@@ -203,7 +207,3 @@ for each FileEvent in params.changes:
     Deleted           → index.remove(path)
 → publish_diagnostics(all affected files)
 ```
-
-### `workspace/didChangeConfiguration`
-
-Recompute `Config` from the new settings. If `index_roots` or `extensions` changed, clear and rebuild the entire index.

@@ -34,8 +34,11 @@ cp target/release/knap ~/.local/bin/
 ### Verify
 
 ```bash
-knap --version
+knap check
 ```
+
+Runs a built-in LSP smoke test. All checks should pass if the server is
+installed correctly.
 
 ---
 
@@ -158,7 +161,8 @@ resolved and no diagnostic is emitted.
 ## 5. Troubleshooting
 
 **knap isn't starting.** Confirm the binary is on your `PATH` by running
-`knap --version` in a terminal. Check your editor's LSP log for startup errors.
+`knap check` in a terminal — all checks should pass. Check your editor's LSP
+log for startup errors.
 
 **Completions show no results.** knap indexes the workspace on startup. If the
 workspace folder wasn't sent in the `initialize` request (check your editor's

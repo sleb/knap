@@ -8,7 +8,7 @@ input it always returns the same output. Has no access to the Note Index.
 ## Dependencies
 
 ```toml
-pulldown-cmark = "0.12"
+pulldown-cmark = "0.13"
 ```
 
 ---
@@ -19,20 +19,54 @@ pulldown-cmark = "0.12"
 /// The parsed representation of a single note file.
 pub struct Note {
     pub path: PathBuf,
-    pub stem: String,           // filename without extension
+    pub stem: String,             // filename without extension
     pub wiki_links: Vec<WikiLink>,
-    pub content: String,        // raw source text, retained for trigger checking in completion
+    pub content: String,          // raw source text, retained for trigger checking in completion
+    pub headings: Vec<Heading>,
+    pub frontmatter: Option<Frontmatter>,
+    pub md_links: Vec<MarkdownLink>,
 }
 
-/// A [[wiki-link]] found in the file.
+/// A `[[wiki-link]]` found in the file.
 pub struct WikiLink {
-    pub stem: String,           // target stem as written, e.g. "other-note"
-    pub range: Range,           // full [[...]] range, for Go to Definition
-    pub inner_range: Range,     // stem text only, for diagnostics
+    pub stem: String,
+    pub anchor: Option<String>,         // text after `#`, trimmed; None when absent or empty
+    pub range: LspRange,                // full [[...]] range, for Go to Definition
+    pub inner_range: LspRange,          // stem text only, for diagnostics and file rename
+    pub anchor_range: Option<LspRange>, // anchor text only, for heading rename
+}
+
+/// An ATX heading found in a note file.
+pub struct Heading {
+    pub text: String,          // raw heading text, e.g. "My Section"
+    pub level: u8,             // ATX heading level 1–6
+    pub range: LspRange,       // full heading line range
+    pub text_range: LspRange,  // text-only range, excluding `## ` prefix (for rename)
+}
+
+/// YAML frontmatter extracted from the top of a note file.
+/// `None` when no `---…---` block is present.
+pub struct Frontmatter {
+    pub title: Option<String>,
+    pub tags: Vec<Tag>,
+}
+
+/// A single tag extracted from the `tags:` frontmatter key.
+pub struct Tag {
+    pub name: String,    // tag text as written (original casing)
+    pub range: LspRange, // tag name's span in the full file (for cursor hit-testing)
+}
+
+/// A standard Markdown link or image found in the file.
+pub struct MarkdownLink {
+    pub text: String,    // link text or image alt text
+    pub target: String,  // URL or relative path, raw (unresolved)
+    pub is_image: bool,  // true for `![alt](url)`
+    pub range: LspRange, // full `[text](url)` or `![alt](url)` span
 }
 ```
 
-`Range` is `lsp_types::Range` (zero-indexed line/character positions).
+`LspRange` is `lsp_types::Range` (zero-indexed line/character positions).
 
 ---
 
@@ -67,11 +101,8 @@ impl LineIndex {
         Position { line: line as u32, character: character as u32 }
     }
 
-    pub fn range(&self, byte_range: std::ops::Range<usize>) -> Range {
-        Range {
-            start: self.position(byte_range.start),
-            end:   self.position(byte_range.end),
-        }
+    pub fn range(&self, byte_range: Range<usize>) -> LspRange {
+        LspRange { start: self.position(byte_range.start), end: self.position(byte_range.end) }
     }
 }
 ```
@@ -86,31 +117,84 @@ impl LineIndex {
 pub fn parse(path: &Path, content: &str) -> Note {
     let stem = path
         .file_stem()
-        .unwrap_or_default()
+        .expect("note path must have a filename")
         .to_string_lossy()
         .into_owned();
 
-    let line_index = LineIndex::new(content);
-    let wiki_links = extract_wiki_links(content, &line_index);
+    let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
+    let frontmatter = extract_frontmatter(content).map(|mut fm| {
+        fm.tags = extract_tags(content, &line_index);
+        fm
+    });
+    let body_offset = frontmatter_body_offset(content);
+    let body = &content[body_offset..];
+    let wiki_links = extract_wiki_links(body, body_offset, &line_index);
+    let headings   = extract_headings(body, body_offset, &line_index);
+    let md_links   = extract_md_links(body, body_offset, &line_index);
 
-    Note { path: path.to_path_buf(), stem, wiki_links, content: content.to_string() }
+    Note { path: path.to_path_buf(), stem, wiki_links, content: content.to_string(),
+           headings, frontmatter, md_links }
 }
 ```
+
+The `LineIndex` is built from the full file so that all byte offsets passed to
+`line_index.range()` are correct even though body extraction functions receive
+only the post-frontmatter slice. The `offset` parameter threads through each
+extraction function to compensate.
+
+---
+
+## Frontmatter extraction
+
+### frontmatter_body_offset()
+
+Returns the byte offset at which the document body starts — the first byte after
+the closing `---\n`. Returns `0` when there is no frontmatter or the opening
+`---` is unclosed.
+
+```rust
+pub fn frontmatter_body_offset(content: &str) -> usize {
+    if !content.starts_with("---\n") { return 0; }
+    let rest = &content[4..];
+    if let Some(i) = rest.find("\n---\n") {
+        4 + i + 5 // "---\n"(4) + block + "\n---\n"(5)
+    } else if rest.strip_suffix("\n---").is_some() {
+        content.len() // entire file is frontmatter; body is empty
+    } else {
+        0 // malformed / unclosed block
+    }
+}
+```
+
+### extract_frontmatter()
+
+Returns `None` if no valid `---…---` block is found, or `Some(Frontmatter)`
+with the `title` key parsed (if present). Tags are populated separately by
+`extract_tags` and merged in by `parse()`.
+
+### extract_tags()
+
+Supports three forms of the `tags:` key: inline list (`tags: [foo, bar]`),
+block list (`tags:\n  - foo`), and bare scalar (`tags: productivity`). Returns
+`vec![]` when there is no frontmatter, no `tags:` key, or the value is a block
+scalar.
 
 ---
 
 ## extract_wiki_links()
 
-pulldown-cmark fragments `[[note]]` into individual character `Text` events
-(`"["`, `"["`, `"note"`, `"]"`, `"]"`), so scanning within `Text` events will
-never see the full `[[` sequence. Instead, the event stream is used only to
-collect **exclusion zones** — byte ranges that must not be scanned — and then
-the full content string is scanned directly.
+pulldown-cmark fragments `[[note]]` into individual character `Text` events,
+so scanning within `Text` events will never see the full `[[` sequence. Instead,
+the event stream is used only to collect **exclusion zones** — byte ranges that
+must not be scanned — and then the full body string is scanned directly.
+
+`content` here is the post-frontmatter body slice; `offset` is its byte
+distance from the start of the full file.
 
 ```rust
-fn extract_wiki_links(content: &str, line_index: &LineIndex) -> Vec<WikiLink> {
+fn extract_wiki_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec<WikiLink> {
     let exclusions = collect_exclusions(content);
-    scan_wiki_links(content, &exclusions, line_index)
+    scan_wiki_links(content, offset, &exclusions, line_index)
 }
 ```
 
@@ -119,88 +203,20 @@ fn extract_wiki_links(content: &str, line_index: &LineIndex) -> Vec<WikiLink> {
 Walks the pulldown-cmark event stream and records the byte ranges of fenced code
 blocks and inline code spans. Everything else is fair game for scanning.
 
-```rust
-fn collect_exclusions(content: &str) -> Vec<Range<usize>> {
-    let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
-    let mut exclusions = Vec::new();
-    let mut code_block_start: Option<usize> = None;
-
-    for (event, range) in parser {
-        match event {
-            Event::Start(Tag::CodeBlock(_)) => { code_block_start = Some(range.start); }
-            Event::End(TagEnd::CodeBlock)   => {
-                if let Some(start) = code_block_start.take() {
-                    exclusions.push(start..range.end);
-                }
-            }
-            Event::Code(_) => { exclusions.push(range); }  // inline code span
-            _ => {}
-        }
-    }
-    exclusions
-}
-```
-
 ### scan_wiki_links()
 
-Scans the full content string for `[[stem]]` patterns, skipping any position
-inside an exclusion zone.
+Scans the full body string for `[[stem]]` patterns, skipping any position inside
+an exclusion zone. Handles alias (`[[note|display]]`) and anchor
+(`[[note#section]]`) suffixes. Records the stem, optional anchor, full range,
+inner (stem-only) range, and optional anchor range.
 
 ```rust
 fn scan_wiki_links(
     content: &str,
+    offset: usize,
     exclusions: &[Range<usize>],
     line_index: &LineIndex,
-) -> Vec<WikiLink> {
-    let mut links = Vec::new();
-    let mut search_from = 0;
-
-    while let Some(open_offset) = content[search_from..].find("[[") {
-        let open = search_from + open_offset;
-
-        if exclusions.iter().any(|ex| ex.contains(&open)) {
-            search_from = open + 1;
-            continue;
-        }
-
-        let after_open = open + 2;
-        let line_end = content[after_open..].find('\n')
-            .map(|n| after_open + n)
-            .unwrap_or(content.len());
-        let line_slice = &content[after_open..line_end];
-
-        if let Some(close_offset) = line_slice.find("]]") {
-            let inner = &line_slice[..close_offset];
-            let close = after_open + close_offset + 2; // byte offset after ]]
-
-            if !inner.trim().is_empty() {
-                // Strip alias suffix ([[note|display]]) then anchor suffix
-                // ([[note#section]]) to isolate the target note stem.
-                let note_part = inner.split('|').next().unwrap_or(inner);
-                let note_part = note_part.split('#').next().unwrap_or(note_part);
-                let stem = note_part.trim();
-
-                // Skip if only a `#section` or `|alias` with no note name.
-                if !stem.is_empty() {
-                    let leading = note_part.len() - note_part.trim_start().len();
-                    let inner_start = after_open + leading;
-                    let inner_end = inner_start + stem.len();
-
-                    links.push(WikiLink {
-                        stem: stem.to_string(),
-                        range:       line_index.range(open..close),
-                        inner_range: line_index.range(inner_start..inner_end),
-                    });
-                }
-            }
-
-            search_from = close;
-        } else {
-            search_from = after_open; // no ]] on this line, keep scanning
-        }
-    }
-    links
-}
+) -> Vec<WikiLink>
 ```
 
 **Edge cases handled:**
@@ -208,16 +224,39 @@ fn scan_wiki_links(
 - `[[link]]` inside a fenced code block → excluded by `collect_exclusions`
 - `` `[[link]]` `` inline code → excluded by `collect_exclusions`
 - `[[note|display text]]` → alias stripped; stem is `"note"`
-- `[[note#section]]` → anchor stripped; stem is `"note"`
+- `[[note#section]]` → anchor captured; stem is `"note"`
 - `[[#section]]` / `[[|alias]]` → no note name; skipped
-- `[[]]` / `[[   ]]` empty/whitespace → skipped (`trim().is_empty()`)
+- `[[]]` / `[[   ]]` empty/whitespace → skipped
 - `[[link` unclosed → skipped (no `]]` found before newline)
 
-`inner_range` covers the stem bytes only (after any leading whitespace, before
-`|` or `#`), so diagnostic squiggles land on the note name regardless of alias
-or anchor suffix.
+`inner_range` covers the stem bytes only, so diagnostic squiggles land on the
+note name regardless of alias or anchor suffix. `anchor_range` covers the anchor
+text only (used by heading rename).
 
-**Not handled in v0.1:**
+---
 
-- Links spanning multiple lines (not valid Obsidian syntax anyway)
-- HTML blocks containing `[[...]]`
+## extract_headings()
+
+Uses pulldown-cmark's offset iterator to find ATX headings. Accumulates `Text`
+events between `Start(Heading)` and `End(Heading)` to capture the heading text.
+Headings inside fenced code blocks are automatically excluded by the parser.
+
+```rust
+fn extract_headings(content: &str, offset: usize, line_index: &LineIndex) -> Vec<Heading>
+```
+
+Each `Heading` carries both a full-line `range` (for navigation and
+DocumentSymbol) and a `text_range` that covers only the text after the `##`
+prefix (for rename).
+
+---
+
+## extract_md_links()
+
+Uses pulldown-cmark's offset iterator to collect standard Markdown links
+(`[text](url)`) and images (`![alt](url)`). Links inside fenced code blocks are
+not emitted by pulldown-cmark and are therefore not collected.
+
+```rust
+fn extract_md_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec<MarkdownLink>
+```
