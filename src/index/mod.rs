@@ -321,11 +321,22 @@ fn walk_files(root: &Path) -> Vec<PathBuf> {
 fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            walk_dir(&path, out);
-        } else {
-            out.push(path);
+        let Ok(ft) = entry.file_type() else { continue };
+        if ft.is_dir() {
+            let name = entry.file_name();
+            if !should_skip_dir(name.to_string_lossy().as_ref()) {
+                walk_dir(&entry.path(), out);
+            }
+        } else if ft.is_file() {
+            out.push(entry.path());
         }
+        // symlinks: ft.is_symlink() → skip to prevent infinite loops
     }
+}
+
+/// Returns `true` for directory names that should not be crawled.
+/// Skips hidden directories (`.git`, `.obsidian`, …) and well-known
+/// build/dependency directories that are never part of a note vault.
+fn should_skip_dir(name: &str) -> bool {
+    name.starts_with('.') || matches!(name, "node_modules" | "target")
 }
