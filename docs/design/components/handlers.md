@@ -262,8 +262,8 @@ For each wiki-link in the note:
 
 ```rust
 /// Convert an LSP URI to an absolute filesystem path.
-/// Panics if the URI is not a `file://` URI.
-pub fn uri_to_path(uri: &lsp_types::Uri) -> PathBuf
+/// Returns `None` for non-`file://` URIs (e.g. `untitled:`, `vscode-notebook-cell:`).
+pub fn uri_to_path(uri: &lsp_types::Uri) -> Option<PathBuf>
 
 /// Convert an absolute filesystem path to an LSP URI.
 /// Panics if `path` is not absolute.

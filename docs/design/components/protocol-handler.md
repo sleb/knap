@@ -47,7 +47,10 @@ struct Config {
 ```
 
 `index_roots` is set directly from `params.workspace_folders` at init time.
-`attachments_dir` and `extensions` come from `initializationOptions`.
+`attachments_dir` and `extensions` come from `initializationOptions`. If
+`initializationOptions` cannot be deserialized (e.g. a typo in the editor's
+LSP config), a `warn!()` is logged and defaults are used — the server still
+starts rather than rejecting the session.
 
 ---
 
