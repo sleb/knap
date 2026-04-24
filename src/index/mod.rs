@@ -94,13 +94,15 @@ impl NoteIndex {
         // 4. Adding this note may resolve previously broken links in other notes.
         affected.extend(self.recheck_links_to(&note.stem));
 
-        // 5. Populate by_tag.
+        // 5. Populate by_tag. Deduplicate so `tags: [rust, rust]` doesn't
+        //    push the same path twice into by_tag["rust"].
         if let Some(fm) = &note.frontmatter {
+            let mut seen = HashSet::new();
             for tag in &fm.tags {
-                self.by_tag
-                    .entry(tag.name.to_lowercase())
-                    .or_default()
-                    .push(note.path.clone());
+                let key = tag.name.to_lowercase();
+                if seen.insert(key.clone()) {
+                    self.by_tag.entry(key).or_default().push(note.path.clone());
+                }
             }
         }
 

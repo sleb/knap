@@ -215,6 +215,14 @@ fn all_tags_distinct() {
 }
 
 #[test]
+fn duplicate_tags_within_note_not_double_counted() {
+    let mut idx = NoteIndex::default();
+    idx.index(note("a.md", "---\ntags: [rust, rust]\n---\n"));
+    let notes = idx.notes_by_tag("rust");
+    assert_eq!(notes.len(), 1, "duplicate tag should only produce one entry");
+}
+
+#[test]
 fn index_replace_updates_tags() {
     let mut idx = NoteIndex::default();
     idx.index(note("a.md", "---\ntags: [old]\n---\n"));
