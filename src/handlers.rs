@@ -7,12 +7,13 @@ use std::path::{Path, PathBuf};
 use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification};
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
-    DocumentSymbol, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
-    GotoDefinitionResponse, Hover, HoverContents, HoverParams, Location, MarkupContent,
-    MarkupKind, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
-    RenameFilesParams, RenameParams, SymbolInformation, SymbolKind, TextDocumentPositionParams,
-    TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
+    CodeAction, CodeActionParams, CompletionItem, CompletionItemKind,
+    CompletionParams, Diagnostic, DiagnosticSeverity, DocumentSymbol, DocumentSymbolParams,
+    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
+    HoverParams, Location, MarkupContent, MarkupKind, Position, PrepareRenameResponse,
+    PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams, RenameParams,
+    SymbolInformation, SymbolKind, TextDocumentPositionParams, TextEdit, WorkspaceEdit,
+    WorkspaceSymbolParams,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -584,6 +585,15 @@ pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) ->
     }
 
     WorkspaceEdit { changes: Some(changes), ..Default::default() }
+}
+
+// ─── Code Actions ─────────────────────────────────────────────────────────────
+
+pub fn handle_code_action(params: CodeActionParams, index: &NoteIndex) -> Vec<CodeAction> {
+    let Some(path) = uri_to_path(&params.text_document.uri) else { return vec![] };
+    let Some(note) = index.get_note(&path) else { return vec![] };
+    let Some(_link) = find_link_at_position(note, params.range.start) else { return vec![] };
+    vec![]
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
@@ -1396,5 +1406,39 @@ mod tests {
     fn check_trigger_unicode_prefix_short() {
         // "café [" — cursor at UTF-16 offset 6, only one `[`
         assert!(!check_trigger("café [[", Position { line: 0, character: 6 }));
+    }
+
+    fn pos(line: u32, character: u32) -> Position {
+        Position { line, character }
+    }
+
+    #[test]
+    fn code_action_no_link_at_cursor() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "no links here"));
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            range: Range { start: pos(0, 0), end: pos(0, 0) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        assert!(handle_code_action(params, &idx).is_empty());
+    }
+
+    #[test]
+    fn code_action_resolved_link_no_action() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", ""));
+        idx.index(note("/vault/a.md", "[[b]]"));
+        // cursor at column 2 — inside [[b]]
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            range: Range { start: pos(0, 2), end: pos(0, 2) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        assert!(handle_code_action(params, &idx).is_empty());
     }
 }

@@ -103,6 +103,7 @@ fn capabilities_advertised() {
 
     assert!(caps.definition_provider.is_some(), "definition_provider missing");
     assert!(caps.references_provider.is_some(), "references_provider missing");
+    assert!(caps.code_action_provider.is_some(), "code_action_provider missing");
 
     do_shutdown(&client, 2);
 }
