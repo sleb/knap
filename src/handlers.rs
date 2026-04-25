@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use crossbeam_channel::Sender;
 use lsp_server::{Message, Notification};
 use lsp_types::{
-    CodeAction, CodeActionKind, CodeActionParams, CompletionItem, CompletionItemKind,
+    CodeAction, CodeActionKind, CodeActionParams, CodeLens, CodeLensParams,
+    CompletionItem, CompletionItemKind,
     CreateFile, CreateFileOptions, DocumentChangeOperation, DocumentChanges, ResourceOp,
     CompletionParams, Diagnostic, DiagnosticSeverity, DocumentSymbol, DocumentSymbolParams,
     DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
@@ -586,6 +587,16 @@ pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) ->
     }
 
     WorkspaceEdit { changes: Some(changes), ..Default::default() }
+}
+
+// ─── Code Lens ────────────────────────────────────────────────────────────────
+
+pub fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec<CodeLens> {
+    let Some(path) = uri_to_path(&params.text_document.uri) else { return vec![] };
+    if index.get_note(&path).is_none() {
+        return vec![];
+    }
+    vec![]
 }
 
 // ─── Code Actions ─────────────────────────────────────────────────────────────
@@ -1707,5 +1718,16 @@ mod tests {
             panic!("expected CreateFile");
         };
         assert!(create.uri.as_str().ends_with("/vault/notes/missing.md"));
+    }
+
+    #[test]
+    fn code_lens_unknown_uri() {
+        let idx = NoteIndex::default();
+        let params = CodeLensParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        assert!(handle_code_lens(params, &idx).is_empty());
     }
 }

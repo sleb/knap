@@ -13,7 +13,7 @@ untested code for the next step to build on.
 
 | Step                              | Status | Notes |
 | --------------------------------- | ------ | ----- |
-| 1 — Capability + routing skeleton | Todo   |       |
+| 1 — Capability + routing skeleton | Done   |       |
 | 2 — US-25: Backlinks code lens    | Todo   |       |
 | 3 — Integration tests             | Todo   |       |
 
