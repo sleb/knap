@@ -13,10 +13,10 @@ untested code for the next step to build on.
 
 | Step                                  | Status | Notes |
 | ------------------------------------- | ------ | ----- |
-| 1 — Capability + routing skeleton     | Todo   |       |
-| 2 — US-18: Create missing file action | Todo   |       |
-| 3 — US-29: Fix broken anchor actions  | Todo   |       |
-| 4 — Integration tests                 | Todo   |       |
+| 1 — Capability + routing skeleton     | Done   |       |
+| 2 — US-18: Create missing file action | Done   |       |
+| 3 — US-29: Fix broken anchor actions  | Done   |       |
+| 4 — Integration tests                 | Done   |       |
 
 ---
 
