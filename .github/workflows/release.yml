@@ -1,58 +1,58 @@
 name: Release
 
 on:
-    push:
-        tags:
-            - "v*"
+  push:
+    tags:
+      - "v*"
 
 permissions:
-    contents: write
+  contents: write
 
 jobs:
-    build:
-        strategy:
-            matrix:
-                include:
-                    - target: aarch64-apple-darwin
-                      os: macos-latest
-                    - target: x86_64-apple-darwin
-                      os: macos-latest
-                    - target: x86_64-unknown-linux-gnu
-                      os: ubuntu-latest
-                    - target: aarch64-unknown-linux-gnu
-                      os: ubuntu-latest
-                    - target: x86_64-pc-windows-msvc
-                      os: windows-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
 
-        runs-on: ${{ matrix.os }}
-        steps:
-            - uses: actions/checkout@v4
-            - uses: dtolnay/rust-toolchain@stable
-              with:
-                  targets: ${{ matrix.target }}
-            - name: Install cross-compile tools (Linux ARM64)
-              if: matrix.target == 'aarch64-unknown-linux-gnu'
-              run: sudo apt-get install -y gcc-aarch64-linux-gnu
-            - run: cargo build --release --target ${{ matrix.target }}
-            - name: Package binary (Unix)
-              if: matrix.os != 'windows-latest'
-              run: |
-                  mkdir knap-${{ matrix.target }}
-                  cp target/${{ matrix.target }}/release/knap knap-${{ matrix.target }}/
-                  tar czf knap-${{ matrix.target }}.tar.gz knap-${{ matrix.target }}/
-            - name: Package binary (Windows)
-              if: matrix.os == 'windows-latest'
-              run: |
-                  mkdir knap-${{ matrix.target }}
-                  cp target/${{ matrix.target }}/release/knap.exe knap-${{ matrix.target }}/
-                  Compress-Archive -Path knap-${{ matrix.target }} -DestinationPath knap-${{ matrix.target }}.zip
-            - name: Upload to release (Unix)
-              if: matrix.os != 'windows-latest'
-              uses: softprops/action-gh-release@v2
-              with:
-                  files: knap-${{ matrix.target }}.tar.gz
-            - name: Upload to release (Windows)
-              if: matrix.os == 'windows-latest'
-              uses: softprops/action-gh-release@v2
-              with:
-                  files: knap-${{ matrix.target }}.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross-compile tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu
+      - run: cargo build --release --target ${{ matrix.target }}
+      - name: Package binary (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir knap-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/knap knap-${{ matrix.target }}/
+          tar czf knap-${{ matrix.target }}.tar.gz knap-${{ matrix.target }}/
+      - name: Package binary (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir knap-${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/knap.exe knap-${{ matrix.target }}/
+          Compress-Archive -Path knap-${{ matrix.target }} -DestinationPath knap-${{ matrix.target }}.zip
+      - name: Upload to release (Unix)
+        if: matrix.os != 'windows-latest'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: knap-${{ matrix.target }}.tar.gz
+      - name: Upload to release (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: knap-${{ matrix.target }}.zip

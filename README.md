@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.6.0-blue)
+![Version](https://img.shields.io/badge/version-0.6.1-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -44,7 +44,7 @@ passed via your editor's native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.6.0 — Code actions. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.6.1 — Code actions. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 
