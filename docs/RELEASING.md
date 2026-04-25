@@ -2,6 +2,65 @@
 
 ---
 
+## Workflow (GitHub flow)
+
+`main` is always the latest **released** state. Every commit on `main`
+corresponds to a tagged release. This matters because `main` serves live
+artifacts that users depend on (e.g. `schemas/v1/initialization_options.json`
+at its raw GitHub URL) — if in-progress work lands on `main`, users get a
+schema that doesn't match their installed binary.
+
+### Branches
+
+| Branch pattern      | Purpose                                                    |
+| ------------------- | ---------------------------------------------------------- |
+| `main`              | Released code only — never commit work-in-progress here    |
+| `feat/<short-name>` | A feature, story, or doc change (e.g. `feat/us-31-schema`) |
+| `fix/<short-name>`  | A bug fix or patch (e.g. `fix/anchor-range-off-by-one`)    |
+
+Cut every branch from `main`:
+
+```bash
+git checkout main
+git pull
+git checkout -b feat/us-32-backlinks
+```
+
+### Merging
+
+Merge to `main` as the **last step of releasing**, not before. The flow is:
+
+1. Do all work on the feature branch.
+2. Run the full release checklist (below) while still on the branch.
+3. When everything passes, merge to `main` and tag immediately.
+
+```bash
+git checkout main
+git merge --no-ff feat/us-32-backlinks -m "Release v0.7.0"
+git tag -a v0.7.0 -m "v0.7.0"
+git push && git push --tags
+```
+
+The `--no-ff` flag keeps the merge commit even if a fast-forward is possible,
+so the graph shows clearly where each feature landed.
+
+### Patches
+
+For a patch release (bug fix against a shipped version), cut the branch from
+the relevant tag rather than from the current tip of `main`:
+
+```bash
+git checkout -b fix/broken-anchor-crash v0.7.0
+# fix, test, then merge back to main and tag v0.7.1
+```
+
+### What goes straight to `main`
+
+Typo fixes in docs that don't touch any live artifact (the schema files, the
+server binary) can go directly to `main`. When in doubt, use a branch.
+
+---
+
 ## Versioning
 
 knap follows [Semantic Versioning 2.0.0](https://semver.org/). Given a version
