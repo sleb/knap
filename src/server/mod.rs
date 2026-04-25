@@ -80,7 +80,15 @@ mod tests;
 
 
 pub fn run(connection: Connection) -> Result<()> {
-    info!("knap starting");
+    info!(
+        "knap {} starting ({})",
+        env!("CARGO_PKG_VERSION"),
+        std::env::current_exe()
+            .ok()
+            .as_deref()
+            .and_then(|p| p.to_str())
+            .unwrap_or("unknown path")
+    );
 
     let (init_id, init_params_raw) = connection.initialize_start()?;
     let init_params: InitializeParams = serde_json::from_value(init_params_raw)?;
