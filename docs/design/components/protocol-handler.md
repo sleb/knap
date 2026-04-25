@@ -71,6 +71,11 @@ ServerCapabilities {
         trigger_characters: Some(vec!["[".to_string()]),
         ..Default::default()
     }),
+    code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
+        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+        resolve_provider: Some(false),
+        ..Default::default()
+    })),
     definition_provider: Some(OneOf::Left(true)),
     references_provider: Some(OneOf::Left(true)),
     document_symbol_provider: Some(OneOf::Left(true)),

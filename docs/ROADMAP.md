@@ -91,7 +91,7 @@ required for the common single-folder case.
 
 ---
 
-## v0.6 — Code Actions
+## v0.6 — Code Actions _(released 2026-04-25)_
 
 **Goal:** Fix broken links without leaving the editor.
 

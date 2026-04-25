@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.5.2-blue)
+![Version](https://img.shields.io/badge/version-0.6.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -27,6 +27,8 @@ LSP-compatible editor.
 - Frontmatter `title:` used as the display label in completions and hover
 - Frontmatter `tags:` completions from the workspace tag index
 - Go to Definition and Find References on a tag value → all files sharing that tag
+- Quick Fix on a broken `[[link]]` → create the missing file instantly
+- Quick Fix on a broken `[[note#anchor]]` → pick from available headings to fix the anchor
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 
@@ -42,7 +44,7 @@ passed via your editor's native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.5.2 — Bug fixes. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.6.0 — Code actions. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 
