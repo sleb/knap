@@ -62,17 +62,16 @@ Implement the handler that counts inbound links and emits a code lens.
 
 **Unit tests:**
 
-| Test                           | What it verifies                                       |
-| ------------------------------ | ------------------------------------------------------ |
-| `code_lens_no_backlinks`       | No inbound links → `vec![]`                            |
-| `code_lens_single_backlink`    | One inbound link → title `"↑ 1 backlink"` (singular)   |
-| `code_lens_multiple_backlinks` | Three inbound links → title `"↑ 3 backlinks"` (plural) |
-| `code_lens_position_is_zero`   | Lens range is always `(0,0)–(0,0)`                     |
+| Test                           | What it verifies                                                       |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| `code_lens_no_backlinks`       | Indexed note with no inbound links → one lens titled `"↑ 0 backlinks"` |
+| `code_lens_single_backlink`    | One inbound link → title `"↑ 1 backlink"` (singular)                   |
+| `code_lens_multiple_backlinks` | Three inbound links → title `"↑ 3 backlinks"` (plural)                 |
+| `code_lens_position_is_zero`   | Lens range is always `(0,0)–(0,0)`                                     |
 
-> **Manual checkpoint:** open a note that other notes link to. A `↑ N backlinks`
-> annotation should appear at the top. Clicking it should open the references
-> panel listing the linking files. Open a note with no inbound links — no lens
-> appears.
+> **Manual checkpoint:** open a note that other notes link to — `↑ N backlinks`
+> appears at the top; clicking opens the references panel. Open a note with no
+> inbound links — `↑ 0 backlinks` appears, confirming the feature is active.
 
 ---
 

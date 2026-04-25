@@ -31,8 +31,8 @@ knap will emit one code lens at line 0 of every indexed note:
 ...
 ```
 
-- **Zero backlinks:** no code lens is emitted (no clutter for orphan notes, or
-  optionally show `↑ 0 backlinks` — decided at implementation time).
+- **Zero backlinks:** `"↑ 0 backlinks"` is emitted. Suppressing the lens on
+  orphan notes would leave the user wondering whether the feature is working.
 - **One or more backlinks:** `"↑ N backlinks"` at position `(0, 0)`.
 - **Clicking the lens** triggers Find References at position `(0, 0)`, opening
   the references panel with the full list of backlinks.
@@ -97,11 +97,12 @@ Algorithm:
 
 1. Resolve `params.text_document.uri` → `path` via `uri_to_path`. Return `vec![]`
    on non-file URIs.
-2. Count backlinks: `index.references(&path).len()` — the set of notes that
-   contain a link resolving to this path.
-3. If count is zero, return `vec![]`.
-4. Return one `CodeLens` at `(0, 0)` with title `"↑ N backlinks"` and command
-   `editor.action.findReferences`.
+2. Look up the note at `path` in the index. Return `vec![]` if not found (file
+   not indexed — e.g. a non-note file opened in the editor).
+3. Count backlinks: `index.references(&path).len()`.
+4. Return one `CodeLens` at `(0, 0)` with title `"↑ N backlink(s)"` and command
+   `editor.action.findReferences`. Always emit the lens for indexed notes,
+   including zero-backlink ones.
 
 ### `NoteIndex` changes
 
@@ -144,17 +145,17 @@ Add to `dispatch_request` in `src/server/mod.rs`:
 
 ### Unit tests (`src/handlers.rs` inline)
 
-| Test                           | What it verifies                                              |
-| ------------------------------ | ------------------------------------------------------------- |
-| `code_lens_no_backlinks`       | Note with no inbound links → `vec![]`                         |
-| `code_lens_single_backlink`    | One note links here → lens title `"↑ 1 backlink"` (singular)  |
-| `code_lens_multiple_backlinks` | Three notes link here → lens title `"↑ 3 backlinks"` (plural) |
-| `code_lens_position_is_zero`   | Lens range is always `(0,0)–(0,0)` regardless of note content |
-| `code_lens_unknown_uri`        | URI not in index → `vec![]`                                   |
+| Test                           | What it verifies                                                       |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| `code_lens_no_backlinks`       | Indexed note with no inbound links → one lens titled `"↑ 0 backlinks"` |
+| `code_lens_single_backlink`    | One note links here → lens title `"↑ 1 backlink"` (singular)           |
+| `code_lens_multiple_backlinks` | Three notes link here → lens title `"↑ 3 backlinks"` (plural)          |
+| `code_lens_position_is_zero`   | Lens range is always `(0,0)–(0,0)` regardless of note content          |
+| `code_lens_unknown_uri`        | URI not in index → `vec![]`                                            |
 
 ### Integration tests (`tests/code_lens.rs`)
 
-| Test                           | What it verifies                                                          |
-| ------------------------------ | ------------------------------------------------------------------------- |
-| `code_lens_round_trip`         | Note with 2 inbound links → response contains one lens with correct title |
-| `code_lens_no_backlinks_empty` | Note with no inbound links → empty response                               |
+| Test                             | What it verifies                                               |
+| -------------------------------- | -------------------------------------------------------------- |
+| `code_lens_round_trip`           | Note with 2 inbound links → one lens with correct title        |
+| `code_lens_zero_backlinks_shown` | Note with no inbound links → one lens titled `"↑ 0 backlinks"` |
