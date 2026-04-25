@@ -12,15 +12,34 @@ fn spawn_server() -> Connection {
 }
 
 fn do_initialize(client: &Connection) {
+    do_initialize_with_options(client, json!(null));
+}
+
+fn do_initialize_with_options(client: &Connection, init_options: serde_json::Value) {
+    do_initialize_full(client, init_options, json!(null));
+}
+
+fn do_initialize_full(
+    client: &Connection,
+    init_options: serde_json::Value,
+    workspace_folders: serde_json::Value,
+) {
+    let mut params = json!({
+        "capabilities": {},
+        "clientInfo": { "name": "test-client", "version": "0.0.1" }
+    });
+    if !init_options.is_null() {
+        params["initializationOptions"] = init_options;
+    }
+    if !workspace_folders.is_null() {
+        params["workspaceFolders"] = workspace_folders;
+    }
     client
         .sender
         .send(Message::Request(Request {
             id: lsp_server::RequestId::from(1i32),
             method: "initialize".to_string(),
-            params: json!({
-                "capabilities": {},
-                "clientInfo": { "name": "test-client", "version": "0.0.1" }
-            }),
+            params,
         }))
         .unwrap();
 
@@ -178,6 +197,37 @@ fn no_action_on_valid_link() {
     let actions: Vec<serde_json::Value> =
         serde_json::from_value(resp.result.unwrap_or(json!([]))).unwrap();
     assert!(actions.is_empty(), "expected no actions, got: {actions:?}");
+
+    do_shutdown(&client, 3);
+}
+
+/// newNoteDir in initializationOptions → CreateFile URI uses configured directory.
+#[test]
+fn new_note_dir_round_trip() {
+    let client = spawn_server();
+    do_initialize_full(
+        &client,
+        json!({ "newNoteDir": "0-Inbox" }),
+        json!([{ "uri": "file:///vault", "name": "vault" }]),
+    );
+
+    did_open(&client, "file:///vault/a.md", "[[missing]]");
+
+    let resp = code_action(&client, 2, "file:///vault/a.md", 0, 2);
+
+    assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+    let actions: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or(json!([]))).unwrap();
+    assert_eq!(actions.len(), 1, "expected 1 action, got: {actions:?}");
+    assert_eq!(actions[0]["title"], "Create note '0-Inbox/missing.md'");
+
+    let op = &actions[0]["edit"]["documentChanges"][0];
+    assert_eq!(op["kind"], "create");
+    assert!(
+        op["uri"].as_str().unwrap().ends_with("/0-Inbox/missing.md"),
+        "unexpected uri: {}",
+        op["uri"]
+    );
 
     do_shutdown(&client, 3);
 }

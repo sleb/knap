@@ -127,6 +127,12 @@ create the missing file, so I can stub out notes without leaving my editor.
 code action shows me the available headings from the target file so I can pick
 the right one and fix the broken anchor without leaving my editor.
 
+**US-30** — As a markdown author, I can optionally set `newNoteDir` in
+`initializationOptions` to a folder path (e.g. `"0-Inbox"`) so that all notes
+created by the Quick Fix "Create note" action land in that folder — relative to
+the workspace root — instead of next to the current file. This lets me keep all
+unprocessed stubs in one place (an inbox) regardless of where the link appears.
+
 ---
 
 ## Configuration

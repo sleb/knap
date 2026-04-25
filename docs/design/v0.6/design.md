@@ -2,10 +2,11 @@
 
 Covers the stories in the v0.6 release:
 
-| Story | Feature                                                           |
-| ----- | ----------------------------------------------------------------- |
-| US-18 | Code action: create missing file from broken `[[link]]`           |
-| US-29 | Code action: fix broken anchor by picking from available headings |
+| Story | Feature                                                                     |
+| ----- | --------------------------------------------------------------------------- |
+| US-18 | Code action: create missing file from broken `[[link]]`                     |
+| US-29 | Code action: fix broken anchor by picking from available headings           |
+| US-30 | Config: `newNoteDir` — new notes from Quick Fix land in a configured folder |
 
 **Out of scope for v0.6:** rename-via-code-action, extract-selection-to-new-note
 (US-19), code actions for ambiguous links, code actions outside of wiki-link
@@ -77,24 +78,45 @@ edit:  WorkspaceEdit { document_changes: [CreateFile { uri: new_uri }] }
 
 ### New file path
 
-The new file is created in the **same directory as the current file**. This
-matches Obsidian's default "create in same folder" behaviour and requires no
-configuration.
+By default the new file is created in the **same directory as the current
+file**. When `newNoteDir` is configured, it is created in that folder instead.
 
 ```
-new_path = current_file_path.parent() / (stem + "." + first_extension)
+# default
+new_path = current_file_path.parent() / (stem + "." + ext)
+
+# with newNoteDir configured
+new_path = workspace_root / newNoteDir / (stem + "." + ext)
 ```
 
-`first_extension` is the first entry in `config.extensions` (defaults to `"md"`).
-But `handle_code_action` is a pure function — it doesn't receive `Config`.
-Instead, the stem is extracted from the link, and the extension is inferred
-from the current note's own extension (a note named `note.md` implies notes use
-`.md`; a note named `note.mdx` implies `.mdx`).
+`workspace_root` is the `index_root` that is an ancestor of the current note's
+path. If no root matches (shouldn't occur in normal use), falls back to the
+same-directory behaviour.
+
+Extension is inferred from the current note's own extension (`.md`, `.mdx`, …);
+defaults to `"md"` if absent.
+
+`handle_code_action` receives `new_note_dir: Option<&Path>` (already resolved
+to an absolute path by `dispatch_request`) rather than the raw relative string.
+This keeps the handler a pure function.
 
 ```rust
-let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("md");
-let new_path = path.parent().unwrap_or(Path::new("")).join(format!("{stem}.{ext}"));
-let new_uri = path_to_uri(&new_path);
+let dir = new_note_dir
+    .unwrap_or_else(|| path.parent().unwrap_or(Path::new("")));
+let new_path = dir.join(format!("{stem}.{ext}"));
+```
+
+### Action title
+
+When `newNoteDir` is configured the title includes the destination folder so
+the user can see at a glance where the note will land:
+
+```
+# default
+"Create note 'stem.md'"
+
+# with newNoteDir = "0-Inbox"
+"Create note '0-Inbox/stem.md'"
 ```
 
 ### WorkspaceEdit
@@ -187,7 +209,7 @@ Add routing in `dispatch_request`:
 "textDocument/codeAction" => {
     let actions = serde_json::from_value::<CodeActionParams>(req.params)
         .ok()
-        .map(|params| handlers::handle_code_action(params, index))
+        .map(|params| handlers::handle_code_action(params, index, new_note_dir))
         .unwrap_or_default();
     connection.sender.send(Message::Response(Response::new_ok(req.id, actions)))?;
 }
@@ -195,25 +217,44 @@ Add routing in `dispatch_request`:
 
 ---
 
+## US-30 — `newNoteDir` configuration
+
+### Config key
+
+`initializationOptions.newNoteDir` — optional string, path relative to each
+workspace root. When absent, same-directory behaviour is preserved.
+
+```json
+{ "newNoteDir": "0-Inbox" }
+```
+
+Stored in `Config` as `new_note_dir: Option<PathBuf>`. Resolved to an absolute
+path in `dispatch_request` before being passed to `handle_code_action`.
+
+---
+
 ## Testing
 
 ### Unit tests (`src/handlers.rs` inline)
 
-| Test                                        | What it verifies                                                                      |
-| ------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `code_action_broken_link_creates_file`      | Broken `[[missing]]` → one action, title contains stem, edit creates file in same dir |
-| `code_action_broken_link_same_extension`    | Current file is `.mdx` → new file gets `.mdx` extension                               |
-| `code_action_resolved_link_no_action`       | Valid `[[found]]` → empty actions                                                     |
-| `code_action_broken_anchor_lists_headings`  | `[[note#Bad]]` with `note.md` having `## Good` and `## Other` → two actions           |
-| `code_action_broken_anchor_edit_range`      | Edit range targets `link.anchor_range` (anchor text only, not `#`)                    |
-| `code_action_no_headings_no_anchor_actions` | `[[note#Bad]]` with target having no headings → empty actions                         |
-| `code_action_no_link_at_cursor`             | Cursor not on a wiki-link → empty actions                                             |
-| `code_action_ambiguous_no_action`           | Ambiguous link → empty actions (not a supported case)                                 |
+| Test                                        | What it verifies                                                                          |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `code_action_broken_link_creates_file`      | Broken `[[missing]]` → one action, title contains stem, edit creates file in same dir     |
+| `code_action_broken_link_same_extension`    | Current file is `.mdx` → new file gets `.mdx` extension                                   |
+| `code_action_resolved_link_no_action`       | Valid `[[found]]` → empty actions                                                         |
+| `code_action_broken_anchor_lists_headings`  | `[[note#Bad]]` with `note.md` having `## Good` and `## Other` → two actions               |
+| `code_action_broken_anchor_edit_range`      | Edit range targets `link.anchor_range` (anchor text only, not `#`)                        |
+| `code_action_no_headings_no_anchor_actions` | `[[note#Bad]]` with target having no headings → empty actions                             |
+| `code_action_no_link_at_cursor`             | Cursor not on a wiki-link → empty actions                                                 |
+| `code_action_ambiguous_no_action`           | Ambiguous link → empty actions (not a supported case)                                     |
+| `code_action_new_note_dir_used`             | `newNoteDir` configured → CreateFile URI uses configured dir; title shows `"dir/stem.md"` |
+| `code_action_new_note_dir_fallback`         | `newNoteDir` configured but no index_root matches → falls back to same-dir                |
 
-### Integration tests (`tests/code_actions.rs`, new file)
+### Integration tests (`tests/code_actions.rs`)
 
 | Test                            | What it verifies                                                                     |
 | ------------------------------- | ------------------------------------------------------------------------------------ |
 | `create_file_action_round_trip` | Full LSP round-trip: broken link → code action request → CreateFile edit returned    |
 | `fix_anchor_action_round_trip`  | Full LSP round-trip: broken anchor → code action request → TextEdit replacing anchor |
 | `no_action_on_valid_link`       | Valid link at cursor → empty code action response                                    |
+| `new_note_dir_round_trip`       | `newNoteDir` in initializationOptions → CreateFile URI uses configured dir           |

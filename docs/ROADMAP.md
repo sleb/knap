@@ -95,10 +95,11 @@ required for the common single-folder case.
 
 **Goal:** Fix broken links without leaving the editor.
 
-| Story | Feature                                                           |
-| ----- | ----------------------------------------------------------------- |
-| US-18 | Code action: create missing file from broken `[[link]]`           |
-| US-29 | Code action: fix broken anchor by picking from available headings |
+| Story | Feature                                                                     |
+| ----- | --------------------------------------------------------------------------- |
+| US-18 | Code action: create missing file from broken `[[link]]`                     |
+| US-29 | Code action: fix broken anchor by picking from available headings           |
+| US-30 | Config: `newNoteDir` — new notes from Quick Fix land in a configured folder |
 
 **LSP capabilities delivered:** `textDocument/codeAction`
 

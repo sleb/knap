@@ -590,7 +590,11 @@ pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) ->
 
 // ─── Code Actions ─────────────────────────────────────────────────────────────
 
-pub fn handle_code_action(params: CodeActionParams, index: &NoteIndex) -> Vec<CodeAction> {
+pub fn handle_code_action(
+    params: CodeActionParams,
+    index: &NoteIndex,
+    new_note_dir: Option<&std::path::Path>,
+) -> Vec<CodeAction> {
     let Some(path) = uri_to_path(&params.text_document.uri) else { return vec![] };
     let Some(note) = index.get_note(&path) else { return vec![] };
     let Some(link) = find_link_at_position(note, params.range.start) else { return vec![] };
@@ -598,13 +602,22 @@ pub fn handle_code_action(params: CodeActionParams, index: &NoteIndex) -> Vec<Co
     match index.resolve(&link.stem) {
         ResolvedLink::Broken => {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("md");
-            let new_path = path
-                .parent()
-                .unwrap_or(std::path::Path::new(""))
-                .join(format!("{}.{ext}", link.stem));
+            let default_dir = path.parent().unwrap_or(std::path::Path::new(""));
+            let dir = new_note_dir.unwrap_or(default_dir);
+            let new_path = dir.join(format!("{}.{ext}", link.stem));
             let new_uri = path_to_uri(&new_path);
+            let title = match new_note_dir {
+                Some(d) => format!(
+                    "Create note '{}/{}.{ext}'",
+                    d.file_name()
+                        .unwrap_or(d.as_os_str())
+                        .to_string_lossy(),
+                    link.stem
+                ),
+                None => format!("Create note '{}.{ext}'", link.stem),
+            };
             vec![CodeAction {
-                title: format!("Create note '{}.{ext}'", link.stem),
+                title,
                 kind: Some(CodeActionKind::QUICKFIX),
                 edit: Some(WorkspaceEdit {
                     document_changes: Some(DocumentChanges::Operations(vec![
@@ -1486,7 +1499,7 @@ mod tests {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        assert!(handle_code_action(params, &idx).is_empty());
+        assert!(handle_code_action(params, &idx, None).is_empty());
     }
 
     #[test]
@@ -1502,7 +1515,7 @@ mod tests {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        assert!(handle_code_action(params, &idx).is_empty());
+        assert!(handle_code_action(params, &idx, None).is_empty());
     }
 
     #[test]
@@ -1516,7 +1529,7 @@ mod tests {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        let actions = handle_code_action(params, &idx);
+        let actions = handle_code_action(params, &idx, None);
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].title, "Create note 'missing.md'");
         assert_eq!(actions[0].kind, Some(CodeActionKind::QUICKFIX));
@@ -1542,7 +1555,7 @@ mod tests {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        let actions = handle_code_action(params, &idx);
+        let actions = handle_code_action(params, &idx, None);
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].title, "Create note 'missing.mdx'");
         let edit = actions[0].edit.as_ref().unwrap();
@@ -1568,7 +1581,7 @@ mod tests {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        assert!(handle_code_action(params, &idx).is_empty());
+        assert!(handle_code_action(params, &idx, None).is_empty());
     }
 
     #[test]
@@ -1583,7 +1596,7 @@ mod tests {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        let actions = handle_code_action(params, &idx);
+        let actions = handle_code_action(params, &idx, None);
         assert_eq!(actions.len(), 2);
         assert_eq!(actions[0].title, "Change anchor to '#Alpha'");
         assert_eq!(actions[1].title, "Change anchor to '#Beta'");
@@ -1601,7 +1614,7 @@ mod tests {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        let actions = handle_code_action(params, &idx);
+        let actions = handle_code_action(params, &idx, None);
         assert_eq!(actions.len(), 1);
         let edit = actions[0].edit.as_ref().unwrap();
         let changes = edit.changes.as_ref().unwrap();
@@ -1624,7 +1637,7 @@ mod tests {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        assert!(handle_code_action(params, &idx).is_empty());
+        assert!(handle_code_action(params, &idx, None).is_empty());
     }
 
     #[test]
@@ -1639,6 +1652,60 @@ mod tests {
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         };
-        assert!(handle_code_action(params, &idx).is_empty());
+        assert!(handle_code_action(params, &idx, None).is_empty());
+    }
+
+    #[test]
+    fn code_action_new_note_dir_used() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/notes/a.md", "[[missing]]"));
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: file_uri("/vault/notes/a.md"),
+            },
+            range: Range { start: pos(0, 2), end: pos(0, 2) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let new_note_dir = std::path::Path::new("/vault/0-Inbox");
+        let actions = handle_code_action(params, &idx, Some(new_note_dir));
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].title, "Create note '0-Inbox/missing.md'");
+        let edit = actions[0].edit.as_ref().unwrap();
+        let Some(DocumentChanges::Operations(ops)) = &edit.document_changes else {
+            panic!("expected Operations");
+        };
+        let DocumentChangeOperation::Op(ResourceOp::Create(create)) = &ops[0] else {
+            panic!("expected CreateFile");
+        };
+        assert!(create.uri.as_str().ends_with("/vault/0-Inbox/missing.md"));
+    }
+
+    #[test]
+    fn code_action_new_note_dir_fallback() {
+        // When new_note_dir is None, falls back to same directory as current note.
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/notes/a.md", "[[missing]]"));
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: file_uri("/vault/notes/a.md"),
+            },
+            range: Range { start: pos(0, 2), end: pos(0, 2) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let actions = handle_code_action(params, &idx, None);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].title, "Create note 'missing.md'");
+        let edit = actions[0].edit.as_ref().unwrap();
+        let Some(DocumentChanges::Operations(ops)) = &edit.document_changes else {
+            panic!("expected Operations");
+        };
+        let DocumentChangeOperation::Op(ResourceOp::Create(create)) = &ops[0] else {
+            panic!("expected CreateFile");
+        };
+        assert!(create.uri.as_str().ends_with("/vault/notes/missing.md"));
     }
 }

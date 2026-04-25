@@ -28,6 +28,7 @@ struct Config {
     index_roots: Vec<PathBuf>,
     extensions: Vec<String>,
     attachments_dir: Option<PathBuf>,
+    new_note_dir: Option<PathBuf>,
 }
 
 /// Mirrors the shape of `initializationOptions` sent by the editor.
@@ -36,6 +37,7 @@ struct Config {
 struct InitOptions {
     extensions: Option<Vec<String>>,
     attachments_dir: Option<String>,
+    new_note_dir: Option<String>,
 }
 
 impl Config {
@@ -68,6 +70,7 @@ impl Config {
             index_roots,
             extensions: opts.extensions.unwrap_or_else(|| vec!["md".to_string()]),
             attachments_dir: opts.attachments_dir.map(PathBuf::from),
+            new_note_dir: opts.new_note_dir.map(PathBuf::from),
         }
     }
 }
@@ -167,7 +170,7 @@ pub fn run(connection: Connection) -> Result<()> {
                     info!("shutdown requested");
                     break;
                 }
-                dispatch_request(req, &connection, &index)?;
+                dispatch_request(req, &connection, &index, &config)?;
             }
             Message::Notification(notif) => {
                 debug!("notification: method={}", notif.method);
@@ -256,11 +259,18 @@ fn register_file_watcher(
     Ok(())
 }
 
-fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) -> Result<()> {
+fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex, config: &Config) -> Result<()> {
     match req.method.as_str() {
         "textDocument/codeAction" => {
             let actions = match serde_json::from_value::<CodeActionParams>(req.params) {
-                Ok(params) => handlers::handle_code_action(params, index),
+                Ok(params) => {
+                    let new_note_dir = config.new_note_dir.as_ref().and_then(|rel| {
+                        let doc_path = handlers::uri_to_path(&params.text_document.uri)?;
+                        let root = config.index_roots.iter().find(|r| doc_path.starts_with(r))?;
+                        Some(root.join(rel))
+                    });
+                    handlers::handle_code_action(params, index, new_note_dir.as_deref())
+                }
                 Err(e) => {
                     warn!("codeAction: bad params: {e}");
                     vec![]

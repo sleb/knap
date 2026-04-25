@@ -17,6 +17,7 @@ untested code for the next step to build on.
 | 2 — US-18: Create missing file action | Done   |       |
 | 3 — US-29: Fix broken anchor actions  | Done   |       |
 | 4 — Integration tests                 | Done   |       |
+| 5 — US-30: newNoteDir config          | Done   |       |
 
 ---
 
