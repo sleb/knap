@@ -218,19 +218,27 @@ Returns `None` when the cursor is not on any heading.
 ## Code Actions (`textDocument/codeAction`)
 
 ```rust
-pub fn handle_code_action(params: CodeActionParams, index: &NoteIndex) -> Vec<CodeAction>
+pub fn handle_code_action(
+    params: CodeActionParams,
+    index: &NoteIndex,
+    new_note_dir: Option<&Path>,
+) -> Vec<CodeAction>
 ```
 
 Returns zero or more `CodeAction` values for the wiki-link at `params.range.start`.
 Returns `vec![]` when there is no wiki-link at the cursor, the note is not indexed,
 or the link resolves in a way that offers no action.
 
-| Condition                                           | Actions returned                                                                                                                                                                                                                                                            |
-| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Link resolves to `Broken`                           | One `QUICKFIX` action: `"Create note 'stem.ext'"` — a `WorkspaceEdit` with a `CreateFile` operation in the same directory as the current note. Extension is inferred from the current note's own extension; defaults to `md`. `ignore_if_exists: true` makes it idempotent. |
-| Link resolves to `Found` with a non-matching anchor | One `QUICKFIX` action per heading in the target note: `"Change anchor to '#HeadingText'"` — a `WorkspaceEdit` with a `TextEdit` replacing `link.anchor_range` with the heading text. Returns `vec![]` if the target has no headings or the anchor already matches.          |
-| Link resolves to `Ambiguous`                        | `vec![]` — not actionable                                                                                                                                                                                                                                                   |
-| Link resolves to `Found` with no anchor             | `vec![]`                                                                                                                                                                                                                                                                    |
+`new_note_dir` is the resolved absolute path for new notes (from `Config::new_note_dir`,
+already joined to the workspace root by `dispatch_request`). When `None`, new files
+are created in the same directory as the current note.
+
+| Condition                                           | Actions returned                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Link resolves to `Broken`                           | One `QUICKFIX` action: `"Create note 'stem.ext'"` (or `"Create note 'dir/stem.ext'"` when `new_note_dir` is set) — a `WorkspaceEdit` with a `CreateFile` operation. New file lands in `new_note_dir` if configured, otherwise the same directory as the current note. Extension inferred from the current note's own extension; defaults to `md`. `ignore_if_exists: true` makes it idempotent. |
+| Link resolves to `Found` with a non-matching anchor | One `QUICKFIX` action per heading in the target note: `"Change anchor to '#HeadingText'"` — a `WorkspaceEdit` with a `TextEdit` replacing `link.anchor_range` with the heading text. Returns `vec![]` if the target has no headings or the anchor already matches.                                                                                                                              |
+| Link resolves to `Ambiguous`                        | `vec![]` — not actionable                                                                                                                                                                                                                                                                                                                                                                       |
+| Link resolves to `Found` with no anchor             | `vec![]`                                                                                                                                                                                                                                                                                                                                                                                        |
 
 ---
 

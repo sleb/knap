@@ -43,14 +43,18 @@ struct Config {
     /// Optional attachments directory relative to each index root.
     /// When set, a separate file watcher is registered for this directory.
     attachments_dir: Option<PathBuf>,
+    /// Optional folder (relative to each index root) where Quick Fix
+    /// "Create note" actions create new files. When absent, new notes
+    /// are created in the same directory as the current note.
+    new_note_dir: Option<PathBuf>,
 }
 ```
 
 `index_roots` is set directly from `params.workspace_folders` at init time.
-`attachments_dir` and `extensions` come from `initializationOptions`. If
-`initializationOptions` cannot be deserialized (e.g. a typo in the editor's
-LSP config), a `warn!()` is logged and defaults are used — the server still
-starts rather than rejecting the session.
+`attachments_dir`, `extensions`, and `new_note_dir` come from
+`initializationOptions`. If `initializationOptions` cannot be deserialized
+(e.g. a typo in the editor's LSP config), a `warn!()` is logged and defaults
+are used — the server still starts rather than rejecting the session.
 
 ---
 
