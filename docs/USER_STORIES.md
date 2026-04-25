@@ -133,10 +133,11 @@ created by the Quick Fix "Create note" action land in that folder — relative t
 the workspace root — instead of next to the current file. This lets me keep all
 unprocessed stubs in one place (an inbox) regardless of where the link appears.
 
-**US-31** — As a Zed user, when I edit knap's `initialization_options` in my
-`settings.json`, the editor offers autocompletion and inline validation for
-recognized keys (e.g. `newNoteDir`, `extensions`, `attachmentsDir`) so I can
-configure the server without referring to external documentation.
+**US-31** — As a Zed user, I can add a `$schema` key to my knap
+`initialization_options` block in `settings.json` and immediately get
+autocompletion and inline validation for all recognized keys (`extensions`,
+`attachmentsDir`, `newNoteDir`), so I can configure the server without
+consulting external documentation and the editor flags unknown keys on the spot.
 
 ---
 

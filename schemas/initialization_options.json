@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "title": "knap initialization options",
+  "description": "Configuration passed to the knap LSP server via initializationOptions.",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference — used by editors for validation and autocompletion."
+    },
+    "extensions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["md"],
+      "description": "File extensions treated as notes. Files with other extensions are treated as attachments. Default: [\"md\"]."
+    },
+    "attachmentsDir": {
+      "type": "string",
+      "description": "Path to your attachments folder, relative to the workspace root. When set, knap watches this directory so attachment-link diagnostics stay live."
+    },
+    "newNoteDir": {
+      "type": "string",
+      "description": "Folder relative to the workspace root where Quick Fix 'Create note' actions create new files (e.g. \"0-Inbox\"). Defaults to the same directory as the current note."
+    }
+  },
+  "additionalProperties": false
+}

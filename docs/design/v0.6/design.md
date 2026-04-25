@@ -233,17 +233,43 @@ path in `dispatch_request` before being passed to `handle_code_action`.
 
 ---
 
-## US-31 — Zed extension: `initialization_options` JSON schema
+## US-31 — `initialization_options` JSON schema (inline `$schema` approach)
 
 ### Mechanism
 
-The `zed_extension_api` trait exposes an optional
-`language_server_initialization_options_schema` method. When overridden, Zed
-uses the returned JSON Schema value to validate and autocomplete whatever the
-user writes under the `initialization_options` key in `settings.json`.
+Zed supports [inline schema specification](https://zed.dev/docs/languages/json#inline-schema-specification):
+adding a `"$schema"` key to any JSON object causes the editor to fetch and apply
+that schema for validation and autocompletion of sibling keys.
 
-There is no `extension.toml` key for this — it is a Rust method override in
-`src/lib.rs` of the `zed-knap` extension.
+Users add `$schema` to their `initialization_options` block in `settings.json`:
+
+```json
+{
+  "lsp": {
+    "knap": {
+      "initialization_options": {
+        "$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/initialization_options.json",
+        "newNoteDir": "0-Inbox"
+      }
+    }
+  }
+}
+```
+
+The `$schema` key is passed through to the server as part of `initializationOptions`
+but is silently ignored — `InitOptions` does not use `deny_unknown_fields`.
+
+Note: `zed_extension_api` 0.7.0 (the current release) also exposes a
+`language_server_initialization_options_schema` trait method that would apply
+the schema automatically without the user needing to add `$schema`. However, this
+method was added to Zed's main branch after the 0.7.0 release and is not yet on
+crates.io. The inline `$schema` approach delivers the same UX today.
+
+### Schema location
+
+`schemas/initialization_options.json` in the knap repository, served via GitHub
+raw URL. Must be kept in sync with `InitOptions` in `src/server/mod.rs` whenever
+a new config key is added.
 
 ### Schema
 
@@ -252,32 +278,29 @@ There is no `extension.toml` key for this — it is a Rust method override in
   "$schema": "http://json-schema.org/draft-07/schema",
   "type": "object",
   "properties": {
+    "$schema": { "type": "string" },
     "extensions": {
       "type": "array",
       "items": { "type": "string" },
-      "description": "File extensions treated as notes (default: [\"md\"])"
+      "default": ["md"],
+      "description": "File extensions treated as notes (default: [\"md\"])."
     },
     "attachmentsDir": {
       "type": "string",
-      "description": "Subdirectory for attachment files (e.g. \"assets\")"
+      "description": "Subdirectory for attachment files (e.g. \"assets\")."
     },
     "newNoteDir": {
       "type": "string",
-      "description": "Folder (relative to workspace root) where Quick Fix 'Create note' actions land (e.g. \"0-Inbox\")"
+      "description": "Folder (relative to workspace root) where Quick Fix 'Create note' actions land (e.g. \"0-Inbox\")."
     }
   },
   "additionalProperties": false
 }
 ```
 
-`additionalProperties: false` is what triggers the "key is not defined" warning
-the editor shows for unknown keys.
-
-### Implementation location
-
-`zed-knap` (`src/lib.rs`), not in the knap server itself. The schema must be
-kept in sync with `InitOptions` in `src/server/mod.rs` whenever a new config
-key is added.
+`"$schema"` is listed as an explicit property so the key itself doesn't trigger
+an "unknown key" warning. `additionalProperties: false` flags any other
+unrecognized keys.
 
 ---
 

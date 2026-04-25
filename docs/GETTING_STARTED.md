@@ -57,15 +57,18 @@ automatically downloads the server binary from the latest GitHub release — no
 manual installation needed.
 
 To pass configuration options (see [Configuration](#3-configuration) below),
-add a `lsp` block to your Zed `settings.json`:
+add a `lsp` block to your Zed `settings.json`. Including the `$schema` key
+enables inline autocompletion and validation for all knap options:
 
 ```json
 {
   "lsp": {
     "knap": {
       "initialization_options": {
+        "$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/initialization_options.json",
         "extensions": ["md"],
-        "attachmentsDir": "assets"
+        "attachmentsDir": "assets",
+        "newNoteDir": "0-Inbox"
       }
     }
   }
@@ -91,15 +94,19 @@ when you need to customise behaviour:
 | ---------------- | ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `extensions`     | `string[]`       | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments.                                                                                  |
 | `attachmentsDir` | `string \| null` | `null`   | Path to your attachments folder, relative to the workspace root. When set, knap watches this directory for new and deleted files so attachment-link diagnostics stay live. |
+| `newNoteDir`     | `string \| null` | `null`   | Folder (relative to workspace root) where Quick Fix "Create note" actions create new files (e.g. `"0-Inbox"`). Defaults to the same directory as the current note.         |
 
-**Example — multi-extension vault with an assets folder:**
+**Example — multi-extension vault with an assets folder and inbox:**
 
 ```json
 {
   "extensions": ["md", "mdx"],
-  "attachmentsDir": "assets"
+  "attachmentsDir": "assets",
+  "newNoteDir": "0-Inbox"
 }
 ```
+
+**Tip:** add `"$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/initialization_options.json"` to your `initialization_options` object in Zed's `settings.json` to get autocompletion and inline validation for all knap options.
 
 ---
 

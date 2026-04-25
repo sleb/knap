@@ -11,14 +11,14 @@ untested code for the next step to build on.
 
 ## Status
 
-| Step                                         | Status  | Notes                           |
-| -------------------------------------------- | ------- | ------------------------------- |
-| 1 — Capability + routing skeleton            | Done    |                                 |
-| 2 — US-18: Create missing file action        | Done    |                                 |
-| 3 — US-29: Fix broken anchor actions         | Done    |                                 |
-| 4 — Integration tests                        | Done    |                                 |
-| 5 — US-30: newNoteDir config                 | Done    |                                 |
-| 6 — US-31: Zed extension init options schema | Blocked | Needs zed_extension_api > 0.7.0 |
+| Step                                         | Status | Notes                   |
+| -------------------------------------------- | ------ | ----------------------- |
+| 1 — Capability + routing skeleton            | Done   |                         |
+| 2 — US-18: Create missing file action        | Done   |                         |
+| 3 — US-29: Fix broken anchor actions         | Done   |                         |
+| 4 — Integration tests                        | Done   |                         |
+| 5 — US-30: newNoteDir config                 | Done   |                         |
+| 6 — US-31: Zed extension init options schema | Done   | Inline $schema approach |
 
 ---
 
