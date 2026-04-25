@@ -259,10 +259,13 @@ fn register_file_watcher(
 fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) -> Result<()> {
     match req.method.as_str() {
         "textDocument/codeAction" => {
-            let actions = serde_json::from_value::<CodeActionParams>(req.params)
-                .ok()
-                .map(|params| handlers::handle_code_action(params, index))
-                .unwrap_or_default();
+            let actions = match serde_json::from_value::<CodeActionParams>(req.params) {
+                Ok(params) => handlers::handle_code_action(params, index),
+                Err(e) => {
+                    warn!("codeAction: bad params: {e}");
+                    vec![]
+                }
+            };
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, actions)))?;

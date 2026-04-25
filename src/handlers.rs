@@ -622,7 +622,40 @@ pub fn handle_code_action(params: CodeActionParams, index: &NoteIndex) -> Vec<Co
                 ..Default::default()
             }]
         }
-        ResolvedLink::Found(_) | ResolvedLink::Ambiguous(_) => vec![],
+        ResolvedLink::Found(target_path) => {
+            let Some(anchor) = &link.anchor else { return vec![] };
+            let Some(target_note) = index.get_note(&target_path) else { return vec![] };
+            let anchor_lower = anchor.to_lowercase();
+            let already_valid = target_note
+                .headings
+                .iter()
+                .any(|h| h.text.to_lowercase() == anchor_lower);
+            if already_valid {
+                return vec![];
+            }
+            if target_note.headings.is_empty() {
+                return vec![];
+            }
+            let anchor_range = link.anchor_range.expect("anchor_range present when anchor is Some");
+            let current_uri = path_to_uri(&path);
+            target_note
+                .headings
+                .iter()
+                .map(|h| CodeAction {
+                    title: format!("Change anchor to '#{}'", h.text),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    edit: Some(WorkspaceEdit {
+                        changes: Some(std::collections::HashMap::from([(
+                            current_uri.clone(),
+                            vec![TextEdit { range: anchor_range, new_text: h.text.clone() }],
+                        )])),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })
+                .collect()
+        }
+        ResolvedLink::Ambiguous(_) => vec![],
     }
 }
 
@@ -1528,6 +1561,77 @@ mod tests {
         idx.index(note("/vault/sub/b.md", ""));
         idx.index(note("/vault/other/b.md", ""));
         idx.index(note("/vault/a.md", "[[b]]"));
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            range: Range { start: pos(0, 2), end: pos(0, 2) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        assert!(handle_code_action(params, &idx).is_empty());
+    }
+
+    #[test]
+    fn code_action_broken_anchor_lists_headings() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "## Alpha\n## Beta"));
+        idx.index(note("/vault/a.md", "[[b#Bad]]"));
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            range: Range { start: pos(0, 2), end: pos(0, 2) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let actions = handle_code_action(params, &idx);
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].title, "Change anchor to '#Alpha'");
+        assert_eq!(actions[1].title, "Change anchor to '#Beta'");
+    }
+
+    #[test]
+    fn code_action_broken_anchor_edit_range() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "## Alpha"));
+        idx.index(note("/vault/a.md", "[[b#Bad]]"));
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            range: Range { start: pos(0, 2), end: pos(0, 2) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let actions = handle_code_action(params, &idx);
+        assert_eq!(actions.len(), 1);
+        let edit = actions[0].edit.as_ref().unwrap();
+        let changes = edit.changes.as_ref().unwrap();
+        let edits = changes.values().next().unwrap();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "Alpha");
+        // anchor range must not include the '#'
+        assert_eq!(edits[0].range.start.character, 4); // [[b# → col 4
+    }
+
+    #[test]
+    fn code_action_no_headings_no_anchor_actions() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "no headings here"));
+        idx.index(note("/vault/a.md", "[[b#Bad]]"));
+        let params = CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            range: Range { start: pos(0, 2), end: pos(0, 2) },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        assert!(handle_code_action(params, &idx).is_empty());
+    }
+
+    #[test]
+    fn code_action_valid_anchor_no_action() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/b.md", "## Good"));
+        idx.index(note("/vault/a.md", "[[b#Good]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             range: Range { start: pos(0, 2), end: pos(0, 2) },

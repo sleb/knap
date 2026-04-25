@@ -133,6 +133,35 @@ fn create_file_action_round_trip() {
     do_shutdown(&client, 3);
 }
 
+/// Broken anchor → two actions, one per heading; each has a TextEdit at the anchor range.
+#[test]
+fn fix_anchor_action_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/b.md", "## Alpha\n## Beta");
+    did_open(&client, "file:///vault/a.md", "[[b#Bad]]");
+
+    let resp = code_action(&client, 2, "file:///vault/a.md", 0, 2);
+
+    assert!(resp.error.is_none(), "unexpected error: {:?}", resp.error);
+    let actions: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or(json!([]))).unwrap();
+    assert_eq!(actions.len(), 2, "expected 2 actions, got: {actions:?}");
+    assert_eq!(actions[0]["title"], "Change anchor to '#Alpha'");
+    assert_eq!(actions[1]["title"], "Change anchor to '#Beta'");
+
+    // Each action must have a TextEdit
+    for action in &actions {
+        let changes = &action["edit"]["changes"];
+        assert!(changes.is_object(), "expected changes object");
+        let edits = changes.as_object().unwrap().values().next().unwrap();
+        assert_eq!(edits.as_array().unwrap().len(), 1);
+    }
+
+    do_shutdown(&client, 3);
+}
+
 /// Cursor on a valid resolved link → empty code action list.
 #[test]
 fn no_action_on_valid_link() {
