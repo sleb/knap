@@ -14,7 +14,7 @@ untested code for the next step to build on.
 | Step                              | Status | Notes |
 | --------------------------------- | ------ | ----- |
 | 1 — Capability + routing skeleton | Done   |       |
-| 2 — US-25: Backlinks code lens    | Todo   |       |
+| 2 — US-25: Backlinks code lens    | Done   |       |
 | 3 — Integration tests             | Todo   |       |
 
 ---

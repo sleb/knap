@@ -596,7 +596,25 @@ pub fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec<CodeLe
     if index.get_note(&path).is_none() {
         return vec![];
     }
-    vec![]
+
+    let count = index.links_to(&path).len();
+    let label = match count {
+        1 => "↑ 1 backlink".to_string(),
+        n => format!("↑ {n} backlinks"),
+    };
+    let zero = Position { line: 0, character: 0 };
+    vec![CodeLens {
+        range: Range { start: zero, end: zero },
+        command: Some(lsp_types::Command {
+            title: label,
+            command: "editor.action.findReferences".to_string(),
+            arguments: Some(vec![
+                serde_json::to_value(&params.text_document.uri).unwrap(),
+                serde_json::to_value(zero).unwrap(),
+            ]),
+        }),
+        data: None,
+    }]
 }
 
 // ─── Code Actions ─────────────────────────────────────────────────────────────
@@ -1729,5 +1747,65 @@ mod tests {
             partial_result_params: Default::default(),
         };
         assert!(handle_code_lens(params, &idx).is_empty());
+    }
+
+    #[test]
+    fn code_lens_no_backlinks() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "no links here"));
+        let params = CodeLensParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let lenses = handle_code_lens(params, &idx);
+        assert_eq!(lenses.len(), 1);
+        assert_eq!(lenses[0].command.as_ref().unwrap().title, "↑ 0 backlinks");
+    }
+
+    #[test]
+    fn code_lens_single_backlink() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", ""));
+        idx.index(note("/vault/b.md", "[[a]]"));
+        let params = CodeLensParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let lenses = handle_code_lens(params, &idx);
+        assert_eq!(lenses.len(), 1);
+        assert_eq!(lenses[0].command.as_ref().unwrap().title, "↑ 1 backlink");
+    }
+
+    #[test]
+    fn code_lens_multiple_backlinks() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", ""));
+        idx.index(note("/vault/b.md", "[[a]]"));
+        idx.index(note("/vault/c.md", "[[a]]"));
+        idx.index(note("/vault/d.md", "[[a]]"));
+        let params = CodeLensParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let lenses = handle_code_lens(params, &idx);
+        assert_eq!(lenses.len(), 1);
+        assert_eq!(lenses[0].command.as_ref().unwrap().title, "↑ 3 backlinks");
+    }
+
+    #[test]
+    fn code_lens_position_is_zero() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "line one\nline two\nline three"));
+        let params = CodeLensParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        };
+        let lenses = handle_code_lens(params, &idx);
+        assert_eq!(lenses[0].range.start, Position { line: 0, character: 0 });
+        assert_eq!(lenses[0].range.end, Position { line: 0, character: 0 });
     }
 }
