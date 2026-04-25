@@ -233,6 +233,54 @@ path in `dispatch_request` before being passed to `handle_code_action`.
 
 ---
 
+## US-31 — Zed extension: `initialization_options` JSON schema
+
+### Mechanism
+
+The `zed_extension_api` trait exposes an optional
+`language_server_initialization_options_schema` method. When overridden, Zed
+uses the returned JSON Schema value to validate and autocomplete whatever the
+user writes under the `initialization_options` key in `settings.json`.
+
+There is no `extension.toml` key for this — it is a Rust method override in
+`src/lib.rs` of the `zed-knap` extension.
+
+### Schema
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "type": "object",
+  "properties": {
+    "extensions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "File extensions treated as notes (default: [\"md\"])"
+    },
+    "attachmentsDir": {
+      "type": "string",
+      "description": "Subdirectory for attachment files (e.g. \"assets\")"
+    },
+    "newNoteDir": {
+      "type": "string",
+      "description": "Folder (relative to workspace root) where Quick Fix 'Create note' actions land (e.g. \"0-Inbox\")"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+`additionalProperties: false` is what triggers the "key is not defined" warning
+the editor shows for unknown keys.
+
+### Implementation location
+
+`zed-knap` (`src/lib.rs`), not in the knap server itself. The schema must be
+kept in sync with `InitOptions` in `src/server/mod.rs` whenever a new config
+key is added.
+
+---
+
 ## Testing
 
 ### Unit tests (`src/handlers.rs` inline)

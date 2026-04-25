@@ -95,11 +95,12 @@ required for the common single-folder case.
 
 **Goal:** Fix broken links without leaving the editor.
 
-| Story | Feature                                                                     |
-| ----- | --------------------------------------------------------------------------- |
-| US-18 | Code action: create missing file from broken `[[link]]`                     |
-| US-29 | Code action: fix broken anchor by picking from available headings           |
-| US-30 | Config: `newNoteDir` — new notes from Quick Fix land in a configured folder |
+| Story | Feature                                                                                        |
+| ----- | ---------------------------------------------------------------------------------------------- |
+| US-18 | Code action: create missing file from broken `[[link]]`                                        |
+| US-29 | Code action: fix broken anchor by picking from available headings                              |
+| US-30 | Config: `newNoteDir` — new notes from Quick Fix land in a configured folder                    |
+| US-31 | Zed extension: JSON schema for `initialization_options` — autocompletion and inline validation |
 
 **LSP capabilities delivered:** `textDocument/codeAction`
 

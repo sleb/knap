@@ -11,13 +11,14 @@ untested code for the next step to build on.
 
 ## Status
 
-| Step                                  | Status | Notes |
-| ------------------------------------- | ------ | ----- |
-| 1 — Capability + routing skeleton     | Done   |       |
-| 2 — US-18: Create missing file action | Done   |       |
-| 3 — US-29: Fix broken anchor actions  | Done   |       |
-| 4 — Integration tests                 | Done   |       |
-| 5 — US-30: newNoteDir config          | Done   |       |
+| Step                                         | Status | Notes |
+| -------------------------------------------- | ------ | ----- |
+| 1 — Capability + routing skeleton            | Done   |       |
+| 2 — US-18: Create missing file action        | Done   |       |
+| 3 — US-29: Fix broken anchor actions         | Done   |       |
+| 4 — Integration tests                        | Done   |       |
+| 5 — US-30: newNoteDir config                 | Done   |       |
+| 6 — US-31: Zed extension init options schema | Todo   |       |
 
 ---
 
@@ -160,15 +161,38 @@ Ensure the full test suite is green and every story is verified end-to-end.
 
 ---
 
+## Step 6 — US-31: Zed extension initialization options schema
+
+Add `language_server_initialization_options_schema` to `zed-knap/src/lib.rs`.
+This is a pure `zed-knap` change — the knap server is untouched.
+
+**Deliverables:**
+
+- `language_server_initialization_options_schema` overridden in `KnapExtension`
+  impl; returns a `serde_json::Value` describing all `InitOptions` fields
+- `additionalProperties: false` so unknown keys are flagged by the editor
+- `KNAP_LOG=debug` removed from the server env; `eprintln!` info logs added for
+  binary source (local path or GitHub release version)
+- `extension.wasm` rebuilt
+
+> **Manual checkpoint:** in Zed's `settings.json`, type an unknown key inside
+> `initialization_options` for knap — the editor should show a warning. Type a
+> known key like `newNoteDir` — autocompletion should offer it and show the
+> description.
+
+---
+
 ## Done — v0.6 complete
 
-At this point both v0.6 user stories are implemented and tested:
+At this point all v0.6 user stories are implemented and tested:
 
-| Story | Feature                                    | Delivered in step |
-| ----- | ------------------------------------------ | ----------------- |
-| US-18 | Create missing file from broken `[[link]]` | Step 2            |
-| US-29 | Fix broken anchor by picking a heading     | Step 3            |
+| Story | Feature                                                | Delivered in step |
+| ----- | ------------------------------------------------------ | ----------------- |
+| US-18 | Create missing file from broken `[[link]]`             | Step 2            |
+| US-29 | Fix broken anchor by picking a heading                 | Step 3            |
+| US-30 | `newNoteDir` config for Quick Fix create-note actions  | Step 5            |
+| US-31 | Zed extension JSON schema for `initialization_options` | Step 6            |
 
 Final check before tagging: run `cargo test`, run
 `cargo clippy -- -D warnings`, then do a full manual end-to-end session covering
-both stories. Confirm all v0.5 and earlier features remain unaffected.
+all stories. Confirm all v0.5 and earlier features remain unaffected.
