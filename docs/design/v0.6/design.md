@@ -248,7 +248,7 @@ Users add `$schema` to their `initialization_options` block in `settings.json`:
   "lsp": {
     "knap": {
       "initialization_options": {
-        "$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/initialization_options.json",
+        "$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/initialization_options.json",
         "newNoteDir": "0-Inbox"
       }
     }
@@ -267,7 +267,7 @@ crates.io. The inline `$schema` approach delivers the same UX today.
 
 ### Schema location
 
-`schemas/initialization_options.json` in the knap repository, served via GitHub
+`schemas/v1/initialization_options.json` in the knap repository, served via GitHub
 raw URL. Must be kept in sync with `InitOptions` in `src/server/mod.rs` whenever
 a new config key is added.
 

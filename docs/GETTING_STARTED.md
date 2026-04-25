@@ -65,7 +65,7 @@ enables inline autocompletion and validation for all knap options:
   "lsp": {
     "knap": {
       "initialization_options": {
-        "$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/initialization_options.json",
+        "$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/initialization_options.json",
         "extensions": ["md"],
         "attachmentsDir": "assets",
         "newNoteDir": "0-Inbox"
@@ -106,7 +106,7 @@ when you need to customise behaviour:
 }
 ```
 
-**Tip:** add `"$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/initialization_options.json"` to your `initialization_options` object in Zed's `settings.json` to get autocompletion and inline validation for all knap options.
+**Tip:** add `"$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/initialization_options.json"` to your `initialization_options` object in Zed's `settings.json` to get autocompletion and inline validation for all knap options.
 
 ---
 
