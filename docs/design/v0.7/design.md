@@ -72,18 +72,23 @@ CodeLens {
     command: Some(Command {
         title: format!("↑ {} backlink{}", count, if count == 1 { "" } else { "s" }),
         command: "editor.action.findReferences".to_string(),
-        arguments: Some(vec![
-            serde_json::to_value(&params.text_document.uri).unwrap(),
-            serde_json::to_value(Position { line: 0, character: 0 }).unwrap(),
-        ]),
+        arguments: None,
     }),
     data: None,
 }
 ```
 
-`editor.action.findReferences` is the VS Code / Zed command for showing
-references at a given position. Editors that don't support this command will
-display the code lens title as non-clickable text — still useful as a count.
+`editor.action.findReferences` is invoked with no arguments. When a user clicks
+the code lens, the editor moves the cursor to the lens position `(0, 0)` and
+fires the command, which triggers `textDocument/references` at that position.
+The references handler falls back to returning all backlinks to the document when
+there is no link or tag under the cursor (case 3 in `handle_references`).
+
+Passing URI + position as `arguments` was the original intent, but VS Code
+rejects serialized JSON `Uri`/`Position` as "Unexpected type" — it expects
+native vscode objects, which cannot come through the LSP wire. The no-argument
+approach works correctly in VS Code and will work in Zed once code lens lands.
+Editors that don't support this command display the lens as non-clickable text.
 
 ---
 
@@ -145,13 +150,14 @@ Add to `dispatch_request` in `src/server/mod.rs`:
 
 ### Unit tests (`src/handlers.rs` inline)
 
-| Test                           | What it verifies                                                       |
-| ------------------------------ | ---------------------------------------------------------------------- |
-| `code_lens_no_backlinks`       | Indexed note with no inbound links → one lens titled `"↑ 0 backlinks"` |
-| `code_lens_single_backlink`    | One note links here → lens title `"↑ 1 backlink"` (singular)           |
-| `code_lens_multiple_backlinks` | Three notes link here → lens title `"↑ 3 backlinks"` (plural)          |
-| `code_lens_position_is_zero`   | Lens range is always `(0,0)–(0,0)` regardless of note content          |
-| `code_lens_unknown_uri`        | URI not in index → `vec![]`                                            |
+| Test                             | What it verifies                                                       |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| `code_lens_no_backlinks`         | Indexed note with no inbound links → one lens titled `"↑ 0 backlinks"` |
+| `code_lens_single_backlink`      | One note links here → lens title `"↑ 1 backlink"` (singular)           |
+| `code_lens_multiple_backlinks`   | Three notes link here → lens title `"↑ 3 backlinks"` (plural)          |
+| `code_lens_position_is_zero`     | Lens range is always `(0,0)–(0,0)` regardless of note content          |
+| `code_lens_unknown_uri`          | URI not in index → `vec![]`                                            |
+| `references_no_symbol_at_cursor` | Cursor on prose (no link/tag) → backlinks to the document              |
 
 ### Integration tests (`tests/code_lens.rs`)
 

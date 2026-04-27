@@ -486,7 +486,17 @@ pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Loca
         return locations_for_tag(&tag.name, index);
     }
 
-    vec![]
+    // 3. No symbol at cursor — return all backlinks to this document.
+    //    This makes "Find References" at any non-link position behave as
+    //    "who links to me", which is what the backlinks code lens triggers.
+    index
+        .links_to(&path)
+        .iter()
+        .map(|located| Location {
+            uri: path_to_uri(&located.source_path),
+            range: located.wiki_link.range,
+        })
+        .collect()
 }
 
 // ─── Heading Rename ───────────────────────────────────────────────────────────
@@ -608,10 +618,7 @@ pub fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec<CodeLe
         command: Some(lsp_types::Command {
             title: label,
             command: "editor.action.findReferences".to_string(),
-            arguments: Some(vec![
-                serde_json::to_value(&params.text_document.uri).unwrap(),
-                serde_json::to_value(zero).unwrap(),
-            ]),
+            arguments: None,
         }),
         data: None,
     }]
@@ -1461,6 +1468,19 @@ mod tests {
         let resp = handle_definition(params, &idx).expect("expected a response");
         assert!(matches!(resp, GotoDefinitionResponse::Scalar(_)),
             "wiki-link definition should still return Scalar");
+    }
+
+    /// Cursor on prose (no link, no tag) → returns all backlinks to the document.
+    #[test]
+    fn references_no_symbol_at_cursor() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/target.md", "Just prose here\n"));
+        idx.index(note("/vault/a.md", "[[target]]\n"));
+        idx.index(note("/vault/b.md", "[[target]]\n"));
+
+        let params = make_references_params("/vault/target.md", 0, 5);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 2, "expected backlinks from a.md and b.md");
     }
 
     /// Cursor on a tag → references returns the same set as definition.
