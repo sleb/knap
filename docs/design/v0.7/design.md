@@ -71,24 +71,20 @@ CodeLens {
     range: Range { start: Position { line: 0, character: 0 }, end: Position { line: 0, character: 0 } },
     command: Some(Command {
         title: format!("↑ {} backlink{}", count, if count == 1 { "" } else { "s" }),
-        command: "editor.action.findReferences".to_string(),
+        command: "knap.findBacklinks".to_string(),
         arguments: None,
     }),
     data: None,
 }
 ```
 
-`editor.action.findReferences` is invoked with no arguments. When a user clicks
-the code lens, the editor moves the cursor to the lens position `(0, 0)` and
-fires the command, which triggers `textDocument/references` at that position.
-The references handler falls back to returning all backlinks to the document when
-there is no link or tag under the cursor (case 3 in `handle_references`).
+`knap.findBacklinks` is registered by the VS Code extension. When clicked, the
+extension calls `references-view.findReferences` with proper `vscode.Uri` and
+`vscode.Position(0, 0)` objects — types that cannot be sent over the LSP wire.
 
-Passing URI + position as `arguments` was the original intent, but VS Code
-rejects serialized JSON `Uri`/`Position` as "Unexpected type" — it expects
-native vscode objects, which cannot come through the LSP wire. The no-argument
-approach works correctly in VS Code and will work in Zed once code lens lands.
-Editors that don't support this command display the lens as non-clickable text.
+Editors without the knap extension (Zed, Neovim) display the lens as
+non-clickable text. This is acceptable: the count is already useful, and
+editor-specific extensions can register `knap.findBacklinks` to enable clicking.
 
 ---
 

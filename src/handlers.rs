@@ -617,7 +617,7 @@ pub fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec<CodeLe
         range: Range { start: zero, end: zero },
         command: Some(lsp_types::Command {
             title: label,
-            command: "editor.action.findReferences".to_string(),
+            command: "knap.findBacklinks".to_string(),
             arguments: None,
         }),
         data: None,
