@@ -297,6 +297,7 @@ impl NoteIndex {
 Every mutation returns an `IndexDelta` describing which files were affected. The Protocol Handler uses this to decide which files need their diagnostics republished.
 
 ```rust
+#[must_use]
 pub struct IndexDelta {
     /// Paths whose diagnostic state may have changed.
     /// Includes the mutated file itself, plus any other files

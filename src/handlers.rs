@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crossbeam_channel::Sender;
+use log::warn;
 use lsp_server::{Message, Notification};
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionParams, CodeLens, CodeLensParams,
@@ -160,10 +161,12 @@ pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: 
             diagnostics,
             version: None,
         };
-        let _ = sender.send(Message::Notification(Notification {
+        if let Err(e) = sender.send(Message::Notification(Notification {
             method: "textDocument/publishDiagnostics".to_string(),
             params: serde_json::to_value(params).expect("serialize diagnostics"),
-        }));
+        })) {
+            warn!("failed to publish diagnostics for {}: {e}", path.display());
+        }
     }
 }
 
@@ -427,6 +430,12 @@ fn is_external_url(target: &str) -> bool {
 }
 
 /// Normalize `.` and `..` components in `path` without touching the filesystem.
+///
+/// Note: `..` components that exhaust all prefix components (e.g. a relative
+/// Markdown link that navigates above the filesystem root) are silently dropped.
+/// In practice `path` is always `note_dir.join(relative_target)` where
+/// `note_dir` is absolute, so this only matters for links attempting to escape
+/// the filesystem root — an extreme edge case that would fail to resolve anyway.
 fn normalize_path(path: &std::path::Path) -> PathBuf {
     use std::path::Component;
     let mut out: Vec<Component> = Vec::new();
@@ -743,8 +752,10 @@ pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) ->
     let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
 
     for rename in params.files {
-        let Some(old_path) = uri_to_path(&rename.old_uri.parse().expect("willRenameFiles: invalid old_uri")) else { continue; };
-        let Some(new_path) = uri_to_path(&rename.new_uri.parse().expect("willRenameFiles: invalid new_uri")) else { continue; };
+        let Ok(old_uri) = rename.old_uri.parse() else { continue; };
+        let Some(old_path) = uri_to_path(&old_uri) else { continue; };
+        let Ok(new_uri) = rename.new_uri.parse() else { continue; };
+        let Some(new_path) = uri_to_path(&new_uri) else { continue; };
         let new_stem = new_path
             .file_stem()
             .expect("willRenameFiles: new_uri has no filename")

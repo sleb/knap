@@ -145,9 +145,7 @@ pub fn parse(path: &Path, content: &str) -> Note {
     });
     let body_offset = frontmatter_body_offset(content);
     let body = &content[body_offset..];
-    let wiki_links = extract_wiki_links(body, body_offset, &line_index);
-    let headings   = extract_headings(body, body_offset, &line_index);
-    let md_links   = extract_md_links(body, body_offset, &line_index);
+    let (wiki_links, headings, md_links) = extract_body_elements(body, body_offset, &line_index);
 
     Note { path: path.to_path_buf(), stem, wiki_links, content: content.to_string(),
            headings, frontmatter, md_links }
@@ -220,27 +218,28 @@ fn extract_frontmatter_fields(
 
 ---
 
-## extract_wiki_links()
+## extract_body_elements()
+
+A single pulldown-cmark pass over the post-frontmatter body that collects
+headings, standard Markdown links/images, and wiki-link exclusion zones, then
+runs a raw byte scan for `[[wiki-links]]` outside those zones.
 
 pulldown-cmark fragments `[[note]]` into individual character `Text` events,
-so scanning within `Text` events will never see the full `[[` sequence. Instead,
-the event stream is used only to collect **exclusion zones** — byte ranges that
-must not be scanned — and then the full body string is scanned directly.
-
-`content` here is the post-frontmatter body slice; `offset` is its byte
-distance from the start of the full file.
+so wiki-links cannot be extracted from the event stream directly. The exclusion
+zones (fenced code blocks and inline code spans) collected during the parse pass
+are used to constrain the raw byte scan that follows.
 
 ```rust
-fn extract_wiki_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec<WikiLink> {
-    let exclusions = collect_exclusions(content);
-    scan_wiki_links(content, offset, &exclusions, line_index)
-}
+fn extract_body_elements(
+    content: &str,
+    offset: usize,
+    line_index: &LineIndex,
+) -> (Vec<WikiLink>, Vec<Heading>, Vec<MarkdownLink>)
 ```
 
-### collect_exclusions()
-
-Walks the pulldown-cmark event stream and records the byte ranges of fenced code
-blocks and inline code spans. Everything else is fair game for scanning.
+The single-pass design collects exclusion zones, headings, and Markdown
+links/images simultaneously. A raw scan (`scan_wiki_links`) runs afterward
+with the collected exclusion zones.
 
 ### scan_wiki_links()
 
@@ -260,8 +259,8 @@ fn scan_wiki_links(
 
 **Edge cases handled:**
 
-- `[[link]]` inside a fenced code block → excluded by `collect_exclusions`
-- `` `[[link]]` `` inline code → excluded by `collect_exclusions`
+- `[[link]]` inside a fenced code block → excluded by exclusion zone
+- `` `[[link]]` `` inline code → excluded by exclusion zone
 - `[[note|display text]]` → alias stripped; stem is `"note"`
 - `[[note#section]]` → anchor captured; stem is `"note"`
 - `[[#section]]` / `[[|alias]]` → no note name; skipped
@@ -271,31 +270,3 @@ fn scan_wiki_links(
 `inner_range` covers the stem bytes only, so diagnostic squiggles land on the
 note name regardless of alias or anchor suffix. `anchor_range` covers the anchor
 text only (used by heading rename).
-
----
-
-## extract_headings()
-
-Uses pulldown-cmark's offset iterator to find ATX headings. Accumulates `Text`
-events between `Start(Heading)` and `End(Heading)` to capture the heading text.
-Headings inside fenced code blocks are automatically excluded by the parser.
-
-```rust
-fn extract_headings(content: &str, offset: usize, line_index: &LineIndex) -> Vec<Heading>
-```
-
-Each `Heading` carries both a full-line `range` (for navigation and
-DocumentSymbol) and a `text_range` that covers only the text after the `##`
-prefix (for rename).
-
----
-
-## extract_md_links()
-
-Uses pulldown-cmark's offset iterator to collect standard Markdown links
-(`[text](url)`) and images (`![alt](url)`). Links inside fenced code blocks are
-not emitted by pulldown-cmark and are therefore not collected.
-
-```rust
-fn extract_md_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec<MarkdownLink>
-```

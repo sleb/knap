@@ -45,6 +45,7 @@ type AffectedPaths = HashSet<PathBuf>;
 
 /// Returned by every index mutation; tells the caller which files need
 /// their diagnostics republished.
+#[must_use]
 pub struct IndexDelta {
     pub affected_paths: AffectedPaths,
 }

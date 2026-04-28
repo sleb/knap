@@ -263,7 +263,10 @@ pub fn cmd_check() -> anyhow::Result<()> {
         }
     }
 
-    // ── stub requests ─────────────────────────────────────────────────────────
+    // ── graceful-degradation requests ────────────────────────────────────────
+    // These send `{}` as params (invalid for all three methods) to verify that
+    // deserialization failure is handled gracefully rather than panicking.
+    // Handler correctness is covered by the integration tests in tests/.
 
     for (id, method) in [
         (2i32, "textDocument/completion"),
@@ -282,7 +285,7 @@ pub fn cmd_check() -> anyhow::Result<()> {
         let resp = recv_response(&client_conn)?;
         let null_result =
             resp.error.is_none() && resp.result == Some(serde_json::Value::Null);
-        check!(method, null_result, "null (stubbed)");
+        check!(method, null_result, "null (graceful on bad params)");
     }
 
     // ── unknown method ────────────────────────────────────────────────────────

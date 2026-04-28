@@ -48,6 +48,7 @@ pub struct MarkdownLink {
 }
 
 /// The parsed representation of a single note file.
+#[derive(Debug)]
 pub struct Note {
     pub path: PathBuf,
     pub stem: String,
@@ -137,9 +138,7 @@ pub fn parse(path: &Path, content: &str) -> Note {
     });
     let body_offset = frontmatter_body_offset(content);
     let body = &content[body_offset..];
-    let wiki_links = extract_wiki_links(body, body_offset, &line_index);
-    let headings = extract_headings(body, body_offset, &line_index);
-    let md_links = extract_md_links(body, body_offset, &line_index);
+    let (wiki_links, headings, md_links) = extract_body_elements(body, body_offset, &line_index);
 
     Note {
         path: path.to_path_buf(),
@@ -282,7 +281,7 @@ pub fn frontmatter_body_offset(content: &str) -> usize {
         None => return 0,
     };
     let block_end = 4 + block.len(); // 4 = len("---\n")
-    if block_end + 5 <= content.len() { block_end + 5 } else { content.len() }
+    if block_end + 5 <= content.len() { block_end + 5 } else { content.len() } // 5 = len("\n---\n")
 }
 
 /// Extract tags from the frontmatter `tags:` key. Supports three forms:
@@ -383,75 +382,64 @@ fn extract_tags(content: &str, line_index: &LineIndex) -> Vec<Tag> {
     tags
 }
 
-fn extract_wiki_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec<WikiLink> {
-    // pulldown-cmark fragments `[[note]]` into individual character Text events,
-    // so we can't scan within Text events directly. Instead we use the event
-    // stream only to collect byte ranges that must be excluded from scanning
-    // (fenced code blocks and inline code spans), then do a raw scan of the
-    // body slice. `content` here is already the post-frontmatter body.
-    let exclusions = collect_exclusions(content);
-    scan_wiki_links(content, offset, &exclusions, line_index)
-}
-
-/// Collect byte ranges that must not be scanned for wiki-links:
-/// fenced code blocks and inline code spans.
-fn collect_exclusions(content: &str) -> Vec<Range<usize>> {
+/// Parse `content` (the body slice, post-frontmatter) in a single pulldown-cmark
+/// pass, collecting headings, standard Markdown links/images, and wiki-link
+/// exclusion zones. Then does a raw scan for `[[wiki-links]]` outside those zones.
+///
+/// pulldown-cmark fragments `[[note]]` into individual character `Text` events,
+/// so wiki-links can't be extracted from the event stream directly; the exclusion
+/// zones are instead used to constrain a raw byte scan.
+///
+/// `offset` is the byte distance from the start of the full file to the start
+/// of `content`; it is added to every byte position before calling
+/// `line_index.range()`.
+fn extract_body_elements(
+    content: &str,
+    offset: usize,
+    line_index: &LineIndex,
+) -> (Vec<WikiLink>, Vec<Heading>, Vec<MarkdownLink>) {
     let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
-    let mut exclusions = Vec::new();
+    let mut exclusions: Vec<Range<usize>> = Vec::new();
+    let mut headings: Vec<Heading> = Vec::new();
+    let mut md_links: Vec<MarkdownLink> = Vec::new();
+
     let mut code_block_start: Option<usize> = None;
-
-    for (event, range) in parser {
-        match event {
-            Event::Start(PdTag::CodeBlock(_)) => {
-                code_block_start = Some(range.start);
-            }
-            Event::End(TagEnd::CodeBlock) => {
-                if let Some(start) = code_block_start.take() {
-                    exclusions.push(start..range.end);
-                }
-            }
-            Event::Code(_) => {
-                exclusions.push(range);
-            }
-            _ => {}
-        }
-    }
-
-    exclusions
-}
-
-/// Extract all ATX headings from `content` (the body slice, post-frontmatter).
-/// `offset` is added to every byte position before calling `line_index.range()`.
-/// Headings inside fenced code blocks are automatically excluded by the parser.
-fn extract_headings(content: &str, offset: usize, line_index: &LineIndex) -> Vec<Heading> {
-    let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
-    let mut headings = Vec::new();
     // (level, heading_byte_start, accumulated_text, first_text_byte, last_text_end_byte)
-    let mut current: Option<(u8, usize, String, Option<usize>, usize)> = None;
+    let mut current_heading: Option<(u8, usize, String, Option<usize>, usize)> = None;
+    // (target, range_start_in_body, text_buf, is_image)
+    let mut current_link: Option<(String, usize, String, bool)> = None;
 
     for (event, byte_range) in parser {
         match event {
-            Event::Start(PdTag::Heading { level, .. }) => {
-                let lvl = heading_level_to_u8(level);
-                current = Some((lvl, byte_range.start, String::new(), None, byte_range.start));
+            // ── Exclusion zones (code blocks / inline code) ───────────────────
+            Event::Start(PdTag::CodeBlock(_)) => {
+                code_block_start = Some(byte_range.start);
             }
-            Event::Text(s) => {
-                if let Some((_, _, ref mut text, ref mut first_start, ref mut last_end)) =
-                    current
-                {
-                    if first_start.is_none() {
-                        *first_start = Some(byte_range.start);
-                    }
-                    *last_end = byte_range.end;
-                    text.push_str(&s);
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some(start) = code_block_start.take() {
+                    exclusions.push(start..byte_range.end);
                 }
+            }
+            Event::Code(_) => {
+                exclusions.push(byte_range.clone());
+            }
+
+            // ── Headings ──────────────────────────────────────────────────────
+            Event::Start(PdTag::Heading { level, .. }) => {
+                current_heading = Some((
+                    heading_level_to_u8(level),
+                    byte_range.start,
+                    String::new(),
+                    None,
+                    byte_range.start,
+                ));
             }
             Event::End(TagEnd::Heading(_)) => {
                 if let Some((level, heading_start, text, first_start, last_text_end)) =
-                    current.take()
+                    current_heading.take()
                 {
-                    let range = line_index
-                        .range((heading_start + offset)..(byte_range.end + offset));
+                    let range =
+                        line_index.range((heading_start + offset)..(byte_range.end + offset));
                     let text_range = match first_start {
                         Some(ts) => line_index.range((ts + offset)..(last_text_end + offset)),
                         None => line_index
@@ -465,40 +453,19 @@ fn extract_headings(content: &str, offset: usize, line_index: &LineIndex) -> Vec
                     });
                 }
             }
-            _ => {}
-        }
-    }
 
-    headings
-}
-
-/// Extract standard Markdown links and images from `content` (the body slice,
-/// post-frontmatter) using pulldown-cmark's offset iterator.
-/// `offset` is added to every byte position before calling `line_index.range()`.
-/// Links inside fenced code blocks are not emitted by pulldown-cmark and are
-/// therefore not collected.
-fn extract_md_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec<MarkdownLink> {
-    let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
-    let mut links = Vec::new();
-    // (target, range_start_in_body, text_buf, is_image)
-    let mut current: Option<(String, usize, String, bool)> = None;
-
-    for (event, byte_range) in parser {
-        match event {
+            // ── Standard Markdown links and images ────────────────────────────
             Event::Start(PdTag::Link { dest_url, .. }) => {
-                current = Some((dest_url.to_string(), byte_range.start, String::new(), false));
+                current_link =
+                    Some((dest_url.to_string(), byte_range.start, String::new(), false));
             }
             Event::Start(PdTag::Image { dest_url, .. }) => {
-                current = Some((dest_url.to_string(), byte_range.start, String::new(), true));
-            }
-            Event::Text(s) => {
-                if let Some((_, _, ref mut text, _)) = current {
-                    text.push_str(&s);
-                }
+                current_link =
+                    Some((dest_url.to_string(), byte_range.start, String::new(), true));
             }
             Event::End(TagEnd::Link) | Event::End(TagEnd::Image) => {
-                if let Some((target, range_start, text, is_image)) = current.take() {
-                    links.push(MarkdownLink {
+                if let Some((target, range_start, text, is_image)) = current_link.take() {
+                    md_links.push(MarkdownLink {
                         text: text.trim().to_string(),
                         target,
                         is_image,
@@ -507,11 +474,29 @@ fn extract_md_links(content: &str, offset: usize, line_index: &LineIndex) -> Vec
                     });
                 }
             }
+
+            // ── Text (accumulated by whichever collector is active) ───────────
+            Event::Text(s) => {
+                if let Some((_, _, ref mut text, ref mut first_start, ref mut last_end)) =
+                    current_heading
+                {
+                    if first_start.is_none() {
+                        *first_start = Some(byte_range.start);
+                    }
+                    *last_end = byte_range.end;
+                    text.push_str(&s);
+                }
+                if let Some((_, _, ref mut text, _)) = current_link {
+                    text.push_str(&s);
+                }
+            }
+
             _ => {}
         }
     }
 
-    links
+    let wiki_links = scan_wiki_links(content, offset, &exclusions, line_index);
+    (wiki_links, headings, md_links)
 }
 
 fn heading_level_to_u8(level: HeadingLevel) -> u8 {

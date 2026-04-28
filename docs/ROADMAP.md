@@ -136,7 +136,7 @@ required for the common single-folder case.
 
 ---
 
-## Post-v1 / Backlog
+## Backlog
 
 These were explicitly deferred and are not scheduled:
 
