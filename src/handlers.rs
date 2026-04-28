@@ -25,12 +25,12 @@ use crate::server::FrontmatterSchema;
 
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
-pub fn compute_diagnostics(path: &Path, index: &NoteIndex, _schema: Option<&FrontmatterSchema>) -> Vec<Diagnostic> {
+pub fn compute_diagnostics(path: &Path, index: &NoteIndex, schema: Option<&FrontmatterSchema>) -> Vec<Diagnostic> {
     let Some(note) = index.get_note(path) else {
         return vec![];
     };
 
-    note.wiki_links
+    let mut diagnostics: Vec<Diagnostic> = note.wiki_links
         .iter()
         .filter_map(|link| match index.resolve(&link.stem) {
             ResolvedLink::Broken => Some(Diagnostic {
@@ -76,7 +76,80 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex, _schema: Option<&Fron
                 })
             }),
         })
-        .collect()
+        .collect();
+
+    if let Some(s) = schema {
+        append_schema_diagnostics(note, s, &mut diagnostics);
+    }
+
+    diagnostics
+}
+
+fn append_schema_diagnostics(
+    note: &crate::parser::Note,
+    schema: &FrontmatterSchema,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let zero_range = lsp_types::Range {
+        start: Position { line: 0, character: 0 },
+        end: Position { line: 0, character: 3 },
+    };
+
+    let fields = note
+        .frontmatter
+        .as_ref()
+        .map(|fm| fm.fields.as_slice())
+        .unwrap_or(&[]);
+
+    // 1. Unknown key and invalid enum value diagnostics.
+    for field in fields {
+        match schema.properties.get(&field.key) {
+            None => {
+                diagnostics.push(Diagnostic {
+                    range: field.key_range,
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: format!("Unknown frontmatter key: '{}'", field.key),
+                    source: Some("knap".to_string()),
+                    ..Default::default()
+                });
+            }
+            Some(field_schema) if !field_schema.enum_values.is_empty() => {
+                if let Some(value) = &field.value
+                    && !field_schema.enum_values.iter().any(|e| e == value)
+                {
+                    let range = field.value_range.unwrap_or(field.key_range);
+                    diagnostics.push(Diagnostic {
+                        range,
+                        severity: Some(DiagnosticSeverity::WARNING),
+                        message: format!(
+                            "Invalid value '{}' for '{}': expected one of [{}]",
+                            value,
+                            field.key,
+                            field_schema.enum_values.join(", ")
+                        ),
+                        source: Some("knap".to_string()),
+                        ..Default::default()
+                    });
+                }
+            }
+            Some(_) => {} // known key with no enum — no validation
+        }
+    }
+
+    // 2. Missing required key diagnostics.
+    let present: std::collections::HashSet<&str> =
+        fields.iter().map(|f| f.key.as_str()).collect();
+    for required_key in &schema.required {
+        if !present.contains(required_key.as_str()) {
+            diagnostics.push(Diagnostic {
+                range: zero_range,
+                severity: Some(DiagnosticSeverity::WARNING),
+                message: format!("Missing required frontmatter key: '{required_key}'"),
+                source: Some("knap".to_string()),
+                ..Default::default()
+            });
+        }
+    }
 }
 
 pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>, schema: Option<&FrontmatterSchema>) {
@@ -2026,5 +2099,82 @@ mod tests {
         let items = completion_at("/vault/a.md", 0, 2, &idx, None);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"target"), "expected wiki-link completion: {labels:?}");
+    }
+
+    // ── schema-driven diagnostics ─────────────────────────────────────────────
+
+    fn diags_with_schema(path: &str, idx: &NoteIndex, schema: Option<&crate::server::FrontmatterSchema>) -> Vec<Diagnostic> {
+        compute_diagnostics(Path::new(path), idx, schema)
+    }
+
+    #[test]
+    fn schema_diag_unknown_key() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nunknown: val\n---\n"));
+        let schema = schema_with(&[("status", &["draft"])], &[]);
+        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Unknown frontmatter key"), "{}", diags[0].message);
+        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
+        // key_range for "unknown" starts at line 1, col 0
+        assert_eq!(diags[0].range.start, Position { line: 1, character: 0 });
+    }
+
+    #[test]
+    fn schema_diag_invalid_enum_value() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nstatus: bad\n---\n"));
+        let schema = schema_with(&[("status", &["draft", "published"])], &[]);
+        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Invalid value"), "{}", diags[0].message);
+        assert!(diags[0].message.contains("bad"), "{}", diags[0].message);
+        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
+        // value_range for "bad": "status: " is 8 chars → col 8
+        assert_eq!(diags[0].range.start, Position { line: 1, character: 8 });
+    }
+
+    #[test]
+    fn schema_diag_missing_required() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nauthor: alice\n---\n"));
+        let schema = schema_with(&[("author", &[]), ("status", &[])], &["status"]);
+        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Missing required frontmatter key"), "{}", diags[0].message);
+        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
+        // diagnostic anchored at opening ---
+        assert_eq!(diags[0].range.start, Position { line: 0, character: 0 });
+        assert_eq!(diags[0].range.end,   Position { line: 0, character: 3 });
+    }
+
+    #[test]
+    fn schema_diag_no_schema() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nunknown: val\n---\n"));
+        // No schema → no schema diagnostics (only link diagnostics, none here)
+        let diags = diags_with_schema("/vault/a.md", &idx, None);
+        assert!(diags.is_empty(), "expected no diagnostics without schema");
+    }
+
+    #[test]
+    fn schema_diag_valid_note() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nstatus: draft\nauthor: alice\n---\n"));
+        let schema = schema_with(&[("status", &["draft", "published"]), ("author", &[])], &["status"]);
+        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        assert!(diags.is_empty(), "expected no diagnostics for a valid note");
+    }
+
+    #[test]
+    fn schema_diag_no_frontmatter_missing_required() {
+        // No frontmatter at all but required key declared → diagnostic at (0,0).
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "Just prose.\n"));
+        let schema = schema_with(&[], &["status"]);
+        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Missing required"), "{}", diags[0].message);
+        assert_eq!(diags[0].range.start, Position { line: 0, character: 0 });
     }
 }
