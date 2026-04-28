@@ -15,6 +15,18 @@ pub struct Tag {
     pub range: LspRange, // tag name's span in the full file (for cursor hit-testing)
 }
 
+/// A single key-value pair extracted from the frontmatter block.
+///
+/// Only scalar values are captured; complex values (block scalars, inline
+/// lists, nested objects) leave `value` and `value_range` as `None`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrontmatterField {
+    pub key: String,
+    pub key_range: LspRange,
+    pub value: Option<String>,
+    pub value_range: Option<LspRange>,
+}
+
 /// YAML frontmatter extracted from the top of a note file.
 /// `None` when no `---…---` block is present; `Some` when the block exists
 /// (even if `title` or `tags` are absent from it).
@@ -22,6 +34,8 @@ pub struct Tag {
 pub struct Frontmatter {
     pub title: Option<String>,
     pub tags: Vec<Tag>,
+    /// All key-value pairs in document order, including `title` and `tags`.
+    pub fields: Vec<FrontmatterField>,
 }
 
 /// A standard Markdown link or image found in the file.
@@ -116,6 +130,9 @@ pub fn parse(path: &Path, content: &str) -> Note {
     let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
     let frontmatter = extract_frontmatter(content).map(|mut fm| {
         fm.tags = extract_tags(content, &line_index);
+        if let Some(block) = frontmatter_block(content) {
+            fm.fields = extract_frontmatter_fields(block, 4, &line_index);
+        }
         fm
     });
     let body_offset = frontmatter_body_offset(content);
@@ -183,7 +200,75 @@ pub fn extract_frontmatter(content: &str) -> Option<Frontmatter> {
         }
     }
 
-    Some(Frontmatter { title, tags: vec![] })
+    Some(Frontmatter { title, tags: vec![], fields: vec![] })
+}
+
+/// Extract all key-value pairs from the frontmatter block.
+///
+/// Scalar values (`key: value`, with optional surrounding quotes) are
+/// captured with their ranges. Block scalars (`|`, `>`), inline lists (`[`),
+/// and bare keys (no `:`) are skipped — those fields get `value: None`.
+fn extract_frontmatter_fields(block: &str, block_start: usize, line_index: &LineIndex) -> Vec<FrontmatterField> {
+    let mut fields = vec![];
+    let mut offset = block_start;
+
+    for line in block.lines() {
+        let Some(colon_pos) = line.find(':') else {
+            offset += line.len() + 1;
+            continue;
+        };
+
+        let key = line[..colon_pos].trim();
+        if key.is_empty() || key.starts_with('#') {
+            offset += line.len() + 1;
+            continue;
+        }
+
+        let key_start = offset + (line.len() - line.trim_start().len());
+        let key_end = key_start + key.len();
+        let key_range = line_index.range(key_start..key_end);
+
+        let raw_value = line[colon_pos + 1..].trim();
+        let (value, value_range) = if raw_value.is_empty()
+            || raw_value.starts_with('|')
+            || raw_value.starts_with('>')
+            || raw_value.starts_with('[')
+            || raw_value.starts_with('-')
+        {
+            (None, None)
+        } else {
+            // Strip matching surrounding quotes to get the canonical value.
+            let inner = if raw_value.len() >= 2
+                && ((raw_value.starts_with('"') && raw_value.ends_with('"'))
+                    || (raw_value.starts_with('\'') && raw_value.ends_with('\'')))
+            {
+                &raw_value[1..raw_value.len() - 1]
+            } else {
+                raw_value
+            };
+            let inner = inner.trim();
+            if inner.is_empty() {
+                (None, None)
+            } else {
+                // Find where the raw_value starts within the line.
+                let after_colon = &line[colon_pos + 1..];
+                let leading_ws = after_colon.len() - after_colon.trim_start().len();
+                let raw_start = offset + colon_pos + 1 + leading_ws;
+                // If quoted, value range is inside the quotes.
+                let (val_start, val_end) = if raw_value != inner {
+                    (raw_start + 1, raw_start + 1 + inner.len())
+                } else {
+                    (raw_start, raw_start + inner.len())
+                };
+                (Some(inner.to_string()), Some(line_index.range(val_start..val_end)))
+            }
+        };
+
+        fields.push(FrontmatterField { key: key.to_string(), key_range, value, value_range });
+        offset += line.len() + 1;
+    }
+
+    fields
 }
 
 /// Return the byte offset at which the document body starts — i.e. the first
