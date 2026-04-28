@@ -37,6 +37,8 @@ task:
 | `docs/design/v0.3/plan.md`    | Implementation order and testing checkpoints for v0.3             |
 | `docs/design/v0.4/design.md`  | Implementing anything in the v0.4 release                         |
 | `docs/design/v0.4/plan.md`    | Implementation order and testing checkpoints for v0.4             |
+| `docs/design/v0.8/design.md`  | Implementing anything in the v0.8 release                         |
+| `docs/design/v0.8/plan.md`    | Implementation order and testing checkpoints for v0.8             |
 | `docs/design/components/*.md` | Implementing a specific component (parser, index, handlers, etc.) |
 
 **Docs must stay in sync with the code.** If you deviate from a design doc
