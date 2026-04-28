@@ -106,15 +106,18 @@ required for the common single-folder case.
 
 ---
 
-## v0.7 — Backlinks
+## v0.7 — Backlinks _(released 2026-04-28)_
 
 **Goal:** Surface connections to the current note passively.
 
-| Story | Feature                                                      |
-| ----- | ------------------------------------------------------------ |
-| US-25 | Optional backlinks panel / virtual document for current note |
+| Story | Feature                                                        |
+| ----- | -------------------------------------------------------------- |
+| US-25 | Backlinks code lens — `↑ N backlinks` at the top of every note |
 
-**LSP capabilities delivered:** virtual document provider
+**LSP capabilities delivered:** `textDocument/codeLens`
+
+> Clicking the lens opens the references panel in VS Code. Zed support is
+> pending an upcoming Zed release that adds code lens rendering.
 
 ---
 

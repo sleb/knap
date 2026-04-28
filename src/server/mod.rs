@@ -9,6 +9,7 @@ use crossbeam_channel::Sender;
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CodeActionOptions, CodeActionParams, CodeActionProviderCapability,
+    CodeLensOptions, CodeLensParams,
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidOpenTextDocumentParams, DidChangeWatchedFilesRegistrationOptions,
     DocumentSymbolParams, FileChangeType, FileOperationFilter, FileOperationPattern,
@@ -120,6 +121,9 @@ pub fn run(connection: Connection) -> Result<()> {
             resolve_provider: Some(false),
             ..Default::default()
         })),
+        code_lens_provider: Some(CodeLensOptions {
+            resolve_provider: Some(false),
+        }),
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
@@ -269,6 +273,15 @@ fn register_file_watcher(
 
 fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex, config: &Config) -> Result<()> {
     match req.method.as_str() {
+        "textDocument/codeLens" => {
+            let lenses = serde_json::from_value::<CodeLensParams>(req.params)
+                .ok()
+                .map(|params| handlers::handle_code_lens(params, index))
+                .unwrap_or_default();
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, lenses)))?;
+        }
         "textDocument/codeAction" => {
             let actions = match serde_json::from_value::<CodeActionParams>(req.params) {
                 Ok(params) => {

@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.6.2-blue)
+![Version](https://img.shields.io/badge/version-0.7.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -29,6 +29,7 @@ LSP-compatible editor.
 - Go to Definition and Find References on a tag value → all files sharing that tag
 - Quick Fix on a broken `[[link]]` → create the missing file instantly
 - Quick Fix on a broken `[[note#anchor]]` → pick from available headings to fix the anchor
+- Backlinks code lens — `↑ N backlinks` at the top of every note, click to open the references panel (VS Code; Zed pending an upcoming Zed release)
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 
@@ -44,7 +45,7 @@ passed via your editor's native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.6.2 — Code actions. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.7.0 — Backlinks code lens. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

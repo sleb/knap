@@ -64,6 +64,20 @@ Keep tests lean:
 - One focused assertion per test case. If a test needs extensive setup to
   exercise one behaviour, that's a signal the component has too much coupling
 
+## Extension Repositories
+
+Editor-specific extensions live in separate repos:
+
+| Repo                                               | Editor  |
+| -------------------------------------------------- | ------- |
+| [zed-knap](https://github.com/sleb/zed-knap)       | Zed     |
+| [vscode-knap](https://github.com/sleb/vscode-knap) | VS Code |
+
+**Extension documentation policy:** Extension repos contain only what is unique
+to that extension (installation steps, binary resolution, editor-specific
+settings). All feature documentation, architecture decisions, and policies live
+here. Extension READMEs link back to `knap` rather than replicating content.
+
 ## Fearless Refactoring
 
 This is a personal project. Never add backward-compatible fallback logic:
