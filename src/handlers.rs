@@ -19,12 +19,13 @@ use lsp_types::{
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
+use crate::server::FrontmatterSchema;
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
 
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
-pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
+pub fn compute_diagnostics(path: &Path, index: &NoteIndex, _schema: Option<&FrontmatterSchema>) -> Vec<Diagnostic> {
     let Some(note) = index.get_note(path) else {
         return vec![];
     };
@@ -78,9 +79,9 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
         .collect()
 }
 
-pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>) {
+pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>, schema: Option<&FrontmatterSchema>) {
     for path in paths {
-        let diagnostics = compute_diagnostics(path, index);
+        let diagnostics = compute_diagnostics(path, index, schema);
         let params = PublishDiagnosticsParams {
             uri: path_to_uri(path),
             diagnostics,
@@ -180,7 +181,7 @@ fn tag_completions(index: &NoteIndex) -> Vec<CompletionItem> {
         .collect()
 }
 
-pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
+pub fn handle_completion(params: CompletionParams, index: &NoteIndex, _schema: Option<&FrontmatterSchema>) -> Vec<CompletionItem> {
     let pos = params.text_document_position.position;
     let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
         return vec![];
@@ -1049,7 +1050,7 @@ mod tests {
         idx.index(note("/vault/b.md", "## Exists\n"));
         idx.index(note("/vault/a.md", "[[b#Missing]]\n"));
 
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
         assert_eq!(diags[0].message, "Heading not found: '#Missing' in '[[b#Missing]]'");
@@ -1062,7 +1063,7 @@ mod tests {
         idx.index(note("/vault/b.md", "## Exists\n"));
         idx.index(note("/vault/a.md", "[[b#Exists]]\n"));
 
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
         assert!(diags.is_empty(), "expected no diagnostic when heading exists");
     }
 
@@ -1073,7 +1074,7 @@ mod tests {
         idx.index(note("/vault/b.md", "## My Section\n"));
         idx.index(note("/vault/a.md", "[[b#my section]]\n"));
 
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
         assert!(diags.is_empty(), "expected no diagnostic for case-insensitive match");
     }
 
@@ -1130,7 +1131,7 @@ mod tests {
             partial_result_params: Default::default(),
             context: None,
         };
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         let item = items
             .iter()
             .find(|i| i.filter_text.as_deref() == Some("titled"))
@@ -1159,7 +1160,7 @@ mod tests {
             partial_result_params: Default::default(),
             context: None,
         };
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         let item = items
             .iter()
             .find(|i| i.filter_text.as_deref() == Some("plain"))
@@ -1326,7 +1327,7 @@ mod tests {
         idx.index(note("/vault/cursor.md", "---\ntags: [\n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 1, 8);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         assert!(!items.is_empty(), "expected tag completions");
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"rust"), "expected 'rust': {:?}", labels);
@@ -1342,7 +1343,7 @@ mod tests {
         idx.index(note("/vault/cursor.md", "---\ntags:\n  - \n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 2, 4);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         assert!(!items.is_empty(), "expected tag completions for block list item");
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"rust"), "expected 'rust': {:?}", labels);
@@ -1355,7 +1356,7 @@ mod tests {
         idx.index(note("/vault/cursor.md", "---\ntitle: \n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 1, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         assert!(items.is_empty(), "expected no completions on title: line");
     }
 
@@ -1369,7 +1370,7 @@ mod tests {
         // line 3 is the body `[[` line — should get wiki-link completions (non-empty)
         // but NOT tag completions. We verify by checking item kinds.
         let params = completion_params_at("/vault/cursor.md", 3, 2);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         // All items from wiki-link trigger have kind FILE, not VALUE
         for item in &items {
             assert_ne!(item.kind, Some(CompletionItemKind::VALUE),
@@ -1386,7 +1387,7 @@ mod tests {
         idx.index(note("/vault/cursor.md", "---\ntags: [\n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 1, 8);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"alpha"));
         assert!(labels.contains(&"beta"));
