@@ -51,10 +51,12 @@ struct at startup. Configuration is fixed for the lifetime of the session —
 
 ```
 Config {
-  index_roots: PathBuf[]   // workspace folders from the initialize request
-  extensions: string[]     // default: ["md"]
-  attachments_dir?: string // relative path of attachments folder; when set, a
-                           // separate file watcher is registered for it
+  index_roots: PathBuf[]          // workspace folders from the initialize request
+  extensions: string[]            // default: ["md"]
+  attachments_dir?: string        // relative path of attachments folder; when set, a
+                                  // separate file watcher is registered for it
+  new_note_dir?: string           // relative path for new notes created by Quick Fix
+  frontmatter_schema?: Schema     // optional schema for frontmatter validation/completions
 }
 ```
 
@@ -227,19 +229,20 @@ handle(params: LspParams, index: NoteIndex, config: Config) → LspResult
 Handlers are stateless — all state lives in the Note Index; config is passed in
 by the Protocol Handler.
 
-| Handler          | LSP Method                        | Releases               |
-| ---------------- | --------------------------------- | ---------------------- |
-| Completion       | `textDocument/completion`         | v0.1, v0.2, v0.4, v0.5 |
-| Definition       | `textDocument/definition`         | v0.1, v0.3, v0.5       |
-| References       | `textDocument/references`         | v0.1, v0.5             |
-| Diagnostics      | `textDocument/publishDiagnostics` | v0.1, v0.2, v0.3       |
-| FileRename       | `workspace/willRenameFiles`       | v0.2                   |
-| PrepareRename    | `textDocument/prepareRename`      | v0.3                   |
-| HeadingRename    | `textDocument/rename`             | v0.3                   |
-| DocumentSymbols  | `textDocument/documentSymbol`     | v0.3                   |
-| WorkspaceSymbols | `workspace/symbol`                | v0.3                   |
-| Hover            | `textDocument/hover`              | v0.4                   |
-| CodeAction       | `textDocument/codeAction`         | v0.6                   |
+| Handler          | LSP Method                        | Releases                     |
+| ---------------- | --------------------------------- | ---------------------------- |
+| Completion       | `textDocument/completion`         | v0.1, v0.2, v0.4, v0.5, v0.8 |
+| Definition       | `textDocument/definition`         | v0.1, v0.3, v0.5             |
+| References       | `textDocument/references`         | v0.1, v0.5, v0.7             |
+| Diagnostics      | `textDocument/publishDiagnostics` | v0.1, v0.2, v0.3, v0.8       |
+| FileRename       | `workspace/willRenameFiles`       | v0.2                         |
+| PrepareRename    | `textDocument/prepareRename`      | v0.3                         |
+| HeadingRename    | `textDocument/rename`             | v0.3                         |
+| DocumentSymbols  | `textDocument/documentSymbol`     | v0.3                         |
+| WorkspaceSymbols | `workspace/symbol`                | v0.3                         |
+| Hover            | `textDocument/hover`              | v0.4                         |
+| CodeAction       | `textDocument/codeAction`         | v0.6                         |
+| CodeLens         | `textDocument/codeLens`           | v0.7                         |
 
 ---
 

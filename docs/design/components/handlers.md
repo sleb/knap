@@ -47,22 +47,27 @@ fn find_tag_at_position(note: &Note, pos: Position) -> Option<&Tag> {
 ### When it fires
 
 The client sends a completion request when the user types `[` (registered as a
-trigger character). Before building the list, the handler checks two trigger
-conditions:
+trigger character). Before building the list, the handler checks trigger
+conditions in priority order:
 
 1. **Tag trigger** — cursor is inside the frontmatter on a `tags:` line or a
    `- ` list item following a bare `tags:` key → returns tag completions.
-2. **Wiki-link trigger** — the text on the cursor's line immediately before the
+2. **Schema value trigger** — cursor is inside the frontmatter after `key: ` and
+   the schema has `enum` values for that key → returns enum completions
+   (`CompletionItemKind::VALUE`).
+3. **Schema key trigger** — cursor is inside the frontmatter on a blank line
+   (no `:`) and a schema is present → returns schema keys not yet present in
+   the note's frontmatter (`CompletionItemKind::PROPERTY`, `insert_text` is
+   `"key: "`).
+4. **Wiki-link trigger** — the text on the cursor's line immediately before the
    cursor ends with `[[` → returns note completions.
 
 ```rust
-fn check_trigger(content: &str, pos: Position) -> bool {
-    let line = content.lines().nth(pos.line as usize).unwrap_or("");
-    let up_to_cursor = line.get(..pos.character as usize).unwrap_or(line);
-    up_to_cursor.ends_with("[[")
-}
-
-fn check_tag_trigger(content: &str, pos: Position) -> bool { ... }
+pub fn handle_completion(
+    params: CompletionParams,
+    index: &NoteIndex,
+    schema: Option<&FrontmatterSchema>,
+) -> Vec<CompletionItem>
 ```
 
 ### Response
@@ -71,27 +76,6 @@ For the wiki-link trigger, one `CompletionItem` per note in the index. When the
 note has a frontmatter `title`, the label is the title and `insert_text` /
 `filter_text` are the stem; otherwise label, insert_text, and filter_text all
 equal the stem.
-
-```rust
-pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
-    ...
-    if check_tag_trigger(&note.content, pos) { return tag_completions(index); }
-    if !check_trigger(&note.content, pos) { return vec![]; }
-
-    index.all_notes().map(|n| {
-        let title = n.frontmatter.as_ref().and_then(|fm| fm.title.as_deref()).map(str::to_owned);
-        let label = title.clone().unwrap_or_else(|| n.stem.clone());
-        CompletionItem {
-            label,
-            kind: Some(CompletionItemKind::FILE),
-            filter_text: Some(n.stem.clone()),
-            insert_text: Some(n.stem.clone()),
-            detail: title.is_some().then(|| n.stem.clone()),
-            ..Default::default()
-        }
-    }).collect()
-}
-```
 
 For the tag trigger, one `CompletionItem` per distinct tag in the index
 (`CompletionItemKind::VALUE`).
@@ -180,6 +164,9 @@ Priority:
 1. **Wiki-link at cursor** → all `LocatedLink`s from `index.links_to(target)`.
 2. **Tag in frontmatter at cursor** → same locations as `handle_definition` for
    that tag.
+3. **No symbol at cursor** → all backlinks to the current document
+   (`index.links_to(current_path)`). This is what the backlinks code lens
+   triggers when clicked.
 
 ---
 
@@ -258,6 +245,27 @@ alias is preserved.
 
 ---
 
+## Code Lens (`textDocument/codeLens`)
+
+```rust
+pub fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec<CodeLens>
+```
+
+Returns `vec![]` for URIs not in the index. For indexed notes, always returns
+exactly one `CodeLens` at `(0,0)–(0,0)`:
+
+- Title: `"↑ N backlink"` (singular) or `"↑ N backlinks"` (plural/zero)
+- Command: `"knap.findBacklinks"` with `arguments: None`
+
+Clicking the lens fires `knap.findBacklinks`, registered by editor-specific
+extensions. The VS Code extension calls `references-view.findReferences` with
+the document URI and `new vscode.Position(0, 0)`, which triggers
+`textDocument/references` at position `(0,0)`. Because no link or tag sits at
+`(0,0)`, `handle_references` falls through to case 3 (all backlinks to the
+document).
+
+---
+
 ## Diagnostics
 
 Diagnostics are not a request handler — they are published proactively by the
@@ -265,13 +273,22 @@ Protocol Handler whenever the index changes. The Protocol Handler calls
 `publish_diagnostics` with the set of affected paths returned by `IndexDelta`.
 
 ```rust
-pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>)
+pub fn publish_diagnostics(
+    paths: &HashSet<PathBuf>,
+    index: &NoteIndex,
+    sender: &Sender<Message>,
+    schema: Option<&FrontmatterSchema>,
+)
 ```
 
 ### compute_diagnostics()
 
 ```rust
-pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic>
+pub fn compute_diagnostics(
+    path: &Path,
+    index: &NoteIndex,
+    schema: Option<&FrontmatterSchema>,
+) -> Vec<Diagnostic>
 ```
 
 For each wiki-link in the note:
@@ -282,6 +299,14 @@ For each wiki-link in the note:
 | `Ambiguous`                               | Warning: `'[[stem]]' matches multiple files: /a/stem.md, /b/stem.md` |
 | `Found` + no anchor                       | No diagnostic                                                        |
 | `Found` + anchor not matching any heading | Warning: `Heading not found: '#anchor' in '[[stem#anchor]]'`         |
+
+When `schema` is `Some`, three additional classes are emitted:
+
+| Condition                         | Range         | Diagnostic                                                        |
+| --------------------------------- | ------------- | ----------------------------------------------------------------- |
+| Key not in `properties`           | `key_range`   | Warning: `Unknown frontmatter key: 'key'`                         |
+| Key has `enum`, value not in enum | `value_range` | Warning: `Invalid value 'v' for 'key': expected one of [a, b, c]` |
+| Key in `required` but not present | `(0,0)–(0,3)` | Warning: `Missing required frontmatter key: 'key'`                |
 
 ---
 
