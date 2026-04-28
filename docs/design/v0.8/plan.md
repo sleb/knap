@@ -13,11 +13,11 @@ untested code for the next step to build on.
 
 | Step                             | Status | Notes |
 | -------------------------------- | ------ | ----- |
-| 1 — Schema types + init plumbing | Todo   |       |
-| 2 — Parser extension             | Todo   |       |
-| 3 — Schema-driven completions    | Todo   |       |
-| 4 — Schema-driven diagnostics    | Todo   |       |
-| 5 — Integration tests            | Todo   |       |
+| 1 — Schema types + init plumbing | Done   |       |
+| 2 — Parser extension             | Done   |       |
+| 3 — Schema-driven completions    | Done   |       |
+| 4 — Schema-driven diagnostics    | Done   |       |
+| 5 — Integration tests            | Done   |       |
 
 ---
 
