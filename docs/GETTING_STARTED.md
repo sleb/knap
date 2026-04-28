@@ -90,11 +90,12 @@ knap works with zero configuration for a standard single-folder Markdown
 workspace. The following options can be passed via `initializationOptions`
 when you need to customise behaviour:
 
-| Option           | Type             | Default  | Description                                                                                                                                                                |
-| ---------------- | ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `extensions`     | `string[]`       | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments.                                                                                  |
-| `attachmentsDir` | `string \| null` | `null`   | Path to your attachments folder, relative to the workspace root. When set, knap watches this directory for new and deleted files so attachment-link diagnostics stay live. |
-| `newNoteDir`     | `string \| null` | `null`   | Folder (relative to workspace root) where Quick Fix "Create note" actions create new files (e.g. `"0-Inbox"`). Defaults to the same directory as the current note.         |
+| Option              | Type             | Default  | Description                                                                                                                                                                                                                 |
+| ------------------- | ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extensions`        | `string[]`       | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments.                                                                                                                                   |
+| `attachmentsDir`    | `string \| null` | `null`   | Path to your attachments folder, relative to the workspace root. When set, knap watches this directory for new and deleted files so attachment-link diagnostics stay live.                                                  |
+| `newNoteDir`        | `string \| null` | `null`   | Folder (relative to workspace root) where Quick Fix "Create note" actions create new files (e.g. `"0-Inbox"`). Defaults to the same directory as the current note.                                                          |
+| `frontmatterSchema` | `object \| null` | `null`   | JSON Schema-inspired definition of allowed frontmatter keys and values. Enables key and value completions in the frontmatter block and publishes warnings for unknown keys, invalid enum values, and missing required keys. |
 
 **Example — multi-extension vault with an assets folder and inbox:**
 
@@ -105,6 +106,29 @@ when you need to customise behaviour:
   "newNoteDir": "0-Inbox"
 }
 ```
+
+**Example — frontmatter schema with required keys and enum values:**
+
+```json
+{
+  "frontmatterSchema": {
+    "properties": {
+      "status": { "enum": ["draft", "review", "published"] },
+      "author": {},
+      "tags": {}
+    },
+    "required": ["status"]
+  }
+}
+```
+
+With this schema, knap will:
+
+- Offer `draft`, `review`, `published` as completions after `status: `
+- Offer `status`, `author`, and `tags` as key completions on blank frontmatter lines
+- Warn on any frontmatter key not listed in `properties`
+- Warn when `status` has a value not in the enum
+- Warn when `status` is missing entirely
 
 **Tip:** add `"$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/initialization_options.json"` to your `initialization_options` object in Zed's `settings.json` to get autocompletion and inline validation for all knap options.
 

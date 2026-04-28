@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use lsp_types::{Position, Range};
-use super::{extract_frontmatter, Frontmatter, Heading, LineIndex, MarkdownLink, parse, Tag, WikiLink};
+use super::{extract_frontmatter, FrontmatterField, Frontmatter, Heading, LineIndex, MarkdownLink, parse, Tag, WikiLink};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -301,7 +301,7 @@ fn frontmatter_title_absent() {
     // Block exists but has no title key.
     let content = "---\ntags: [foo, bar]\n---\nBody.\n";
     let fm = extract_frontmatter(content).expect("should have frontmatter");
-    assert_eq!(fm, Frontmatter { title: None, tags: vec![] });
+    assert_eq!(fm, Frontmatter { title: None, tags: vec![], fields: vec![] });
 }
 
 #[test]
@@ -485,4 +485,107 @@ fn tags_block_range() {
     let result = tags("---\ntags:\n  - foo\n  - bar\n---\n");
     assert_eq!(result[0].range, range((2, 4), (2, 7)));
     assert_eq!(result[1].range, range((3, 4), (3, 7)));
+}
+
+// ── FrontmatterField extraction ───────────────────────────────────────────────
+
+fn fields(content: &str) -> Vec<FrontmatterField> {
+    parse(Path::new("note.md"), content)
+        .frontmatter
+        .map(|fm| fm.fields)
+        .unwrap_or_default()
+}
+
+#[test]
+fn fields_no_frontmatter() {
+    assert!(fields("Just prose.\n").is_empty());
+}
+
+#[test]
+fn fields_scalar_values() {
+    // "---\nstatus: draft\nauthor: alice\n---\n"
+    //  line 0: ---           (0..4)
+    //  line 1: status: draft (4..18)
+    //  line 2: author: alice (18..31)
+    let result = fields("---\nstatus: draft\nauthor: alice\n---\n");
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].key, "status");
+    assert_eq!(result[0].value.as_deref(), Some("draft"));
+    assert_eq!(result[1].key, "author");
+    assert_eq!(result[1].value.as_deref(), Some("alice"));
+}
+
+#[test]
+fn fields_empty_value() {
+    // `key:` with nothing after colon → value: None
+    let result = fields("---\nstatus:\n---\n");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].key, "status");
+    assert!(result[0].value.is_none());
+}
+
+#[test]
+fn fields_block_scalar_skipped() {
+    let result = fields("---\nbody: |\n  multi\n---\n");
+    assert_eq!(result.len(), 1);
+    assert!(result[0].value.is_none());
+}
+
+#[test]
+fn fields_inline_list_skipped() {
+    let result = fields("---\ntags: [a, b]\n---\n");
+    assert_eq!(result.len(), 1);
+    assert!(result[0].value.is_none());
+}
+
+#[test]
+fn fields_double_quoted_value() {
+    // Quotes are stripped; value_range covers text inside quotes.
+    let result = fields("---\ntitle: \"My Note\"\n---\n");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].value.as_deref(), Some("My Note"));
+    // "---\ntitle: \"My Note\"\n"
+    //  line 0: ---                   bytes 0..4
+    //  line 1: title: "My Note"      bytes 4..21
+    //  'M' is at byte 4 + len("title: \"") = 4+8 = 12
+    let vr = result[0].value_range.expect("expected value_range");
+    assert_eq!(vr.start, pos(1, 8));  // inside opening quote
+    assert_eq!(vr.end,   pos(1, 15)); // before closing quote
+}
+
+#[test]
+fn fields_single_quoted_value() {
+    let result = fields("---\ntitle: 'My Note'\n---\n");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].value.as_deref(), Some("My Note"));
+}
+
+#[test]
+fn fields_key_range_correct() {
+    // "---\nstatus: draft\n---\n"
+    //  line 1 starts at byte 4; "status" is chars 0–5 on line 1
+    let result = fields("---\nstatus: draft\n---\n");
+    let kr = result[0].key_range;
+    assert_eq!(kr.start, pos(1, 0));
+    assert_eq!(kr.end,   pos(1, 6)); // "status" is 6 chars
+}
+
+#[test]
+fn fields_value_range_correct() {
+    // "---\nstatus: draft\n---\n"
+    //  line 1: "status: draft"  — "draft" starts at col 8
+    let result = fields("---\nstatus: draft\n---\n");
+    let vr = result[0].value_range.expect("expected value_range");
+    assert_eq!(vr.start, pos(1, 8));
+    assert_eq!(vr.end,   pos(1, 13)); // "draft" is 5 chars
+}
+
+#[test]
+fn fields_title_and_status_both_extracted() {
+    // title and tags go through the existing extractors, but fields also
+    // captures them so schema validation works uniformly.
+    let result = fields("---\ntitle: My Note\nstatus: draft\n---\n");
+    let keys: Vec<&str> = result.iter().map(|f| f.key.as_str()).collect();
+    assert!(keys.contains(&"title"), "expected title in fields");
+    assert!(keys.contains(&"status"), "expected status in fields");
 }

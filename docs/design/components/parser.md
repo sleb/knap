@@ -49,12 +49,26 @@ pub struct Heading {
 pub struct Frontmatter {
     pub title: Option<String>,
     pub tags: Vec<Tag>,
+    /// All key-value pairs in document order, including `title` and `tags`.
+    /// Used by schema-driven completions and diagnostics.
+    pub fields: Vec<FrontmatterField>,
 }
 
 /// A single tag extracted from the `tags:` frontmatter key.
 pub struct Tag {
     pub name: String,    // tag text as written (original casing)
     pub range: LspRange, // tag name's span in the full file (for cursor hit-testing)
+}
+
+/// A single key-value pair extracted from the frontmatter block.
+///
+/// Only scalar values are captured; complex values (block scalars, inline
+/// lists, nested objects) leave `value` and `value_range` as `None`.
+pub struct FrontmatterField {
+    pub key: String,
+    pub key_range: LspRange,
+    pub value: Option<String>,
+    pub value_range: Option<LspRange>,
 }
 
 /// A standard Markdown link or image found in the file.
@@ -124,6 +138,9 @@ pub fn parse(path: &Path, content: &str) -> Note {
     let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
     let frontmatter = extract_frontmatter(content).map(|mut fm| {
         fm.tags = extract_tags(content, &line_index);
+        if let Some(block) = frontmatter_block(content) {
+            fm.fields = extract_frontmatter_fields(block, 4, &line_index);
+        }
         fm
     });
     let body_offset = frontmatter_body_offset(content);
@@ -178,6 +195,28 @@ Supports three forms of the `tags:` key: inline list (`tags: [foo, bar]`),
 block list (`tags:\n  - foo`), and bare scalar (`tags: productivity`). Returns
 `vec![]` when there is no frontmatter, no `tags:` key, or the value is a block
 scalar.
+
+### extract_frontmatter_fields()
+
+Scans the frontmatter block line-by-line. For each line of the form `key: value`:
+
+- Scalar values (plain, single-quoted, or double-quoted) are captured with
+  `key_range` and `value_range`.
+- Block scalars (`|`, `>`), inline lists (`[`), and bare keys (no value after
+  `:`) produce `value: None` and `value_range: None`.
+- Quotes are stripped from the captured value string but not from the range
+  (the range covers the inner text, not the quotes).
+
+All keys are captured including `title` and `tags`, so schema validation can
+operate uniformly over the full frontmatter.
+
+```rust
+fn extract_frontmatter_fields(
+    block: &str,
+    block_start: usize,
+    line_index: &LineIndex,
+) -> Vec<FrontmatterField>
+```
 
 ---
 

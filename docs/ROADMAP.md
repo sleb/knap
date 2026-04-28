@@ -121,7 +121,7 @@ required for the common single-folder case.
 
 ---
 
-## v0.8 — Frontmatter Schema
+## v0.8 — Frontmatter Schema _(released 2026-04-28)_
 
 **Goal:** Enforce structure in notes that need it.
 

@@ -19,17 +19,18 @@ use lsp_types::{
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
+use crate::server::FrontmatterSchema;
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
 
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
-pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
+pub fn compute_diagnostics(path: &Path, index: &NoteIndex, schema: Option<&FrontmatterSchema>) -> Vec<Diagnostic> {
     let Some(note) = index.get_note(path) else {
         return vec![];
     };
 
-    note.wiki_links
+    let mut diagnostics: Vec<Diagnostic> = note.wiki_links
         .iter()
         .filter_map(|link| match index.resolve(&link.stem) {
             ResolvedLink::Broken => Some(Diagnostic {
@@ -75,12 +76,85 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
                 })
             }),
         })
-        .collect()
+        .collect();
+
+    if let Some(s) = schema {
+        append_schema_diagnostics(note, s, &mut diagnostics);
+    }
+
+    diagnostics
 }
 
-pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>) {
+fn append_schema_diagnostics(
+    note: &crate::parser::Note,
+    schema: &FrontmatterSchema,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let zero_range = lsp_types::Range {
+        start: Position { line: 0, character: 0 },
+        end: Position { line: 0, character: 3 },
+    };
+
+    let fields = note
+        .frontmatter
+        .as_ref()
+        .map(|fm| fm.fields.as_slice())
+        .unwrap_or(&[]);
+
+    // 1. Unknown key and invalid enum value diagnostics.
+    for field in fields {
+        match schema.properties.get(&field.key) {
+            None => {
+                diagnostics.push(Diagnostic {
+                    range: field.key_range,
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: format!("Unknown frontmatter key: '{}'", field.key),
+                    source: Some("knap".to_string()),
+                    ..Default::default()
+                });
+            }
+            Some(field_schema) if !field_schema.enum_values.is_empty() => {
+                if let Some(value) = &field.value
+                    && !field_schema.enum_values.iter().any(|e| e == value)
+                {
+                    let range = field.value_range.unwrap_or(field.key_range);
+                    diagnostics.push(Diagnostic {
+                        range,
+                        severity: Some(DiagnosticSeverity::WARNING),
+                        message: format!(
+                            "Invalid value '{}' for '{}': expected one of [{}]",
+                            value,
+                            field.key,
+                            field_schema.enum_values.join(", ")
+                        ),
+                        source: Some("knap".to_string()),
+                        ..Default::default()
+                    });
+                }
+            }
+            Some(_) => {} // known key with no enum — no validation
+        }
+    }
+
+    // 2. Missing required key diagnostics.
+    let present: std::collections::HashSet<&str> =
+        fields.iter().map(|f| f.key.as_str()).collect();
+    for required_key in &schema.required {
+        if !present.contains(required_key.as_str()) {
+            diagnostics.push(Diagnostic {
+                range: zero_range,
+                severity: Some(DiagnosticSeverity::WARNING),
+                message: format!("Missing required frontmatter key: '{required_key}'"),
+                source: Some("knap".to_string()),
+                ..Default::default()
+            });
+        }
+    }
+}
+
+pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>, schema: Option<&FrontmatterSchema>) {
     for path in paths {
-        let diagnostics = compute_diagnostics(path, index);
+        let diagnostics = compute_diagnostics(path, index, schema);
         let params = PublishDiagnosticsParams {
             uri: path_to_uri(path),
             diagnostics,
@@ -180,7 +254,90 @@ fn tag_completions(index: &NoteIndex) -> Vec<CompletionItem> {
         .collect()
 }
 
-pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
+/// Returns the key name from the current frontmatter line if the cursor is
+/// at a value position (i.e. after the `:`). Returns `None` if the line has
+/// no `:` or the cursor is before the colon.
+fn frontmatter_key_at_cursor(content: &str, pos: Position) -> Option<String> {
+    let line = content.lines().nth(pos.line as usize)?;
+    let colon = line.find(':')?;
+    let cursor = utf16_to_byte_offset(line, pos.character);
+    if cursor <= colon {
+        return None;
+    }
+    let key = line[..colon].trim();
+    if key.is_empty() { None } else { Some(key.to_string()) }
+}
+
+/// Returns enum-value completions when:
+/// - the cursor is inside the frontmatter
+/// - the current line has a key with enum values in the schema
+/// - the key is not `tags` (handled separately)
+fn schema_value_completions(
+    content: &str,
+    pos: Position,
+    schema: &crate::server::FrontmatterSchema,
+) -> Option<Vec<CompletionItem>> {
+    let close_line = frontmatter_close_line(content)?;
+    if pos.line == 0 || pos.line as usize >= close_line {
+        return None;
+    }
+    let key = frontmatter_key_at_cursor(content, pos)?;
+    if key == "tags" {
+        return None;
+    }
+    let field_schema = schema.properties.get(&key)?;
+    if field_schema.enum_values.is_empty() {
+        return None;
+    }
+    Some(
+        field_schema
+            .enum_values
+            .iter()
+            .map(|v| CompletionItem {
+                label: v.clone(),
+                kind: Some(CompletionItemKind::VALUE),
+                insert_text: Some(v.clone()),
+                ..Default::default()
+            })
+            .collect(),
+    )
+}
+
+/// Returns key-name completions when:
+/// - the cursor is inside the frontmatter
+/// - the current line has no `:` (blank or key-only)
+/// - schema is provided
+fn schema_key_completions(
+    content: &str,
+    pos: Position,
+    schema: &crate::server::FrontmatterSchema,
+    existing_fields: &[crate::parser::FrontmatterField],
+) -> Option<Vec<CompletionItem>> {
+    let close_line = frontmatter_close_line(content)?;
+    if pos.line == 0 || pos.line as usize >= close_line {
+        return None;
+    }
+    let line = content.lines().nth(pos.line as usize).unwrap_or("");
+    if line.contains(':') {
+        return None;
+    }
+    let present: std::collections::HashSet<&str> =
+        existing_fields.iter().map(|f| f.key.as_str()).collect();
+    let items: Vec<CompletionItem> = schema
+        .properties
+        .keys()
+        .filter(|k| !present.contains(k.as_str()))
+        .map(|k| CompletionItem {
+            label: k.clone(),
+            kind: Some(CompletionItemKind::PROPERTY),
+            insert_text: Some(format!("{k}: ")),
+            ..Default::default()
+        })
+        .collect();
+    if items.is_empty() { None } else { Some(items) }
+}
+
+pub fn handle_completion(params: CompletionParams, index: &NoteIndex, schema: Option<&FrontmatterSchema>) -> Vec<CompletionItem> {
     let pos = params.text_document_position.position;
     let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
         return vec![];
@@ -190,6 +347,16 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
     };
     if check_tag_trigger(&note.content, pos) {
         return tag_completions(index);
+    }
+    if let Some(s) = schema {
+        if let Some(items) = schema_value_completions(&note.content, pos, s) {
+            return items;
+        }
+        if let Some(fm) = &note.frontmatter
+            && let Some(items) = schema_key_completions(&note.content, pos, s, &fm.fields)
+        {
+            return items;
+        }
     }
     if !check_trigger(&note.content, pos) {
         return vec![];
@@ -1049,7 +1216,7 @@ mod tests {
         idx.index(note("/vault/b.md", "## Exists\n"));
         idx.index(note("/vault/a.md", "[[b#Missing]]\n"));
 
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
         assert_eq!(diags[0].message, "Heading not found: '#Missing' in '[[b#Missing]]'");
@@ -1062,7 +1229,7 @@ mod tests {
         idx.index(note("/vault/b.md", "## Exists\n"));
         idx.index(note("/vault/a.md", "[[b#Exists]]\n"));
 
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
         assert!(diags.is_empty(), "expected no diagnostic when heading exists");
     }
 
@@ -1073,7 +1240,7 @@ mod tests {
         idx.index(note("/vault/b.md", "## My Section\n"));
         idx.index(note("/vault/a.md", "[[b#my section]]\n"));
 
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
         assert!(diags.is_empty(), "expected no diagnostic for case-insensitive match");
     }
 
@@ -1130,7 +1297,7 @@ mod tests {
             partial_result_params: Default::default(),
             context: None,
         };
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         let item = items
             .iter()
             .find(|i| i.filter_text.as_deref() == Some("titled"))
@@ -1159,7 +1326,7 @@ mod tests {
             partial_result_params: Default::default(),
             context: None,
         };
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         let item = items
             .iter()
             .find(|i| i.filter_text.as_deref() == Some("plain"))
@@ -1326,7 +1493,7 @@ mod tests {
         idx.index(note("/vault/cursor.md", "---\ntags: [\n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 1, 8);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         assert!(!items.is_empty(), "expected tag completions");
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"rust"), "expected 'rust': {:?}", labels);
@@ -1342,7 +1509,7 @@ mod tests {
         idx.index(note("/vault/cursor.md", "---\ntags:\n  - \n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 2, 4);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         assert!(!items.is_empty(), "expected tag completions for block list item");
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"rust"), "expected 'rust': {:?}", labels);
@@ -1355,7 +1522,7 @@ mod tests {
         idx.index(note("/vault/cursor.md", "---\ntitle: \n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 1, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         assert!(items.is_empty(), "expected no completions on title: line");
     }
 
@@ -1369,7 +1536,7 @@ mod tests {
         // line 3 is the body `[[` line — should get wiki-link completions (non-empty)
         // but NOT tag completions. We verify by checking item kinds.
         let params = completion_params_at("/vault/cursor.md", 3, 2);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         // All items from wiki-link trigger have kind FILE, not VALUE
         for item in &items {
             assert_ne!(item.kind, Some(CompletionItemKind::VALUE),
@@ -1386,7 +1553,7 @@ mod tests {
         idx.index(note("/vault/cursor.md", "---\ntags: [\n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 1, 8);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, None);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"alpha"));
         assert!(labels.contains(&"beta"));
@@ -1827,5 +1994,187 @@ mod tests {
         let lenses = handle_code_lens(params, &idx);
         assert_eq!(lenses[0].range.start, Position { line: 0, character: 0 });
         assert_eq!(lenses[0].range.end, Position { line: 0, character: 0 });
+    }
+
+    // ── schema-driven completions ─────────────────────────────────────────────
+
+    fn schema_with(properties: &[(&str, &[&str])], required: &[&str]) -> crate::server::FrontmatterSchema {
+        use crate::server::{FrontmatterFieldSchema, FrontmatterSchema};
+        FrontmatterSchema {
+            properties: properties
+                .iter()
+                .map(|(k, vs)| {
+                    (
+                        k.to_string(),
+                        FrontmatterFieldSchema {
+                            enum_values: vs.iter().map(|v| v.to_string()).collect(),
+                        },
+                    )
+                })
+                .collect(),
+            required: required.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn completion_at(path: &str, line: u32, character: u32, idx: &NoteIndex, schema: Option<&crate::server::FrontmatterSchema>) -> Vec<CompletionItem> {
+        use lsp_types::TextDocumentIdentifier;
+        let params = CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: file_uri(path) },
+                position: Position { line, character },
+            },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            context: None,
+        };
+        handle_completion(params, idx, schema)
+    }
+
+    #[test]
+    fn schema_value_completion_enum() {
+        let mut idx = NoteIndex::default();
+        // line 0: ---         line 1: status: <cursor>   line 2: ---
+        idx.index(note("/vault/a.md", "---\nstatus: \n---\n"));
+        let schema = schema_with(&[("status", &["draft", "published"])], &[]);
+        let items = completion_at("/vault/a.md", 1, 8, &idx, Some(&schema));
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"draft"), "expected 'draft': {labels:?}");
+        assert!(labels.contains(&"published"), "expected 'published': {labels:?}");
+        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+    }
+
+    #[test]
+    fn schema_value_completion_no_enum() {
+        // Key exists in schema but has no enum → no schema value completions.
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nauthor: \n---\n"));
+        let schema = schema_with(&[("author", &[])], &[]);
+        let items = completion_at("/vault/a.md", 1, 8, &idx, Some(&schema));
+        assert!(items.is_empty(), "expected no completions when no enum values");
+    }
+
+    #[test]
+    fn schema_value_completion_unknown_key() {
+        // Key not in schema → no schema value completions.
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nunknown: \n---\n"));
+        let schema = schema_with(&[("status", &["draft"])], &[]);
+        let items = completion_at("/vault/a.md", 1, 9, &idx, Some(&schema));
+        assert!(items.is_empty(), "expected no completions for unknown key");
+    }
+
+    #[test]
+    fn schema_key_completion() {
+        // Blank line inside frontmatter → schema keys offered.
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\n\n---\n"));
+        let schema = schema_with(&[("status", &["draft"]), ("author", &[])], &[]);
+        let items = completion_at("/vault/a.md", 1, 0, &idx, Some(&schema));
+        assert!(!items.is_empty(), "expected schema key completions");
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"status"), "expected 'status': {labels:?}");
+        assert!(labels.contains(&"author"), "expected 'author': {labels:?}");
+        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::PROPERTY)));
+    }
+
+    #[test]
+    fn schema_key_completion_excludes_present() {
+        // `status` already in frontmatter → only `author` offered.
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nstatus: draft\n\n---\n"));
+        let schema = schema_with(&[("status", &["draft"]), ("author", &[])], &[]);
+        // cursor on blank line (line 2)
+        let items = completion_at("/vault/a.md", 2, 0, &idx, Some(&schema));
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(!labels.contains(&"status"), "status already present, should not appear");
+        assert!(labels.contains(&"author"), "expected 'author': {labels:?}");
+    }
+
+    #[test]
+    fn schema_no_schema_unchanged() {
+        // With schema: None, existing wiki-link completion is unaffected.
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/target.md", ""));
+        idx.index(note("/vault/a.md", "[["));
+        let items = completion_at("/vault/a.md", 0, 2, &idx, None);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"target"), "expected wiki-link completion: {labels:?}");
+    }
+
+    // ── schema-driven diagnostics ─────────────────────────────────────────────
+
+    fn diags_with_schema(path: &str, idx: &NoteIndex, schema: Option<&crate::server::FrontmatterSchema>) -> Vec<Diagnostic> {
+        compute_diagnostics(Path::new(path), idx, schema)
+    }
+
+    #[test]
+    fn schema_diag_unknown_key() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nunknown: val\n---\n"));
+        let schema = schema_with(&[("status", &["draft"])], &[]);
+        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Unknown frontmatter key"), "{}", diags[0].message);
+        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
+        // key_range for "unknown" starts at line 1, col 0
+        assert_eq!(diags[0].range.start, Position { line: 1, character: 0 });
+    }
+
+    #[test]
+    fn schema_diag_invalid_enum_value() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nstatus: bad\n---\n"));
+        let schema = schema_with(&[("status", &["draft", "published"])], &[]);
+        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Invalid value"), "{}", diags[0].message);
+        assert!(diags[0].message.contains("bad"), "{}", diags[0].message);
+        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
+        // value_range for "bad": "status: " is 8 chars → col 8
+        assert_eq!(diags[0].range.start, Position { line: 1, character: 8 });
+    }
+
+    #[test]
+    fn schema_diag_missing_required() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nauthor: alice\n---\n"));
+        let schema = schema_with(&[("author", &[]), ("status", &[])], &["status"]);
+        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Missing required frontmatter key"), "{}", diags[0].message);
+        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
+        // diagnostic anchored at opening ---
+        assert_eq!(diags[0].range.start, Position { line: 0, character: 0 });
+        assert_eq!(diags[0].range.end,   Position { line: 0, character: 3 });
+    }
+
+    #[test]
+    fn schema_diag_no_schema() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nunknown: val\n---\n"));
+        // No schema → no schema diagnostics (only link diagnostics, none here)
+        let diags = diags_with_schema("/vault/a.md", &idx, None);
+        assert!(diags.is_empty(), "expected no diagnostics without schema");
+    }
+
+    #[test]
+    fn schema_diag_valid_note() {
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "---\nstatus: draft\nauthor: alice\n---\n"));
+        let schema = schema_with(&[("status", &["draft", "published"]), ("author", &[])], &["status"]);
+        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        assert!(diags.is_empty(), "expected no diagnostics for a valid note");
+    }
+
+    #[test]
+    fn schema_diag_no_frontmatter_missing_required() {
+        // No frontmatter at all but required key declared → diagnostic at (0,0).
+        let mut idx = NoteIndex::default();
+        idx.index(note("/vault/a.md", "Just prose.\n"));
+        let schema = schema_with(&[], &["status"]);
+        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("Missing required"), "{}", diags[0].message);
+        assert_eq!(diags[0].range.start, Position { line: 0, character: 0 });
     }
 }

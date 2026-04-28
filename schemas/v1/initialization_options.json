@@ -21,6 +21,33 @@
     "newNoteDir": {
       "type": "string",
       "description": "Folder relative to the workspace root where Quick Fix 'Create note' actions create new files (e.g. \"0-Inbox\"). Defaults to the same directory as the current note."
+    },
+    "frontmatterSchema": {
+      "type": "object",
+      "description": "JSON Schema-inspired definition of allowed frontmatter keys and values. Enables key/value completions and publishes warnings for unknown keys, invalid enum values, and missing required keys.",
+      "properties": {
+        "properties": {
+          "type": "object",
+          "description": "Map of frontmatter key names to their definitions.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "enum": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Allowed values for this key. Triggers value completions and enum validation."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Keys that must be present in every note's frontmatter. A missing key produces a Warning diagnostic."
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
