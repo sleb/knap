@@ -359,7 +359,7 @@ fn md_link_basic() {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].text, "text");
     assert_eq!(result[0].target, "url");
-    assert_eq!(result[0].is_image, false);
+    assert!(!result[0].is_image);
 }
 
 #[test]
@@ -368,7 +368,7 @@ fn md_link_image() {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].text, "alt text");
     assert_eq!(result[0].target, "img.png");
-    assert_eq!(result[0].is_image, true);
+    assert!(result[0].is_image);
 }
 
 #[test]

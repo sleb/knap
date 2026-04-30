@@ -341,3 +341,12 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
 fn should_skip_dir(name: &str) -> bool {
     name.starts_with('.') || matches!(name, "node_modules" | "target")
 }
+
+#[cfg(test)]
+impl NoteIndex {
+    /// Index a note and discard the delta. Use in test setup where the
+    /// affected-paths set is irrelevant.
+    pub(crate) fn seed(&mut self, note: Note) {
+        let _ = self.index(note);
+    }
+}

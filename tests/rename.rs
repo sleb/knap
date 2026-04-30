@@ -1,3 +1,5 @@
+#![allow(clippy::mutable_key_type)]
+
 use std::thread;
 
 use lsp_server::{Connection, Message, Notification, Request};

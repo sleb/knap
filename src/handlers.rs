@@ -909,6 +909,7 @@ pub fn path_to_uri(path: &Path) -> lsp_types::Uri {
 }
 
 #[cfg(test)]
+#[allow(clippy::mutable_key_type)]
 mod tests {
     use std::path::Path;
 
@@ -930,8 +931,8 @@ mod tests {
     #[test]
     fn rename_produces_edits() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", ""));
-        idx.index(note("/vault/a.md", "[[b]]\n[[b]]"));
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[[b]]\n[[b]]"));
 
         let params = RenameFilesParams {
             files: vec![FileRename {
@@ -950,7 +951,7 @@ mod tests {
     #[test]
     fn rename_no_backlinks_empty_edit() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/lonely.md", ""));
+        idx.seed(note("/vault/lonely.md", ""));
 
         let params = RenameFilesParams {
             files: vec![FileRename {
@@ -967,8 +968,8 @@ mod tests {
     #[test]
     fn rename_preserves_alias() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/old.md", ""));
-        idx.index(note("/vault/src.md", "[[old|my alias]]"));
+        idx.seed(note("/vault/old.md", ""));
+        idx.seed(note("/vault/src.md", "[[old|my alias]]"));
 
         let params = RenameFilesParams {
             files: vec![FileRename {
@@ -1010,8 +1011,8 @@ mod tests {
     #[test]
     fn definition_anchor_navigates_to_heading() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "## Section\n"));
-        idx.index(note("/vault/a.md", "[[b#Section]]\n"));
+        idx.seed(note("/vault/b.md", "## Section\n"));
+        idx.seed(note("/vault/a.md", "[[b#Section]]\n"));
 
         let params = make_definition_params("/vault/a.md", 0, 3);
         let loc = unwrap_scalar(handle_definition(params, &idx));
@@ -1024,8 +1025,8 @@ mod tests {
     #[test]
     fn definition_anchor_not_found_falls_back() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "## Section\n"));
-        idx.index(note("/vault/a.md", "[[b#Missing]]\n"));
+        idx.seed(note("/vault/b.md", "## Section\n"));
+        idx.seed(note("/vault/a.md", "[[b#Missing]]\n"));
 
         let params = make_definition_params("/vault/a.md", 0, 3);
         let loc = unwrap_scalar(handle_definition(params, &idx));
@@ -1037,8 +1038,8 @@ mod tests {
     #[test]
     fn definition_no_anchor_unchanged() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "## Section\n"));
-        idx.index(note("/vault/a.md", "[[b]]\n"));
+        idx.seed(note("/vault/b.md", "## Section\n"));
+        idx.seed(note("/vault/a.md", "[[b]]\n"));
 
         let params = make_definition_params("/vault/a.md", 0, 3);
         let loc = unwrap_scalar(handle_definition(params, &idx));
@@ -1052,7 +1053,7 @@ mod tests {
     #[test]
     fn document_symbols_returns_headings() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "# Title\n\n## Section\n\n### Sub\n"));
+        idx.seed(note("/vault/a.md", "# Title\n\n## Section\n\n### Sub\n"));
 
         let params = DocumentSymbolParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
@@ -1073,7 +1074,7 @@ mod tests {
     #[test]
     fn document_symbols_empty() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/plain.md", "Just some prose.\n"));
+        idx.seed(note("/vault/plain.md", "Just some prose.\n"));
 
         let params = DocumentSymbolParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/plain.md") },
@@ -1093,8 +1094,8 @@ mod tests {
     #[test]
     fn workspace_symbols_filtered() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "# Title\n\n## Section\n"));
-        idx.index(note("/vault/b.md", "## Other\n"));
+        idx.seed(note("/vault/a.md", "# Title\n\n## Section\n"));
+        idx.seed(note("/vault/b.md", "## Other\n"));
 
         let params = WorkspaceSymbolParams {
             query: "sec".to_string(),
@@ -1109,8 +1110,8 @@ mod tests {
     #[test]
     fn workspace_symbols_empty_query() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "# Alpha\n\n## Beta\n"));
-        idx.index(note("/vault/b.md", "# Gamma\n"));
+        idx.seed(note("/vault/a.md", "# Alpha\n\n## Beta\n"));
+        idx.seed(note("/vault/b.md", "# Gamma\n"));
 
         let params = WorkspaceSymbolParams { query: String::new(), ..Default::default() };
         let symbols = handle_workspace_symbols(params, &idx);
@@ -1138,7 +1139,7 @@ mod tests {
     #[test]
     fn rename_heading_updates_heading_text() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/target.md", "## Old Text\n"));
+        idx.seed(note("/vault/target.md", "## Old Text\n"));
 
         let params = make_rename_params("/vault/target.md", 0, 5, "New Text");
         let edit = handle_rename(params, &idx).expect("expected a WorkspaceEdit");
@@ -1155,9 +1156,9 @@ mod tests {
     #[test]
     fn rename_heading_updates_anchor_links() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/target.md", "## Old Text\n"));
-        idx.index(note("/vault/s1.md", "[[target#Old Text]]\n"));
-        idx.index(note("/vault/s2.md", "[[target#Old Text]]\n"));
+        idx.seed(note("/vault/target.md", "## Old Text\n"));
+        idx.seed(note("/vault/s1.md", "[[target#Old Text]]\n"));
+        idx.seed(note("/vault/s2.md", "[[target#Old Text]]\n"));
 
         let params = make_rename_params("/vault/target.md", 0, 5, "New Text");
         let edit = handle_rename(params, &idx).expect("expected a WorkspaceEdit");
@@ -1172,8 +1173,8 @@ mod tests {
     #[test]
     fn rename_heading_case_insensitive_match() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/target.md", "## Old Text\n"));
-        idx.index(note("/vault/src.md", "[[target#old text]]\n"));
+        idx.seed(note("/vault/target.md", "## Old Text\n"));
+        idx.seed(note("/vault/src.md", "[[target#old text]]\n"));
 
         let params = make_rename_params("/vault/target.md", 0, 5, "New Text");
         let edit = handle_rename(params, &idx).expect("expected a WorkspaceEdit");
@@ -1185,7 +1186,7 @@ mod tests {
     #[test]
     fn rename_heading_no_match_returns_none() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/prose.md", "## Heading\n\nJust prose here.\n"));
+        idx.seed(note("/vault/prose.md", "## Heading\n\nJust prose here.\n"));
 
         // Cursor on the prose line (line 2), not on the heading
         let params = make_rename_params("/vault/prose.md", 2, 5, "Anything");
@@ -1196,7 +1197,7 @@ mod tests {
     #[test]
     fn prepare_rename_on_heading() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/target.md", "## Old Text\n"));
+        idx.seed(note("/vault/target.md", "## Old Text\n"));
 
         let params = make_position_params("/vault/target.md", 0, 5);
         let resp = handle_prepare_rename(params, &idx).expect("expected a response");
@@ -1212,7 +1213,7 @@ mod tests {
     #[test]
     fn prepare_rename_not_on_heading() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/prose.md", "## Heading\n\nJust prose here.\n"));
+        idx.seed(note("/vault/prose.md", "## Heading\n\nJust prose here.\n"));
 
         let params = make_position_params("/vault/prose.md", 2, 5);
         assert!(handle_prepare_rename(params, &idx).is_none(), "expected None off heading");
@@ -1224,8 +1225,8 @@ mod tests {
     #[test]
     fn anchor_diagnostic_missing() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "## Exists\n"));
-        idx.index(note("/vault/a.md", "[[b#Missing]]\n"));
+        idx.seed(note("/vault/b.md", "## Exists\n"));
+        idx.seed(note("/vault/a.md", "[[b#Missing]]\n"));
 
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
         assert_eq!(diags.len(), 1);
@@ -1237,8 +1238,8 @@ mod tests {
     #[test]
     fn anchor_diagnostic_present() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "## Exists\n"));
-        idx.index(note("/vault/a.md", "[[b#Exists]]\n"));
+        idx.seed(note("/vault/b.md", "## Exists\n"));
+        idx.seed(note("/vault/a.md", "[[b#Exists]]\n"));
 
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
         assert!(diags.is_empty(), "expected no diagnostic when heading exists");
@@ -1248,8 +1249,8 @@ mod tests {
     #[test]
     fn anchor_diagnostic_case_insensitive() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "## My Section\n"));
-        idx.index(note("/vault/a.md", "[[b#my section]]\n"));
+        idx.seed(note("/vault/b.md", "## My Section\n"));
+        idx.seed(note("/vault/a.md", "[[b#my section]]\n"));
 
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
         assert!(diags.is_empty(), "expected no diagnostic for case-insensitive match");
@@ -1261,9 +1262,9 @@ mod tests {
     #[test]
     fn rename_multiple_files_in_one_batch() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/x.md", ""));
-        idx.index(note("/vault/y.md", ""));
-        idx.index(note("/vault/linker.md", "[[x]] and [[y]]"));
+        idx.seed(note("/vault/x.md", ""));
+        idx.seed(note("/vault/y.md", ""));
+        idx.seed(note("/vault/linker.md", "[[x]] and [[y]]"));
 
         let params = RenameFilesParams {
             files: vec![
@@ -1296,8 +1297,8 @@ mod tests {
         use lsp_types::TextDocumentIdentifier;
 
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/titled.md", "---\ntitle: My Title\n---\nBody.\n"));
-        idx.index(note("/vault/cursor.md", "[["));
+        idx.seed(note("/vault/titled.md", "---\ntitle: My Title\n---\nBody.\n"));
+        idx.seed(note("/vault/cursor.md", "[["));
 
         let params = CompletionParams {
             text_document_position: TextDocumentPositionParams {
@@ -1325,8 +1326,8 @@ mod tests {
         use lsp_types::TextDocumentIdentifier;
 
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/plain.md", "Body with no frontmatter.\n"));
-        idx.index(note("/vault/cursor.md", "[["));
+        idx.seed(note("/vault/plain.md", "Body with no frontmatter.\n"));
+        idx.seed(note("/vault/cursor.md", "[["));
 
         let params = CompletionParams {
             text_document_position: TextDocumentPositionParams {
@@ -1365,8 +1366,8 @@ mod tests {
     #[test]
     fn hover_wiki_link_resolved() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "---\ntitle: B Note\n---\nSome content.\n"));
-        idx.index(note("/vault/a.md", "[[b]]"));
+        idx.seed(note("/vault/b.md", "---\ntitle: B Note\n---\nSome content.\n"));
+        idx.seed(note("/vault/a.md", "[[b]]"));
 
         let hover = handle_hover(hover_params("/vault/a.md", 0, 2), &idx)
             .expect("expected a hover result");
@@ -1380,7 +1381,7 @@ mod tests {
     #[test]
     fn hover_wiki_link_broken_returns_none() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "[[missing]]"));
+        idx.seed(note("/vault/a.md", "[[missing]]"));
 
         assert!(handle_hover(hover_params("/vault/a.md", 0, 3), &idx).is_none());
     }
@@ -1390,8 +1391,8 @@ mod tests {
     fn hover_wiki_link_shows_preview_lines() {
         let body: String = (1..=20).map(|i| format!("line {i}\n")).collect();
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", &body));
-        idx.index(note("/vault/a.md", "[[b]]"));
+        idx.seed(note("/vault/b.md", &body));
+        idx.seed(note("/vault/a.md", "[[b]]"));
 
         let hover = handle_hover(hover_params("/vault/a.md", 0, 2), &idx)
             .expect("expected hover");
@@ -1408,8 +1409,8 @@ mod tests {
     fn hover_wiki_link_skips_frontmatter() {
         let content = "---\ntitle: My Note\n---\nBody line here.\n";
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", content));
-        idx.index(note("/vault/a.md", "[[b]]"));
+        idx.seed(note("/vault/b.md", content));
+        idx.seed(note("/vault/a.md", "[[b]]"));
 
         let hover = handle_hover(hover_params("/vault/a.md", 0, 2), &idx)
             .expect("expected hover");
@@ -1424,7 +1425,7 @@ mod tests {
     #[test]
     fn hover_off_link_returns_none() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "plain text [[b]]"));
+        idx.seed(note("/vault/a.md", "plain text [[b]]"));
 
         assert!(handle_hover(hover_params("/vault/a.md", 0, 0), &idx).is_none());
     }
@@ -1434,7 +1435,7 @@ mod tests {
     fn hover_md_link_external_url() {
         let mut idx = NoteIndex::default();
         // "[text](https://example.com)" is 28 chars; (0,5) is inside
-        idx.index(note("/vault/a.md", "[text](https://example.com)"));
+        idx.seed(note("/vault/a.md", "[text](https://example.com)"));
 
         let hover = handle_hover(hover_params("/vault/a.md", 0, 5), &idx)
             .expect("expected hover for external URL");
@@ -1448,10 +1449,10 @@ mod tests {
     #[test]
     fn hover_md_link_local_note() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/other.md", "---\ntitle: Other\n---\nContent here.\n"));
+        idx.seed(note("/vault/other.md", "---\ntitle: Other\n---\nContent here.\n"));
         // "[text](./other.md)" is 19 chars; path.parent() = /vault,
         // normalized resolved = /vault/other.md which is indexed.
-        idx.index(note("/vault/a.md", "[text](./other.md)"));
+        idx.seed(note("/vault/a.md", "[text](./other.md)"));
 
         let hover = handle_hover(hover_params("/vault/a.md", 0, 5), &idx)
             .expect("expected hover for local note link");
@@ -1467,7 +1468,7 @@ mod tests {
     fn hover_md_link_image() {
         let mut idx = NoteIndex::default();
         // "![alt](img.png)" is 15 chars; (0,3) is inside
-        idx.index(note("/vault/a.md", "![alt](img.png)"));
+        idx.seed(note("/vault/a.md", "![alt](img.png)"));
 
         let hover = handle_hover(hover_params("/vault/a.md", 0, 3), &idx)
             .expect("expected hover for image");
@@ -1497,11 +1498,11 @@ mod tests {
     #[test]
     fn completion_tag_inline_trigger() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+        idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
         // b.md has tags: [lsp], cursor on the tags: [ line at col 9
-        idx.index(note("/vault/b.md", "---\ntags: [lsp]\n---\n"));
+        idx.seed(note("/vault/b.md", "---\ntags: [lsp]\n---\n"));
         // cursor.md has the trigger line
-        idx.index(note("/vault/cursor.md", "---\ntags: [\n---\n"));
+        idx.seed(note("/vault/cursor.md", "---\ntags: [\n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 1, 8);
         let items = handle_completion(params, &idx, None);
@@ -1515,9 +1516,9 @@ mod tests {
     #[test]
     fn completion_tag_block_trigger() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+        idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
         // cursor.md uses block list form
-        idx.index(note("/vault/cursor.md", "---\ntags:\n  - \n---\n"));
+        idx.seed(note("/vault/cursor.md", "---\ntags:\n  - \n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 2, 4);
         let items = handle_completion(params, &idx, None);
@@ -1530,7 +1531,7 @@ mod tests {
     #[test]
     fn completion_tag_no_trigger_title() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/cursor.md", "---\ntitle: \n---\n"));
+        idx.seed(note("/vault/cursor.md", "---\ntitle: \n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 1, 7);
         let items = handle_completion(params, &idx, None);
@@ -1541,8 +1542,8 @@ mod tests {
     #[test]
     fn completion_tag_no_trigger_body() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
-        idx.index(note("/vault/cursor.md", "---\ntags: [rust]\n---\n[["));
+        idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+        idx.seed(note("/vault/cursor.md", "---\ntags: [rust]\n---\n[["));
 
         // line 3 is the body `[[` line — should get wiki-link completions (non-empty)
         // but NOT tag completions. We verify by checking item kinds.
@@ -1559,9 +1560,9 @@ mod tests {
     #[test]
     fn completion_tag_items_from_index() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\ntags: [alpha, beta]\n---\n"));
-        idx.index(note("/vault/b.md", "---\ntags: [gamma]\n---\n"));
-        idx.index(note("/vault/cursor.md", "---\ntags: [\n---\n"));
+        idx.seed(note("/vault/a.md", "---\ntags: [alpha, beta]\n---\n"));
+        idx.seed(note("/vault/b.md", "---\ntags: [gamma]\n---\n"));
+        idx.seed(note("/vault/cursor.md", "---\ntags: [\n---\n"));
 
         let params = completion_params_at("/vault/cursor.md", 1, 8);
         let items = handle_completion(params, &idx, None);
@@ -1603,9 +1604,9 @@ mod tests {
         // "---\ntags: [rust]\n---\n"
         //  line 1: tags: [rust]
         //  'rust' starts at col 8 on line 1
-        idx.index(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
-        idx.index(note("/vault/b.md", "---\ntags: [rust, lsp]\n---\n"));
-        idx.index(note("/vault/c.md", "---\ntags: [lsp]\n---\n")); // no rust
+        idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+        idx.seed(note("/vault/b.md", "---\ntags: [rust, lsp]\n---\n"));
+        idx.seed(note("/vault/c.md", "---\ntags: [lsp]\n---\n")); // no rust
 
         // Cursor on 'rust' in a.md: line 1, char 8
         let params = make_definition_params_at("/vault/a.md", 1, 8);
@@ -1623,8 +1624,8 @@ mod tests {
     #[test]
     fn definition_tag_case_insensitive() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\ntags: [Rust]\n---\n"));
-        idx.index(note("/vault/b.md", "---\ntags: [rust]\n---\n"));
+        idx.seed(note("/vault/a.md", "---\ntags: [Rust]\n---\n"));
+        idx.seed(note("/vault/b.md", "---\ntags: [rust]\n---\n"));
 
         // Cursor on 'Rust' in a.md (line 1, char 8)
         let params = make_definition_params_at("/vault/a.md", 1, 8);
@@ -1639,8 +1640,8 @@ mod tests {
     #[test]
     fn definition_wiki_link_unchanged() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/target.md", ""));
-        idx.index(note("/vault/src.md", "[[target]]\n"));
+        idx.seed(note("/vault/target.md", ""));
+        idx.seed(note("/vault/src.md", "[[target]]\n"));
 
         let params = make_definition_params_at("/vault/src.md", 0, 3);
         let resp = handle_definition(params, &idx).expect("expected a response");
@@ -1652,9 +1653,9 @@ mod tests {
     #[test]
     fn references_no_symbol_at_cursor() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/target.md", "Just prose here\n"));
-        idx.index(note("/vault/a.md", "[[target]]\n"));
-        idx.index(note("/vault/b.md", "[[target]]\n"));
+        idx.seed(note("/vault/target.md", "Just prose here\n"));
+        idx.seed(note("/vault/a.md", "[[target]]\n"));
+        idx.seed(note("/vault/b.md", "[[target]]\n"));
 
         let params = make_references_params("/vault/target.md", 0, 5);
         let locs = handle_references(params, &idx);
@@ -1665,8 +1666,8 @@ mod tests {
     #[test]
     fn references_tag_returns_all_locations() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
-        idx.index(note("/vault/b.md", "---\ntags: [rust]\n---\n"));
+        idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+        idx.seed(note("/vault/b.md", "---\ntags: [rust]\n---\n"));
 
         // Cursor on 'rust' in a.md: line 1, char 8
         let params = make_references_params("/vault/a.md", 1, 8);
@@ -1678,7 +1679,7 @@ mod tests {
     #[test]
     fn tag_at_position_miss() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\ntitle: My Note\ntags: [rust]\n---\n"));
+        idx.seed(note("/vault/a.md", "---\ntitle: My Note\ntags: [rust]\n---\n"));
 
         // Cursor on 'title:' line — not a tag
         let params = make_definition_params_at("/vault/a.md", 1, 3);
@@ -1718,7 +1719,7 @@ mod tests {
     #[test]
     fn code_action_no_link_at_cursor() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "no links here"));
+        idx.seed(note("/vault/a.md", "no links here"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             range: Range { start: pos(0, 0), end: pos(0, 0) },
@@ -1732,8 +1733,8 @@ mod tests {
     #[test]
     fn code_action_resolved_link_no_action() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", ""));
-        idx.index(note("/vault/a.md", "[[b]]"));
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[[b]]"));
         // cursor at column 2 — inside [[b]]
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
@@ -1748,7 +1749,7 @@ mod tests {
     #[test]
     fn code_action_broken_link_creates_file() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "[[missing]]"));
+        idx.seed(note("/vault/a.md", "[[missing]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             range: Range { start: pos(0, 2), end: pos(0, 2) },
@@ -1774,7 +1775,7 @@ mod tests {
     #[test]
     fn code_action_broken_link_same_extension() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.mdx", "[[missing]]"));
+        idx.seed(note("/vault/a.mdx", "[[missing]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.mdx") },
             range: Range { start: pos(0, 2), end: pos(0, 2) },
@@ -1798,9 +1799,9 @@ mod tests {
     #[test]
     fn code_action_ambiguous_no_action() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/sub/b.md", ""));
-        idx.index(note("/vault/other/b.md", ""));
-        idx.index(note("/vault/a.md", "[[b]]"));
+        idx.seed(note("/vault/sub/b.md", ""));
+        idx.seed(note("/vault/other/b.md", ""));
+        idx.seed(note("/vault/a.md", "[[b]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             range: Range { start: pos(0, 2), end: pos(0, 2) },
@@ -1814,8 +1815,8 @@ mod tests {
     #[test]
     fn code_action_broken_anchor_lists_headings() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "## Alpha\n## Beta"));
-        idx.index(note("/vault/a.md", "[[b#Bad]]"));
+        idx.seed(note("/vault/b.md", "## Alpha\n## Beta"));
+        idx.seed(note("/vault/a.md", "[[b#Bad]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             range: Range { start: pos(0, 2), end: pos(0, 2) },
@@ -1832,8 +1833,8 @@ mod tests {
     #[test]
     fn code_action_broken_anchor_edit_range() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "## Alpha"));
-        idx.index(note("/vault/a.md", "[[b#Bad]]"));
+        idx.seed(note("/vault/b.md", "## Alpha"));
+        idx.seed(note("/vault/a.md", "[[b#Bad]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             range: Range { start: pos(0, 2), end: pos(0, 2) },
@@ -1855,8 +1856,8 @@ mod tests {
     #[test]
     fn code_action_no_headings_no_anchor_actions() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "no headings here"));
-        idx.index(note("/vault/a.md", "[[b#Bad]]"));
+        idx.seed(note("/vault/b.md", "no headings here"));
+        idx.seed(note("/vault/a.md", "[[b#Bad]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             range: Range { start: pos(0, 2), end: pos(0, 2) },
@@ -1870,8 +1871,8 @@ mod tests {
     #[test]
     fn code_action_valid_anchor_no_action() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/b.md", "## Good"));
-        idx.index(note("/vault/a.md", "[[b#Good]]"));
+        idx.seed(note("/vault/b.md", "## Good"));
+        idx.seed(note("/vault/a.md", "[[b#Good]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             range: Range { start: pos(0, 2), end: pos(0, 2) },
@@ -1885,7 +1886,7 @@ mod tests {
     #[test]
     fn code_action_new_note_dir_used() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/notes/a.md", "[[missing]]"));
+        idx.seed(note("/vault/notes/a.md", "[[missing]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier {
                 uri: file_uri("/vault/notes/a.md"),
@@ -1913,7 +1914,7 @@ mod tests {
     fn code_action_new_note_dir_fallback() {
         // When new_note_dir is None, falls back to same directory as current note.
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/notes/a.md", "[[missing]]"));
+        idx.seed(note("/vault/notes/a.md", "[[missing]]"));
         let params = CodeActionParams {
             text_document: lsp_types::TextDocumentIdentifier {
                 uri: file_uri("/vault/notes/a.md"),
@@ -1950,7 +1951,7 @@ mod tests {
     #[test]
     fn code_lens_no_backlinks() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "no links here"));
+        idx.seed(note("/vault/a.md", "no links here"));
         let params = CodeLensParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             work_done_progress_params: Default::default(),
@@ -1964,8 +1965,8 @@ mod tests {
     #[test]
     fn code_lens_single_backlink() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", ""));
-        idx.index(note("/vault/b.md", "[[a]]"));
+        idx.seed(note("/vault/a.md", ""));
+        idx.seed(note("/vault/b.md", "[[a]]"));
         let params = CodeLensParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             work_done_progress_params: Default::default(),
@@ -1979,10 +1980,10 @@ mod tests {
     #[test]
     fn code_lens_multiple_backlinks() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", ""));
-        idx.index(note("/vault/b.md", "[[a]]"));
-        idx.index(note("/vault/c.md", "[[a]]"));
-        idx.index(note("/vault/d.md", "[[a]]"));
+        idx.seed(note("/vault/a.md", ""));
+        idx.seed(note("/vault/b.md", "[[a]]"));
+        idx.seed(note("/vault/c.md", "[[a]]"));
+        idx.seed(note("/vault/d.md", "[[a]]"));
         let params = CodeLensParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             work_done_progress_params: Default::default(),
@@ -1996,7 +1997,7 @@ mod tests {
     #[test]
     fn code_lens_position_is_zero() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "line one\nline two\nline three"));
+        idx.seed(note("/vault/a.md", "line one\nline two\nline three"));
         let params = CodeLensParams {
             text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
             work_done_progress_params: Default::default(),
@@ -2045,7 +2046,7 @@ mod tests {
     fn schema_value_completion_enum() {
         let mut idx = NoteIndex::default();
         // line 0: ---         line 1: status: <cursor>   line 2: ---
-        idx.index(note("/vault/a.md", "---\nstatus: \n---\n"));
+        idx.seed(note("/vault/a.md", "---\nstatus: \n---\n"));
         let schema = schema_with(&[("status", &["draft", "published"])], &[]);
         let items = completion_at("/vault/a.md", 1, 8, &idx, Some(&schema));
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -2058,7 +2059,7 @@ mod tests {
     fn schema_value_completion_no_enum() {
         // Key exists in schema but has no enum → no schema value completions.
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\nauthor: \n---\n"));
+        idx.seed(note("/vault/a.md", "---\nauthor: \n---\n"));
         let schema = schema_with(&[("author", &[])], &[]);
         let items = completion_at("/vault/a.md", 1, 8, &idx, Some(&schema));
         assert!(items.is_empty(), "expected no completions when no enum values");
@@ -2068,7 +2069,7 @@ mod tests {
     fn schema_value_completion_unknown_key() {
         // Key not in schema → no schema value completions.
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\nunknown: \n---\n"));
+        idx.seed(note("/vault/a.md", "---\nunknown: \n---\n"));
         let schema = schema_with(&[("status", &["draft"])], &[]);
         let items = completion_at("/vault/a.md", 1, 9, &idx, Some(&schema));
         assert!(items.is_empty(), "expected no completions for unknown key");
@@ -2078,7 +2079,7 @@ mod tests {
     fn schema_key_completion() {
         // Blank line inside frontmatter → schema keys offered.
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\n\n---\n"));
+        idx.seed(note("/vault/a.md", "---\n\n---\n"));
         let schema = schema_with(&[("status", &["draft"]), ("author", &[])], &[]);
         let items = completion_at("/vault/a.md", 1, 0, &idx, Some(&schema));
         assert!(!items.is_empty(), "expected schema key completions");
@@ -2092,7 +2093,7 @@ mod tests {
     fn schema_key_completion_excludes_present() {
         // `status` already in frontmatter → only `author` offered.
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\nstatus: draft\n\n---\n"));
+        idx.seed(note("/vault/a.md", "---\nstatus: draft\n\n---\n"));
         let schema = schema_with(&[("status", &["draft"]), ("author", &[])], &[]);
         // cursor on blank line (line 2)
         let items = completion_at("/vault/a.md", 2, 0, &idx, Some(&schema));
@@ -2105,8 +2106,8 @@ mod tests {
     fn schema_no_schema_unchanged() {
         // With schema: None, existing wiki-link completion is unaffected.
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/target.md", ""));
-        idx.index(note("/vault/a.md", "[["));
+        idx.seed(note("/vault/target.md", ""));
+        idx.seed(note("/vault/a.md", "[["));
         let items = completion_at("/vault/a.md", 0, 2, &idx, None);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
         assert!(labels.contains(&"target"), "expected wiki-link completion: {labels:?}");
@@ -2121,7 +2122,7 @@ mod tests {
     #[test]
     fn schema_diag_unknown_key() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\nunknown: val\n---\n"));
+        idx.seed(note("/vault/a.md", "---\nunknown: val\n---\n"));
         let schema = schema_with(&[("status", &["draft"])], &[]);
         let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
         assert_eq!(diags.len(), 1);
@@ -2134,7 +2135,7 @@ mod tests {
     #[test]
     fn schema_diag_invalid_enum_value() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\nstatus: bad\n---\n"));
+        idx.seed(note("/vault/a.md", "---\nstatus: bad\n---\n"));
         let schema = schema_with(&[("status", &["draft", "published"])], &[]);
         let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
         assert_eq!(diags.len(), 1);
@@ -2148,7 +2149,7 @@ mod tests {
     #[test]
     fn schema_diag_missing_required() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\nauthor: alice\n---\n"));
+        idx.seed(note("/vault/a.md", "---\nauthor: alice\n---\n"));
         let schema = schema_with(&[("author", &[]), ("status", &[])], &["status"]);
         let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
         assert_eq!(diags.len(), 1);
@@ -2162,7 +2163,7 @@ mod tests {
     #[test]
     fn schema_diag_no_schema() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\nunknown: val\n---\n"));
+        idx.seed(note("/vault/a.md", "---\nunknown: val\n---\n"));
         // No schema → no schema diagnostics (only link diagnostics, none here)
         let diags = diags_with_schema("/vault/a.md", &idx, None);
         assert!(diags.is_empty(), "expected no diagnostics without schema");
@@ -2171,7 +2172,7 @@ mod tests {
     #[test]
     fn schema_diag_valid_note() {
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "---\nstatus: draft\nauthor: alice\n---\n"));
+        idx.seed(note("/vault/a.md", "---\nstatus: draft\nauthor: alice\n---\n"));
         let schema = schema_with(&[("status", &["draft", "published"]), ("author", &[])], &["status"]);
         let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
         assert!(diags.is_empty(), "expected no diagnostics for a valid note");
@@ -2181,7 +2182,7 @@ mod tests {
     fn schema_diag_no_frontmatter_missing_required() {
         // No frontmatter at all but required key declared → diagnostic at (0,0).
         let mut idx = NoteIndex::default();
-        idx.index(note("/vault/a.md", "Just prose.\n"));
+        idx.seed(note("/vault/a.md", "Just prose.\n"));
         let schema = schema_with(&[], &["status"]);
         let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
         assert_eq!(diags.len(), 1);
