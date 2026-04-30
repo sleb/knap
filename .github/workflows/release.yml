@@ -9,7 +9,18 @@ permissions:
   contents: write
 
 jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Extract release notes from CHANGELOG.md
+        run: awk '/^## \[/{n++; if(n==2) exit} n==1' CHANGELOG.md > release-notes.md
+      - uses: softprops/action-gh-release@v3
+        with:
+          body_path: release-notes.md
+
   build:
+    needs: create-release
     strategy:
       matrix:
         include:

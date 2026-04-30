@@ -125,6 +125,8 @@ cargo clippy -- -D warnings   # zero warnings
 
 ### 4. Update docs
 
+- [ ] **`CHANGELOG.md`** — add an entry for the new version at the top (see
+      format below); this becomes the GitHub release body automatically
 - [ ] **`Cargo.toml`** — bump `version` to the new version string
 - [ ] **`README.md`** — update the version badge; update the "What it does"
       feature list to reflect only what is actually shipped in this release
@@ -134,13 +136,34 @@ cargo clippy -- -D warnings   # zero warnings
 - [ ] **`docs/design/v{N}/plan.md`** — confirm all steps show ✅ Done in the
       status table
 
+**CHANGELOG entry format:**
+
+```markdown
+## [0.9.0] — YYYY-MM-DD
+
+### Added
+
+- Short user-facing description (US-XX)
+
+### Fixed
+
+- ...
+
+### Changed
+
+- ...
+```
+
+Use only the sections that apply. Write from the user's perspective — what
+changed in their editor, not what changed in the code.
+
 ### 5. Commit
 
 Stage only the files changed in steps 2–4. Include any doc files changed during
 the sync check:
 
 ```bash
-git add Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/v{N}/plan.md
+git add CHANGELOG.md Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/v{N}/plan.md
 # plus any docs/ARCHITECTURE.md or docs/design/components/*.md changed in step 2
 git commit -m "Release v{VERSION}"
 ```
@@ -158,25 +181,18 @@ git push
 git push --tags
 ```
 
-### 8. Create the GitHub release
+Pushing the tag triggers the release workflow, which:
 
-Write the release notes in a temporary file, then:
+1. Extracts the top entry from `CHANGELOG.md` and creates the GitHub release
+2. Builds binaries for all platforms and attaches them to the release
 
-```bash
-gh release create v{VERSION} \
-  --title "v{VERSION}" \
-  --notes-file /tmp/release-notes.md
-```
-
-**Release notes format:** use the roadmap milestone table as the starting point
-— list the user stories shipped, note any design decisions or caveats worth
-calling out, and include the `cargo install` command (once the crate is
-published to crates.io) or build-from-source instructions.
+No manual `gh release create` needed.
 
 ---
 
 ## After the release
 
-- [ ] Verify the GitHub release page looks correct (tag, notes, no draft)
+- [ ] Verify the GitHub release page looks correct (notes match CHANGELOG, all
+      binaries attached)
 - [ ] Open the next milestone in `docs/ROADMAP.md` — create
       `docs/design/v{N+1}/plan.md` if it doesn't already exist

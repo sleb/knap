@@ -19,8 +19,8 @@ careful pairing partner who has read the guide so the user doesn't have to
 re-read it each time.
 
 **Never run destructive or externally-visible commands without explicit
-confirmation.** This includes: `git tag`, `git push`, `git push --tags`, and
-`gh release create`. For file edits, show the proposed diff first and ask.
+confirmation.** This includes: `git tag`, `git push`, and `git push --tags`.
+For file edits, show the proposed diff first and ask.
 
 ---
 
@@ -127,7 +127,36 @@ continue anyway — their project, their call).
 Walk through each update **one at a time**. Show the proposed change and ask for
 confirmation before applying it.
 
-### 5a. Cargo.toml — bump version
+### 5a. CHANGELOG.md — add release entry
+
+Read the top of `CHANGELOG.md` to see the current latest entry. Draft a new
+entry for the version being released and show it:
+
+> "Here's the CHANGELOG entry I'd add at the top. Does this capture everything,
+> or would you like to adjust anything?"
+
+The entry format is:
+
+```markdown
+## [0.9.0] — YYYY-MM-DD
+
+### Added
+
+- Short user-facing description (US-XX)
+
+### Fixed
+
+- ...
+```
+
+Use only the sections that apply (`Added`, `Fixed`, `Changed`). Write from the
+user's perspective — what changed in their editor, not what changed in the code.
+
+This entry becomes the GitHub release body automatically when the tag is pushed.
+
+Apply on confirmation.
+
+### 5b. Cargo.toml — bump version
 
 Show:
 
@@ -136,7 +165,7 @@ Show:
 
 Apply on confirmation.
 
-### 5b. README.md — version badge and feature list
+### 5c. README.md — version badge and feature list
 
 Read `README.md`. Find the version badge and the "What it does" feature list (or
 equivalent). Show what you propose to change:
@@ -152,7 +181,7 @@ Show the proposed diff, then ask:
 
 Apply on confirmation.
 
-### 5c. docs/ROADMAP.md — add release date
+### 5d. docs/ROADMAP.md — add release date
 
 Find the heading for the milestone being released. Propose changing it to
 include the release date, e.g.:
@@ -162,7 +191,7 @@ include the release date, e.g.:
 
 Show the change and confirm before applying.
 
-### 5d. docs/design/v{N}/plan.md — final confirmation
+### 5e. docs/design/v{N}/plan.md — final confirmation
 
 Re-read the plan and confirm all steps show ✅ Done. No edits needed if Step 3
 already verified this — just tell the user it's clean.
@@ -180,7 +209,7 @@ Run `git diff` to show all pending changes. Then propose the commit:
 > ```
 >
 > Staged:
-> `Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/v{N}/plan.md`
+> `CHANGELOG.md Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/v{N}/plan.md`
 > (plus any doc files changed during the Step 2 sync check)
 >
 > OK to commit?"
@@ -189,7 +218,7 @@ On confirmation, stage everything that was changed — including any architectur
 or component docs updated in Step 2:
 
 ```bash
-git add Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/v{N}/plan.md
+git add CHANGELOG.md Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/v{N}/plan.md
 # also add any docs/ARCHITECTURE.md or docs/design/components/*.md changed in Step 2
 git commit -m "Release v{VERSION}"
 ```
@@ -231,56 +260,19 @@ Run both on confirmation.
 
 ---
 
-## Step 9 — GitHub release
+## Step 9 — Verify the GitHub release
 
-Help the user draft release notes. Use the milestone's user story table from
-`docs/ROADMAP.md` as the starting point. Draft something like:
+The release workflow creates the GitHub release automatically when the tag is
+pushed. It extracts the top entry from `CHANGELOG.md` and attaches all platform
+binaries. Tell the user:
 
-````markdown
-## What's new
-
-This release ships the v{N} milestone: {milestone goal sentence}.
-
-### User stories shipped
-
-| Story | Feature |
-| ----- | ------- |
-| US-XX | ...     |
-| ...   |         |
-
-### Install
-
-```bash
-cargo install knap
-```
-````
-
-Or build from source:
-
-```bash
-git clone https://github.com/sleb/knap
-cd knap
-cargo build --release
-```
-
-````
-
-Show the draft and ask:
-> "Here's a draft for the release notes. Would you like to edit anything before
-> I create the release?"
-
-Once the user is happy, write the notes to `/tmp/knap-release-notes.md` and
-show the command you'll run:
-
-> "I'll run:
-> ```
-> gh release create v{VERSION} \
->   --title "v{VERSION}" \
->   --notes-file /tmp/knap-release-notes.md
-> ```
-> OK to create the release?"
-
-Run on confirmation. Share the resulting URL.
+> "The release workflow should be running now. Once it completes, check:
+>
+> - The release body matches the CHANGELOG entry you just wrote
+> - All platform binaries are attached
+> - The release is not marked as a draft
+>
+> You can monitor it at: https://github.com/sleb/knap/actions"
 
 ---
 
@@ -289,6 +281,7 @@ Run on confirmation. Share the resulting URL.
 Remind the user:
 
 > "A few things to check off:
+>
 > - [ ] Open the GitHub release page and verify the tag, notes, and that it's
 >       not a draft
 > - [ ] Open `docs/ROADMAP.md` and start the next milestone section if it's
@@ -310,4 +303,7 @@ Offer to help with any of these if they'd like.
   anything.
 - The full guide is at `docs/RELEASING.md` — refer the user there if they want
   more context on any decision.
-````
+
+```
+
+```

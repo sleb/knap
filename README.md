@@ -33,6 +33,7 @@ LSP-compatible editor.
 - Frontmatter schema — define allowed keys and enum values via `initializationOptions`; get completions and warnings for unknown keys, invalid values, and missing required fields
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
+Dedicated extensions are available for [VS Code](https://github.com/sleb/vscode-knap) and [Zed](https://github.com/sleb/zed-knap).
 
 ## How it works
 

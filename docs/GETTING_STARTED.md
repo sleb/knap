@@ -75,12 +75,39 @@ enables inline autocompletion and validation for all knap options:
 }
 ```
 
+### VS Code
+
+Install the **vscode-knap** extension from the [GitHub releases page](https://github.com/sleb/vscode-knap/releases/latest):
+
+1. Download `vscode-knap-*.vsix` from the latest release
+2. In VS Code, open the Command Palette and run **Extensions: Install from VSIX…**
+3. Select the downloaded file
+
+The extension locates the `knap` binary automatically by searching
+`~/.cargo/bin`, `/usr/local/bin`, `/opt/homebrew/bin`, and `$PATH`. If your
+binary is elsewhere, set `knap.serverPath` in your VS Code settings to its
+absolute path.
+
+To pass configuration options (see [Configuration](#3-configuration) below),
+add an `initializationOptions` block to your VS Code `settings.json`:
+
+```json
+{
+  "knap.serverPath": "/path/to/knap",
+  "initialization_options": {
+    "extensions": ["md"],
+    "attachmentsDir": "assets",
+    "newNoteDir": "0-Inbox"
+  }
+}
+```
+
 ### Other editors
 
-For Neovim, VS Code, Helix, and others, follow your editor's standard
-procedure for adding a custom LSP server, pointing it at the `knap` binary.
-The server speaks the standard Language Server Protocol over stdin/stdout —
-no special flags or arguments are needed.
+For Neovim, Helix, and others, follow your editor's standard procedure for
+adding a custom LSP server, pointing it at the `knap` binary. The server speaks
+the standard Language Server Protocol over stdin/stdout — no special flags or
+arguments are needed.
 
 ---
 
