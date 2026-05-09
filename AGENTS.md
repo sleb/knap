@@ -1,7 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with
-code in this repository.
+This file provides guidance to agents when working with code in this repository.
 
 ## Project
 
@@ -79,6 +78,26 @@ Editor-specific extensions live in separate repos:
 to that extension (installation steps, binary resolution, editor-specific
 settings). All feature documentation, architecture decisions, and policies live
 here. Extension READMEs link back to `knap` rather than replicating content.
+
+## Skills
+
+Skills provide specialized instructions and workflows for specific tasks. Use
+the skill tool to load a skill when a task matches its description.
+
+<available_skills>
+  <skill>
+    <name>release</name>
+    <description>
+      Interactive release checklist for knap. Use this skill whenever the user
+      mentions cutting a release, tagging a version, shipping a milestone, or
+      anything like "let's release", "time to tag", "ready to ship v0.x", or
+      "how do I release". Walk through the full docs/RELEASING.md checklist
+      step-by-step, surfacing current state, proposing each action, and waiting
+      for explicit confirmation before doing anything irreversible.
+    </description>
+    <location>file://.agents/skills/release/SKILL.md</location>
+  </skill>
+</available_skills>
 
 ## Fearless Refactoring
 

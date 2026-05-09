@@ -134,13 +134,93 @@ required for the common single-folder case.
 
 ---
 
+## v0.9 — Diagnostics & Validation
+
+**Goal:** Every link type and document structure in your notes is validated.
+
+| Story | Feature                                                                                             |
+| ----- | --------------------------------------------------------------------------------------------------- |
+| US-32 | Duplicate heading diagnostic — warn when two headings share the same text (ambiguous anchor target) |
+| US-33 | Dead standard Markdown link diagnostic — `[text](./missing.md)` validated like wiki-links           |
+| US-34 | Self-referential link diagnostic — warn when a `[[wiki-link]]` points to the file it appears in     |
+
+**LSP capabilities delivered:** `textDocument/publishDiagnostics` (expanded)
+
+---
+
+## v0.10 — Editor Experience
+
+**Goal:** Editors treat Markdown as a first-class language with rich visual feedback.
+
+| Story | Feature                                                                               |
+| ----- | ------------------------------------------------------------------------------------- |
+| US-35 | Semantic tokens — wiki-links and tags styled as distinct token types per editor theme |
+| US-36 | Folding ranges — collapse heading sections and fenced code blocks                     |
+
+**LSP capabilities delivered:** `textDocument/semanticTokens`, `textDocument/foldingRange`
+
+---
+
+## v0.11 — Inline Tags & Tag Refactoring
+
+**Goal:** Your tag taxonomy spans the full document, not just frontmatter, and can be renamed safely.
+
+| Story | Feature                                                                                          |
+| ----- | ------------------------------------------------------------------------------------------------ |
+| US-40 | Inline `#tag` body syntax — tags in note body included in the tag index, completions, references |
+| US-37 | Rename tag — update all frontmatter and inline occurrences across the workspace                  |
+
+**LSP capabilities delivered:** `textDocument/rename` (extended), `textDocument/completion` (inline tags), `textDocument/references` (inline tags)
+
+---
+
+## v0.12 — Workspace Insight
+
+**Goal:** See the health and connectivity of your knowledge base at a glance.
+
+| Story | Feature                                                                                |
+| ----- | -------------------------------------------------------------------------------------- |
+| US-38 | Orphan note detection — hint-level diagnostic on notes with no incoming links          |
+| US-39 | Inlay hints — show the human-readable `title:` next to `[[slug-style-filename]]` links |
+
+**LSP capabilities delivered:** `textDocument/publishDiagnostics` (hints), `textDocument/inlayHint`
+
+---
+
+## v0.13 — Extract & Templates
+
+**Goal:** Restructure and scaffold notes without leaving your editor.
+
+| Story | Feature                                                                                      |
+| ----- | -------------------------------------------------------------------------------------------- |
+| US-19 | Extract selection to new note — code action replaces selection with `[[link]]` to new file   |
+| US-42 | Note templates — configurable `templateDir`; new notes expanded with `{{title}}`, `{{date}}` |
+
+**LSP capabilities delivered:** `textDocument/codeAction` (extended)
+
+---
+
+## v0.14 — Daily Notes
+
+**Goal:** Open today's journal entry with one command, creating it from a template if it doesn't exist.
+
+| Story | Feature                                                                                                                                                                 |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| US-43 | `knap.openDailyNote` command — server advertises the command; editor extensions bind it to a key or palette entry; server sends `window/showDocument` to navigate there |
+
+**LSP capabilities delivered:** `workspace/executeCommand`, `window/showDocument`
+
+> Requires `dailyNotePattern` config (e.g. `journal/%Y/%m/%d.md`). The user-visible trigger lives in the editor, not the server: VS Code via a registered extension command; Neovim via `vim.lsp.buf.execute_command`. Zed does not currently support registering arbitrary command palette actions from an extension, so Zed support depends on future Zed extension API expansion.
+
+---
+
 ---
 
 ## Backlog
 
 These were explicitly deferred and are not scheduled:
 
-- Extract selection to new note (US-19)
+- Block-level links (US-41) — `[[Note^block-id]]` Obsidian block reference syntax; high complexity, revisit if demand grows
 - Full Markdown formatting (bold, italic, tables)
 - Git integration
 - Graph visualization

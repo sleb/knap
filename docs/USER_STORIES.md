@@ -50,6 +50,18 @@ ambiguous (matches multiple files), so I know to qualify it.
 **US-08** — As a writer, I can see when a heading anchor in a `[[Note#Heading]]`
 link no longer exists, so heading renames don't silently break links.
 
+**US-32** — As a writer, I see a warning when a file contains two or more
+headings with the same text, so I know that `[[Note#Heading]]` anchor links
+targeting that heading are ambiguous.
+
+**US-33** — As a writer, broken standard Markdown links to local files
+(`[text](./missing.md)`) are surfaced as diagnostics, so every link type in my
+notes is validated — not just wiki-links.
+
+**US-34** — As a writer, a diagnostic is shown when a `[[wiki-link]]` points to
+the file it appears in, so accidental self-links are caught rather than silently
+ignored.
+
 ---
 
 ## Hover & Previews
@@ -78,14 +90,34 @@ to see all files that use that tag, so I can explore topics by tag.
 
 ## Tags
 
-Tags are defined exclusively in YAML frontmatter (`tags: [foo, bar]`), not
-inline `#tag` syntax.
-
 **US-14** — As a writer, I get completions for frontmatter `tags` values based
 on tags already used across the workspace, so my taxonomy stays consistent.
 
 **US-15** — As a writer, `Find References` on a frontmatter tag value shows
 every file that uses that tag.
+
+**US-40** — As a writer, I can use inline `#tag` syntax anywhere in the body of
+a note (not just in frontmatter `tags:`) and have those tags included in the
+workspace tag index, so my full tag taxonomy is captured wherever tags appear.
+Inline tags participate in completions, Find References, and Go to Definition
+alongside frontmatter tags.
+
+**US-37** — As a writer, I can rename a frontmatter or inline tag and have every
+file that uses that tag — in frontmatter or in the note body — updated
+automatically, so my taxonomy stays consistent when I restructure it.
+
+---
+
+## Editor Experience
+
+**US-35** — As a writer, wiki-links and tags are highlighted as distinct
+semantic token types, so my editor theme can color them independently of plain
+text and standard Markdown syntax — for example, coloring a broken wiki-link
+differently from a valid one.
+
+**US-36** — As a writer, I can collapse heading sections and fenced code blocks
+in the current file using my editor's folding controls, so I can focus on the
+section I'm working on in long notes.
 
 ---
 
@@ -118,7 +150,20 @@ leaving the file.
 
 ---
 
-## Code Actions
+## Workspace Insight
+
+**US-38** — As a writer, notes with no incoming links (orphans) are surfaced as
+hint-level diagnostics, so I can identify isolated notes that may need to be
+connected or archived.
+
+**US-39** — As a writer, when a `[[slug-style-filename]]` link's target has a
+`title:` frontmatter field that differs from the slug, the human-readable title
+is shown as an inlay hint next to the link, so I can see what the link points to
+without hovering.
+
+---
+
+## Code Actions & Refactoring
 
 **US-18** — As a writer, when I'm on a broken `[[link]]`, a code action lets me
 create the missing file, so I can stub out notes without leaving my editor.
@@ -138,6 +183,34 @@ unprocessed stubs in one place (an inbox) regardless of where the link appears.
 autocompletion and inline validation for all recognized keys (`extensions`,
 `attachmentsDir`, `newNoteDir`), so I can configure the server without
 consulting external documentation and the editor flags unknown keys on the spot.
+
+**US-19** — As a writer, I can select text in a note and apply a code action to
+extract it into a new note, replacing the selection with a `[[link]]` to the new
+note, so I can split overgrown notes without manual copy-paste.
+
+**US-42** — As a writer, I can optionally configure a `templateDir` in
+`initializationOptions` pointing to a folder of Markdown templates; when a new
+note is created (via Quick Fix or extract), the server picks a matching template
+and expands it with variables like `{{title}}` and `{{date}}`, so new notes
+start with consistent structure.
+
+---
+
+## Daily Notes
+
+**US-43** — As a writer, I can invoke an "open daily note" command from my
+editor's command palette or a keyboard shortcut to open today's note, creating
+it from a template if it doesn't exist. The server registers a
+`workspace/executeCommand` handler for `knap.openDailyNote` and uses a
+configured `dailyNotePattern` (e.g. `journal/%Y/%m/%d.md`) to determine the
+path, then sends `window/showDocument` to navigate the editor there.
+
+The user-visible trigger depends on the editor. In VS Code, vscode-knap
+registers a named command that can be bound to a key. In Neovim, users can call
+`vim.lsp.buf.execute_command` directly and bind it to any key. In Zed, the
+extension API does not currently support registering arbitrary command palette
+entries or keybindable actions, so this command is not accessible from
+zed-knap; Zed support depends on future extension API expansion.
 
 ---
 
@@ -183,7 +256,12 @@ ambiguous, so I can verify link resolution without a running editor.
 
 ---
 
-## Out of Scope (v1)
+## Deferred / Out of Scope
+
+**US-41** — Block-level links (`[[Note^block-id]]`): target a specific paragraph
+or block within a note using Obsidian block reference syntax. Requires defining
+block IDs, tracking them in the index, and completing/resolving them. Deferred
+due to complexity; revisit when block references become a common pain point.
 
 - Full Markdown formatting (bold, italic, tables) — handled by other tools like
   `marksman` or `prettier`
