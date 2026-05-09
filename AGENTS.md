@@ -4,9 +4,9 @@ This file provides guidance to agents when working with code in this repository.
 
 ## Project
 
-Knap is a Markdown LSP server written in Rust. It brings Obsidian-style
-`[[wiki-link]]` navigation to any LSP-compatible editor. See `README.md` for the
-one-paragraph summary.
+Knap is a Markdown LSP server written in Rust. It brings IDE-quality linking and
+navigation to any LSP-compatible editor using standard Markdown `[text](path)`
+links — no wiki-link extensions. See `README.md` for the one-paragraph summary.
 
 ## Commands
 
@@ -18,8 +18,8 @@ cargo test --test <integration>    # single integration test file
 cargo clippy -- -D warnings        # lint (warnings are errors)
 
 # Debug CLI — invoke components directly without a running editor
-cargo run -- parse <file>          # print stem + wiki-links extracted from a file
-cargo run -- index <dir>           # print the note index built from a directory (Step 3+)
+cargo run -- parse <file>          # print links extracted from a file
+cargo run -- index <dir>           # print the note index built from a directory
 ```
 
 ## Documentation
@@ -27,18 +27,18 @@ cargo run -- index <dir>           # print the note index built from a directory
 All design decisions live in `docs/`. Read the relevant doc before starting any
 task:
 
-| Doc                           | When to read                                                      |
-| ----------------------------- | ----------------------------------------------------------------- |
-| `docs/ARCHITECTURE.md`        | Touching any component boundary or adding a new component         |
-| `docs/ROADMAP.md`             | Scoping work — confirms what's in vs. out for the current release |
-| `docs/RELEASING.md`           | Cutting a release — use the `/release` skill to walk through it   |
-| `docs/design/v0.3/design.md`  | Implementing anything in the v0.3 release                         |
-| `docs/design/v0.3/plan.md`    | Implementation order and testing checkpoints for v0.3             |
-| `docs/design/v0.4/design.md`  | Implementing anything in the v0.4 release                         |
-| `docs/design/v0.4/plan.md`    | Implementation order and testing checkpoints for v0.4             |
-| `docs/design/v0.8/design.md`  | Implementing anything in the v0.8 release                         |
-| `docs/design/v0.8/plan.md`    | Implementation order and testing checkpoints for v0.8             |
-| `docs/design/components/*.md` | Implementing a specific component (parser, index, handlers, etc.) |
+| Doc                           | When to read                                                         |
+| ----------------------------- | -------------------------------------------------------------------- |
+| `docs/ARCHITECTURE.md`        | Touching any component boundary or adding a new component            |
+| `docs/ROADMAP.md`             | Scoping work — confirms what's in vs. out for the current release    |
+| `docs/RELEASING.md`           | Cutting a release — use the `/release` skill to walk through it      |
+| `docs/design/vX.Y/design.md`  | Implementing anything in the current release                         |
+| `docs/design/vX.Y/plan.md`    | Implementation order and testing checkpoints for the current release |
+| `docs/design/components/*.md` | Implementing a specific component (parser, index, handlers, etc.)    |
+
+**Starting a new release cycle:** copy `docs/design/templates/design.md` and
+`docs/design/templates/plan.md` into `docs/design/vX.Y/`, fill in the release
+name, stories, and steps, then work through the plan in order.
 
 **Docs must stay in sync with the code.** If you deviate from a design doc
 during implementation — a better approach is found, an edge case changes the
@@ -85,18 +85,18 @@ Skills provide specialized instructions and workflows for specific tasks. Use
 the skill tool to load a skill when a task matches its description.
 
 <available_skills>
-  <skill>
-    <name>release</name>
-    <description>
-      Interactive release checklist for knap. Use this skill whenever the user
-      mentions cutting a release, tagging a version, shipping a milestone, or
-      anything like "let's release", "time to tag", "ready to ship v0.x", or
-      "how do I release". Walk through the full docs/RELEASING.md checklist
-      step-by-step, surfacing current state, proposing each action, and waiting
-      for explicit confirmation before doing anything irreversible.
-    </description>
-    <location>file://.agents/skills/release/SKILL.md</location>
-  </skill>
+<skill>
+<name>release</name>
+<description>
+Interactive release checklist for knap. Use this skill whenever the user
+mentions cutting a release, tagging a version, shipping a milestone, or
+anything like "let's release", "time to tag", "ready to ship v0.x", or
+"how do I release". Walk through the full docs/RELEASING.md checklist
+step-by-step, surfacing current state, proposing each action, and waiting
+for explicit confirmation before doing anything irreversible.
+</description>
+<location>file://.agents/skills/release/SKILL.md</location>
+</skill>
 </available_skills>
 
 ## Fearless Refactoring

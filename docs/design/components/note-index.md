@@ -13,15 +13,11 @@ pub struct NoteIndex {
     /// Primary store: absolute path → parsed note.
     by_path: HashMap<PathBuf, Note>,
 
-    /// Stem → all paths that have that stem.
-    /// Length 0: broken. Length 1: resolved. Length >1: ambiguous.
-    by_stem: HashMap<String, Vec<PathBuf>>,
+    /// All file paths in the workspace (notes + attachments).
+    /// Used to validate link targets without resolving them through `by_path`.
+    all_files: HashSet<PathBuf>,
 
-    /// Full filename (including extension) → all paths that have that filename.
-    /// Covers every file in the workspace, not just note extensions.
-    by_filename: HashMap<String, Vec<PathBuf>>,
-
-    /// Reverse index: target path → all wiki-links pointing to it.
+    /// Reverse index: target absolute path → all links pointing to it.
     /// Only contains links that resolved successfully at index time.
     links_to: HashMap<PathBuf, Vec<LocatedLink>>,
 
@@ -29,15 +25,14 @@ pub struct NoteIndex {
     by_tag: HashMap<String, Vec<PathBuf>>,
 }
 
-/// A wiki-link together with the file it lives in.
+/// A standard Markdown link together with the file it lives in.
 pub struct LocatedLink {
     pub source_path: PathBuf,
-    pub wiki_link: WikiLink,
+    pub md_link: MarkdownLink,
 }
 
 pub enum ResolvedLink {
     Found(PathBuf),
-    Ambiguous(Vec<PathBuf>),
     Broken,
 }
 
@@ -50,22 +45,34 @@ type AffectedPaths = HashSet<PathBuf>;
 
 ## resolve()
 
-Checks `by_stem` first; if not found, falls through to `by_filename`. This handles both note links (`[[stem]]`) and attachment links (`[[image.png]]`) without any classification step.
+Resolves a link target to an absolute file path. The target is a standard
+relative path (relative to the source file's location). External URLs are always
+`Found` without a filesystem lookup — they are intentional and never diagnosed.
 
 ```rust
-pub fn resolve(&self, target: &str) -> ResolvedLink {
-    match self.by_stem.get(target).map(|v| v.as_slice()) {
-        Some([path]) => return ResolvedLink::Found(path.clone()),
-        Some(paths)  => return ResolvedLink::Ambiguous(paths.to_vec()),
-        None         => {}
+pub fn resolve(&self, source: &Path, target: &str) -> ResolvedLink {
+    if looks_like_url(target) {
+        return ResolvedLink::Found(PathBuf::from(target));
     }
-    match self.by_filename.get(target).map(|v| v.as_slice()) {
-        Some([path]) => ResolvedLink::Found(path.clone()),
-        Some(paths)  => ResolvedLink::Ambiguous(paths.to_vec()),
-        None         => ResolvedLink::Broken,
+    let candidate = source
+        .parent()
+        .expect("note path must have a parent directory")
+        .join(target);
+    // Normalise away `..` components without requiring the path to exist on disk.
+    let candidate = normalize_path(&candidate);
+    if self.all_files.contains(&candidate) {
+        ResolvedLink::Found(candidate)
+    } else {
+        ResolvedLink::Broken
     }
 }
 ```
+
+Empty targets (anchor-only links like `[text](#heading)`) are resolved against
+the source file itself by the caller before invoking `resolve`.
+
+`normalize_path` collapses `.` and `..` components lexically (without syscalls),
+since the path may not exist on disk yet (e.g. during a Quick Fix preview).
 
 ---
 
@@ -82,26 +89,27 @@ pub fn index(&mut self, note: Note) -> IndexDelta {
         AffectedPaths::default()
     };
 
-    // 2. Add to by_stem and by_filename.
-    self.by_stem.entry(note.stem.clone()).or_default().push(note.path.clone());
-    self.by_filename.entry(note.filename()).or_default().push(note.path.clone());
+    // 2. Register in all_files.
+    self.all_files.insert(note.path.clone());
 
-    // 3. Resolve each wiki-link and populate links_to.
-    for link in &note.wiki_links {
-        if let ResolvedLink::Found(target) = self.resolve(&link.stem) {
+    // 3. Resolve each local link and populate links_to.
+    for link in &note.md_links {
+        if link.target.is_empty() || looks_like_url(&link.target) {
+            continue;
+        }
+        if let ResolvedLink::Found(target) = self.resolve(&note.path, &link.target) {
             self.links_to.entry(target.clone()).or_default().push(LocatedLink {
                 source_path: note.path.clone(),
-                wiki_link: link.clone(),
+                md_link: link.clone(),
             });
             affected.insert(target);
         }
     }
 
-    // 4. Adding this note may resolve previously broken links in other notes.
-    affected.extend(self.recheck_links_to(&note.stem));
+    // 4. Adding this note may fix broken links in other notes that pointed here.
+    affected.extend(self.recheck_incoming(&note.path));
 
-    // 5. Populate by_tag. Deduplicate so `tags: [rust, rust]` doesn't
-    //    push the same path twice into by_tag["rust"].
+    // 5. Populate by_tag.
     if let Some(fm) = &note.frontmatter {
         let mut seen = HashSet::new();
         for tag in &fm.tags {
@@ -122,34 +130,38 @@ pub fn index(&mut self, note: Note) -> IndexDelta {
 
 ### Resolving previously broken links (step 4)
 
-When a new note is indexed, links in _other_ notes that previously pointed at its stem (and were broken) now resolve. We find these by scanning the wiki-links of every note that references this stem — but only notes whose links are NOT already in `links_to` (i.e. were previously unresolved).
+When a new file appears at path P, notes that linked to P but were previously
+unresolved may now resolve. We find them by scanning `by_path` for any note
+whose `md_links` contain a target that resolves to P and that is not yet tracked
+in `links_to[P]`.
 
 ```rust
-fn recheck_links_to(&mut self, new_stem: &str) -> AffectedPaths {
+fn recheck_incoming(&mut self, new_path: &Path) -> AffectedPaths {
     let mut affected = AffectedPaths::default();
-    let new_path = match self.resolve(new_stem) {
-        ResolvedLink::Found(p) => p,
-        _ => return affected,  // still ambiguous or broken after add
-    };
-
-    let by_path = &self.by_path;
     let links_to = &mut self.links_to;
 
-    for note in by_path.values() {
-        for link in &note.wiki_links {
-            if link.stem == new_stem {
-                let already_tracked = links_to
-                    .get(&new_path)
-                    .map(|ls| ls.iter().any(|l| l.source_path == note.path))
-                    .unwrap_or(false);
+    for note in self.by_path.values() {
+        for link in &note.md_links {
+            if link.target.is_empty() || looks_like_url(&link.target) {
+                continue;
+            }
+            let resolves_here = matches!(
+                self.resolve(&note.path, &link.target),
+                ResolvedLink::Found(ref p) if p == new_path
+            );
+            if !resolves_here { continue; }
 
-                if !already_tracked {
-                    links_to.entry(new_path.clone()).or_default().push(LocatedLink {
-                        source_path: note.path.clone(),
-                        wiki_link: link.clone(),
-                    });
-                    affected.insert(note.path.clone());
-                }
+            let already_tracked = links_to
+                .get(new_path)
+                .map(|ls| ls.iter().any(|l| l.source_path == note.path))
+                .unwrap_or(false);
+
+            if !already_tracked {
+                links_to.entry(new_path.to_path_buf()).or_default().push(LocatedLink {
+                    source_path: note.path.clone(),
+                    md_link: link.clone(),
+                });
+                affected.insert(note.path.clone());
             }
         }
     }
@@ -174,11 +186,7 @@ fn remove_internal(&mut self, path: &Path) -> AffectedPaths {
         return affected;
     };
 
-    // Remove from by_stem.
-    if let Some(paths) = self.by_stem.get_mut(&note.stem) {
-        paths.retain(|p| p != path);
-        if paths.is_empty() { self.by_stem.remove(&note.stem); }
-    }
+    self.all_files.remove(path);
 
     // Remove from by_tag.
     if let Some(fm) = &note.frontmatter {
@@ -191,15 +199,7 @@ fn remove_internal(&mut self, path: &Path) -> AffectedPaths {
         }
     }
 
-    // Remove from by_filename.
-    let filename = note.filename();
-    if let Some(paths) = self.by_filename.get_mut(&filename) {
-        paths.retain(|p| p != path);
-        if paths.is_empty() { self.by_filename.remove(&filename); }
-    }
-
     // Files that link TO this note now have broken links — republish diagnostics.
-    // Remove the entry for this path from the reverse index at the same time.
     if let Some(incoming) = self.links_to.remove(path) {
         for l in &incoming {
             affected.insert(l.source_path.clone());
@@ -211,14 +211,6 @@ fn remove_internal(&mut self, path: &Path) -> AffectedPaths {
         links.retain(|l| l.source_path != path);
     }
     self.links_to.retain(|_, v| !v.is_empty());
-
-    // Files this note linked to may also have changed diagnostics
-    // (e.g. ambiguous stem resolves now that one candidate is gone).
-    for link in &note.wiki_links {
-        if let ResolvedLink::Found(target) = self.resolve(&link.stem) {
-            affected.insert(target);
-        }
-    }
 
     affected.insert(path.to_path_buf());
     affected
@@ -257,29 +249,18 @@ impl NoteIndex {
             .unwrap_or_default()
     }
 
-    /// Register a non-note file (attachment) in `by_filename`. Rechecks all
-    /// existing notes that link to this filename so their diagnostics clear.
+    /// Register a non-note file (attachment) in `all_files`. Notes that link
+    /// to this path and were previously broken may now resolve.
     pub fn add_attachment(&mut self, path: PathBuf) -> IndexDelta {
-        let filename = path.file_name()
-            .expect("attachment path must have a filename")
-            .to_string_lossy()
-            .into_owned();
-        self.by_filename.entry(filename.clone()).or_default().push(path);
-        let affected = self.recheck_links_to(&filename);
+        self.all_files.insert(path.clone());
+        let affected = self.recheck_incoming(&path);
         IndexDelta { affected_paths: affected }
     }
 
-    /// Remove a non-note file from `by_filename`. Notes that linked to it now
+    /// Remove a non-note file from `all_files`. Notes that linked to it now
     /// have broken links and are returned in the delta.
     pub fn remove_attachment(&mut self, path: &Path) -> IndexDelta {
-        let filename = path.file_name()
-            .expect("attachment path must have a filename")
-            .to_string_lossy()
-            .into_owned();
-        if let Some(paths) = self.by_filename.get_mut(&filename) {
-            paths.retain(|p| p != path);
-            if paths.is_empty() { self.by_filename.remove(&filename); }
-        }
+        self.all_files.remove(path);
         let mut affected = AffectedPaths::default();
         if let Some(incoming) = self.links_to.remove(path) {
             for l in &incoming { affected.insert(l.source_path.clone()); }
@@ -310,7 +291,7 @@ pub struct IndexDelta {
 
 ## Initial crawl
 
-Called from the Protocol Handler after `initialized`. Note files (matching `extensions`) are fully parsed; all other files are registered in `by_filename` only so attachment links resolve immediately.
+Called from the Protocol Handler after `initialized`. Note files (matching `extensions`) are fully parsed; all other files are registered in `all_files` only so attachment links resolve immediately.
 
 ```rust
 pub fn build(roots: &[PathBuf], extensions: &[&str]) -> (NoteIndex, IndexDelta) {
@@ -342,7 +323,7 @@ pub fn build(roots: &[PathBuf], extensions: &[&str]) -> (NoteIndex, IndexDelta) 
 
 `walk_files` is a recursive directory walk. It uses `entry.file_type()` (not
 `path.is_dir()`) so symlinked directories are never followed, preventing infinite
-loops. Directories whose name starts with `.` (e.g. `.git`, `.obsidian`) and the
-well-known build/dependency directories `node_modules` and `target` are skipped.
-Every remaining file is returned — no extension filter — so that attachments can
-be registered alongside notes.
+loops. Directories whose name starts with `.` (e.g. `.git`) and the well-known
+build/dependency directories `node_modules` and `target` are skipped. Every
+remaining file is returned — no extension filter — so that attachments can be
+registered alongside notes.

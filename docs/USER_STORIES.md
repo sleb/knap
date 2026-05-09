@@ -1,40 +1,45 @@
 # Knap — Markdown LSP Server: User Stories
 
-A language server for Markdown that brings Obsidian-style wiki linking and
-navigation to any LSP-compatible editor.
+A language server for Markdown that brings smart linking, navigation, and
+diagnostics to any LSP-compatible editor — using standard Markdown syntax.
 
-**Link resolution default:** shortest-path by filename stem (e.g. `[[my-note]]`
-resolves to `path/to/my-note.md`). Full relative path is available via
-configuration (US-22). Ambiguous stems — where multiple files share the same
-name — are surfaced as a diagnostic warning.
+> **Scope note (2026-05-09):** knap dropped wiki-link (`[[...]]`) support in
+> favour of standard Markdown links. Stories US-07b, US-22, US-27, US-39, and
+> US-41 were removed as a result. Old design docs for v0.1–v0.8 reference the
+> former story IDs — those are historical artifacts for shipped releases.
+> See [ARCHITECTURE.md](ARCHITECTURE.md) for the design tenets behind this
+> decision.
 
 ---
 
 ## Core Linking
 
-**US-01** — As a writer, I can type `[[` and get completions for all Markdown
-files in my workspace, so I can link to notes without remembering exact
-filenames.
+**US-01** — As a writer, I can type `[` inside a Markdown link and get
+completions for all Markdown files in my workspace, so I can link to notes
+without remembering exact paths.
 
-**US-02** — As a writer, I can `Go to Definition` on a `[[wiki-link]]` to open
-the target file, so I can navigate my knowledge base from the keyboard.
+**US-02** — As a writer, I can `Go to Definition` on a `[text](path/to/note.md)`
+link to open the target file, so I can navigate my knowledge base from the
+keyboard.
 
 **US-03** — As a writer, I can `Find References` on a file to see every other
 file that links to it, so I understand how notes are connected.
 
-**US-04** — As a writer, I can rename a file and have all `[[wiki-links]]`
+**US-04** — As a writer, I can rename a file and have all standard Markdown links
 pointing to it updated automatically, so my links don't break when I reorganize
 notes.
 
-**US-05** — As a writer, I can use `[[Note Title|display text]]` aliased links
-and still get Go to Definition and completions, so my prose reads naturally.
+**US-05** — As a writer, Go to Definition and Find References work regardless of
+what display text I use in a link, so my prose reads naturally without affecting
+navigation.
 
 **US-06** — As a writer, I can link to a heading within a file using
-`[[Note#Heading]]` syntax and navigate directly to that heading.
+`[text](note.md#heading)` syntax and navigate directly to that heading.
 
 **US-28** — As a writer, I can rename a heading and have all
-`[[Note#OldHeading]]` anchor links across my workspace updated automatically,
-so reorganising a note's structure doesn't silently break cross-file references.
+`[text](note.md#old-heading)` anchor links across my workspace updated
+automatically, so reorganising a note's structure doesn't silently break
+cross-file references.
 
 ---
 
@@ -44,31 +49,24 @@ so reorganising a note's structure doesn't silently break cross-file references.
 surfaced as diagnostics (warnings), so I can find dead links without manually
 checking.
 
-**US-07b** — As a writer, a diagnostic is shown when a `[[link]]` stem is
-ambiguous (matches multiple files), so I know to qualify it.
-
-**US-08** — As a writer, I can see when a heading anchor in a `[[Note#Heading]]`
-link no longer exists, so heading renames don't silently break links.
+**US-08** — As a writer, I can see when a heading anchor in a
+`[text](note.md#heading)` link no longer exists, so heading renames don't
+silently break links.
 
 **US-32** — As a writer, I see a warning when a file contains two or more
-headings with the same text, so I know that `[[Note#Heading]]` anchor links
-targeting that heading are ambiguous.
+headings with the same text, so I know that anchor links targeting that heading
+are ambiguous.
 
-**US-33** — As a writer, broken standard Markdown links to local files
-(`[text](./missing.md)`) are surfaced as diagnostics, so every link type in my
-notes is validated — not just wiki-links.
-
-**US-34** — As a writer, a diagnostic is shown when a `[[wiki-link]]` points to
-the file it appears in, so accidental self-links are caught rather than silently
-ignored.
+**US-34** — As a writer, a diagnostic is shown when a link points to the file it
+appears in, so accidental self-links are caught rather than silently ignored.
 
 ---
 
 ## Hover & Previews
 
-**US-09** — As a writer, hovering over a `[[wiki-link]]` shows a preview of the
-first N lines of the target file, so I can recall note contents without
-switching files.
+**US-09** — As a writer, hovering over a `[text](path/to/note.md)` link shows a
+preview of the first N lines of the target file, so I can recall note contents
+without switching files.
 
 **US-10** — As a writer, hovering over a standard Markdown image or link shows a
 summary/preview, so context is always one hover away.
@@ -110,10 +108,10 @@ automatically, so my taxonomy stays consistent when I restructure it.
 
 ## Editor Experience
 
-**US-35** — As a writer, wiki-links and tags are highlighted as distinct
-semantic token types, so my editor theme can color them independently of plain
-text and standard Markdown syntax — for example, coloring a broken wiki-link
-differently from a valid one.
+**US-35** — As a writer, tags are highlighted as a distinct semantic token type,
+so my editor theme can color them independently of plain text and standard
+Markdown syntax — for example, coloring a broken link differently from a valid
+one.
 
 **US-36** — As a writer, I can collapse heading sections and fenced code blocks
 in the current file using my editor's folding controls, so I can focus on the
@@ -127,17 +125,10 @@ section I'm working on in long notes.
 and updates its index incrementally, so completions and diagnostics are always
 current without restarting.
 
-**US-26** — As a writer, `[[image.png]]` and `![[image.png]]` links to
-non-Markdown files (images, PDFs, audio, etc.) that exist in my workspace
-resolve correctly and do not produce broken-link diagnostics, so notes with
-pasted attachments aren't cluttered with false warnings.
-
-_Resolution rule for attachments: match by full filename (stem + extension),
-since attachment links always include the extension. Notes continue to resolve
-by stem only._
-
-**US-27** — As a writer, `[[https://example.com]]` links to external URLs are
-recognised as intentional and never produce broken-link diagnostics.
+**US-26** — As a writer, standard Markdown links to non-Markdown files
+(`![alt](attachments/image.png)`, `[doc](attachments/report.pdf)`) that exist in
+my workspace resolve correctly and do not produce broken-link diagnostics, so
+notes with pasted attachments aren't cluttered with false warnings.
 
 ---
 
@@ -156,21 +147,17 @@ leaving the file.
 hint-level diagnostics, so I can identify isolated notes that may need to be
 connected or archived.
 
-**US-39** — As a writer, when a `[[slug-style-filename]]` link's target has a
-`title:` frontmatter field that differs from the slug, the human-readable title
-is shown as an inlay hint next to the link, so I can see what the link points to
-without hovering.
-
 ---
 
 ## Code Actions & Refactoring
 
-**US-18** — As a writer, when I'm on a broken `[[link]]`, a code action lets me
-create the missing file, so I can stub out notes without leaving my editor.
+**US-18** — As a writer, when I'm on a broken `[text](path/to/missing.md)` link,
+a code action lets me create the missing file, so I can stub out notes without
+leaving my editor.
 
-**US-29** — As a writer, when I'm on a `[[Note#MissingAnchor]]` diagnostic, a
-code action shows me the available headings from the target file so I can pick
-the right one and fix the broken anchor without leaving my editor.
+**US-29** — As a writer, when I'm on a `[text](note.md#missing-anchor)`
+diagnostic, a code action shows me the available headings from the target file so
+I can pick the right one and fix the broken anchor without leaving my editor.
 
 **US-30** — As a markdown author, I can optionally set `newNoteDir` in
 `initializationOptions` to a folder path (e.g. `"0-Inbox"`) so that all notes
@@ -185,8 +172,8 @@ autocompletion and inline validation for all recognized keys (`extensions`,
 consulting external documentation and the editor flags unknown keys on the spot.
 
 **US-19** — As a writer, I can select text in a note and apply a code action to
-extract it into a new note, replacing the selection with a `[[link]]` to the new
-note, so I can split overgrown notes without manual copy-paste.
+extract it into a new note, replacing the selection with a standard Markdown link
+to the new note, so I can split overgrown notes without manual copy-paste.
 
 **US-42** — As a writer, I can optionally configure a `templateDir` in
 `initializationOptions` pointing to a folder of Markdown templates; when a new
@@ -224,16 +211,13 @@ all workspace folders are indexed.
 **US-21** — As an editor integrator, I can configure file extensions the server
 should treat as notes (e.g. `.md`, `.mdx`, `.markdown`).
 
-**US-22** — As an editor integrator, I can configure link resolution strategy:
-shortest-path stem (default) or full relative path.
-
 ---
 
 ## Frontmatter
 
 **US-23** — As a writer, the server parses YAML frontmatter `title` fields and
 uses them as the display name in completions, so I see human-readable titles
-instead of filenames.
+instead of filenames when inserting a link.
 
 **US-24** — As a writer, I get completions and validation for frontmatter keys
 and values defined in a schema I provide, so structured metadata stays
@@ -246,25 +230,22 @@ consistent.
 These stories are for development and debugging — they let you invoke individual
 components from the command line to verify behavior without a running editor.
 
-**US-D01** — As a developer, I can run `knap parse <file>` to see the stem,
-wiki-links, and their LSP ranges extracted from a Markdown file, so I can verify
-parser behavior without a running editor.
+**US-D01** — As a developer, I can run `knap parse <file>` to see the Markdown
+links and their LSP ranges extracted from a file, so I can verify parser behavior
+without a running editor.
 
 **US-D02** — As a developer, I can run `knap index <dir>` to see the full note
-index built from a directory, including which stems are found, broken, or
-ambiguous, so I can verify link resolution without a running editor.
+index built from a directory, including which links are found, broken, or
+unresolvable, so I can verify link resolution without a running editor.
 
 ---
 
 ## Deferred / Out of Scope
 
-**US-41** — Block-level links (`[[Note^block-id]]`): target a specific paragraph
-or block within a note using Obsidian block reference syntax. Requires defining
-block IDs, tracking them in the index, and completing/resolving them. Deferred
-due to complexity; revisit when block references become a common pain point.
-
 - Full Markdown formatting (bold, italic, tables) — handled by other tools like
   `marksman` or `prettier`
+- Wiki-link syntax (`[[note]]`) — intentionally out of scope; knap uses standard
+  Markdown links only
 - Git integration
 - Graph visualization
 - Sync / publishing

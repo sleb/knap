@@ -5,30 +5,36 @@
 
 A
 [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
-server for Markdown, bringing Obsidian-style wiki linking and navigation to any
-LSP-compatible editor.
+server for Markdown. It brings IDE-quality linking and navigation to any
+LSP-compatible editor — using standard Markdown syntax, no proprietary
+extensions.
+
+## Philosophy
+
+knap uses plain `[text](path/to/note.md)` links. Notes stay valid Markdown that
+renders correctly anywhere — GitHub, static site generators, other editors —
+without knap present. The tooling provides the convenience; the files stay clean.
+See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 
 ## What it does
 
-- `[[wiki-link]]` completions, Go to Definition, and Find References
-- Broken and ambiguous link diagnostics
-- Rename a file — all `[[links]]` pointing to it are updated automatically
-- Aliased links `[[Note|display text]]` — rename preserves the alias
-- Attachment links `[[image.png]]` resolve against non-note files
+- `[text](path)` completions, Go to Definition, and Find References
+- Broken link diagnostics — warnings for links to missing files or headings
+- Rename a file — all links pointing to it are updated automatically
+- `[text](note.md#heading)` Go to Definition navigates to the heading line
+- Broken anchor diagnostics — warning when a linked heading no longer exists
+- Rename a heading — all anchor links updated automatically
+- Attachment links (`![alt](image.png)`, `[doc](report.pdf)`) resolve without false warnings
 - Configurable file extensions (e.g. `.md`, `.mdx`) via `initializationOptions`
 - Incremental index — the workspace index stays live as files change
-- `[[Note#Heading]]` Go to Definition navigates to the heading line
-- Broken anchor diagnostics — warning when a linked heading no longer exists
 - Document Symbols — jump to any heading within the current file
 - Workspace Symbols — search headings by name across all files
-- Rename a heading — all `[[Note#OldHeading]]` anchor links updated automatically
-- Hover on `[[wiki-link]]` → preview of the target note (title + first 10 lines)
-- Hover on `[text](./note.md)` → same note preview; images and external URLs show a summary
+- Hover on a link → preview of the target note (title + first 10 lines)
 - Frontmatter `title:` used as the display label in completions and hover
 - Frontmatter `tags:` completions from the workspace tag index
 - Go to Definition and Find References on a tag value → all files sharing that tag
-- Quick Fix on a broken `[[link]]` → create the missing file instantly
-- Quick Fix on a broken `[[note#anchor]]` → pick from available headings to fix the anchor
+- Quick Fix on a broken link → create the missing file instantly
+- Quick Fix on a broken anchor → pick from available headings to fix it
 - Backlinks code lens — `↑ N backlinks` at the top of every note, click to open the references panel (VS Code; Zed pending an upcoming Zed release)
 - Frontmatter schema — define allowed keys and enum values via `initializationOptions`; get completions and warnings for unknown keys, invalid values, and missing required fields
 
@@ -42,8 +48,8 @@ change notifications. It requires no external tools and no editor-specific
 plugins — just a standard LSP client configuration pointing at the server
 binary.
 
-Configuration (vault subdirectory, file extensions, link resolution strategy) is
-passed via your editor's native LSP settings, using `initializationOptions`.
+Configuration (note subdirectory, file extensions) is passed via your editor's
+native LSP settings, using `initializationOptions`.
 
 ## Status
 

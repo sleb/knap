@@ -19,20 +19,20 @@ pulldown-cmark = "0.13"
 /// The parsed representation of a single note file.
 pub struct Note {
     pub path: PathBuf,
-    pub stem: String,             // filename without extension
-    pub wiki_links: Vec<WikiLink>,
+    pub md_links: Vec<MarkdownLink>,
     pub content: String,          // raw source text, retained for trigger checking in completion
     pub headings: Vec<Heading>,
     pub frontmatter: Option<Frontmatter>,
-    pub md_links: Vec<MarkdownLink>,
 }
 
-/// A `[[wiki-link]]` found in the file.
-pub struct WikiLink {
-    pub stem: String,
+/// A standard Markdown link or image found in the file.
+pub struct MarkdownLink {
+    pub text: String,                   // link text or image alt text
+    pub target: String,                 // path relative to the current file, or URL, raw
     pub anchor: Option<String>,         // text after `#`, trimmed; None when absent or empty
-    pub range: LspRange,                // full [[...]] range, for Go to Definition
-    pub inner_range: LspRange,          // stem text only, for diagnostics and file rename
+    pub is_image: bool,                 // true for `![alt](url)`
+    pub range: LspRange,                // full `[text](url)` or `![alt](url)` span
+    pub target_range: LspRange,         // path inside `()`, excluding anchor, for rename
     pub anchor_range: Option<LspRange>, // anchor text only, for heading rename
 }
 
@@ -69,14 +69,6 @@ pub struct FrontmatterField {
     pub key_range: LspRange,
     pub value: Option<String>,
     pub value_range: Option<LspRange>,
-}
-
-/// A standard Markdown link or image found in the file.
-pub struct MarkdownLink {
-    pub text: String,    // link text or image alt text
-    pub target: String,  // URL or relative path, raw (unresolved)
-    pub is_image: bool,  // true for `![alt](url)`
-    pub range: LspRange, // full `[text](url)` or `![alt](url)` span
 }
 ```
 
@@ -129,12 +121,6 @@ impl LineIndex {
 
 ```rust
 pub fn parse(path: &Path, content: &str) -> Note {
-    let stem = path
-        .file_stem()
-        .expect("note path must have a filename")
-        .to_string_lossy()
-        .into_owned();
-
     let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
     let frontmatter = extract_frontmatter(content).map(|mut fm| {
         fm.tags = extract_tags(content, &line_index);
@@ -145,10 +131,10 @@ pub fn parse(path: &Path, content: &str) -> Note {
     });
     let body_offset = frontmatter_body_offset(content);
     let body = &content[body_offset..];
-    let (wiki_links, headings, md_links) = extract_body_elements(body, body_offset, &line_index);
+    let (md_links, headings) = extract_body_elements(body, body_offset, &line_index);
 
-    Note { path: path.to_path_buf(), stem, wiki_links, content: content.to_string(),
-           headings, frontmatter, md_links }
+    Note { path: path.to_path_buf(), md_links, content: content.to_string(),
+           headings, frontmatter }
 }
 ```
 
@@ -221,52 +207,34 @@ fn extract_frontmatter_fields(
 ## extract_body_elements()
 
 A single pulldown-cmark pass over the post-frontmatter body that collects
-headings, standard Markdown links/images, and wiki-link exclusion zones, then
-runs a raw byte scan for `[[wiki-links]]` outside those zones.
+headings and standard Markdown links/images.
 
-pulldown-cmark fragments `[[note]]` into individual character `Text` events,
-so wiki-links cannot be extracted from the event stream directly. The exclusion
-zones (fenced code blocks and inline code spans) collected during the parse pass
-are used to constrain the raw byte scan that follows.
+pulldown-cmark parses standard Markdown links natively — no raw scanning needed.
+Each `Event::Start(Tag::Link { .. })` or `Event::Start(Tag::Image { .. })` event
+carries the destination URL and the byte range of the full link span.
 
 ```rust
 fn extract_body_elements(
     content: &str,
     offset: usize,
     line_index: &LineIndex,
-) -> (Vec<WikiLink>, Vec<Heading>, Vec<MarkdownLink>)
+) -> (Vec<MarkdownLink>, Vec<Heading>)
 ```
 
-The single-pass design collects exclusion zones, headings, and Markdown
-links/images simultaneously. A raw scan (`scan_wiki_links`) runs afterward
-with the collected exclusion zones.
+### Link extraction
 
-### scan_wiki_links()
-
-Scans the full body string for `[[stem]]` patterns, skipping any position inside
-an exclusion zone. Handles alias (`[[note|display]]`) and anchor
-(`[[note#section]]`) suffixes. Records the stem, optional anchor, full range,
-inner (stem-only) range, and optional anchor range.
-
-```rust
-fn scan_wiki_links(
-    content: &str,
-    offset: usize,
-    exclusions: &[Range<usize>],
-    line_index: &LineIndex,
-) -> Vec<WikiLink>
-```
+For each link or image event, the destination is split on `#` to separate the
+path from the optional heading anchor. The byte range of the full `[text](url)`
+span is available from the event; `target_range` (path inside `()`) and
+`anchor_range` are derived by scanning the raw source bytes within that span to
+locate the `(` delimiter, the optional `#` separator, and the `)` closer.
 
 **Edge cases handled:**
 
-- `[[link]]` inside a fenced code block → excluded by exclusion zone
-- `` `[[link]]` `` inline code → excluded by exclusion zone
-- `[[note|display text]]` → alias stripped; stem is `"note"`
-- `[[note#section]]` → anchor captured; stem is `"note"`
-- `[[#section]]` / `[[|alias]]` → no note name; skipped
-- `[[]]` / `[[   ]]` empty/whitespace → skipped
-- `[[link` unclosed → skipped (no `]]` found before newline)
-
-`inner_range` covers the stem bytes only, so diagnostic squiggles land on the
-note name regardless of alias or anchor suffix. `anchor_range` covers the anchor
-text only (used by heading rename).
+- External URLs (`https://`, `http://`, etc.) — captured as `MarkdownLink` with
+  the URL as `target`; the Note Index skips resolution for external targets.
+- Anchor-only links (`[text](#heading)`) — `target` is empty string; handled by
+  the Note Index as a same-file anchor reference.
+- Images (`![alt](path)`) — captured with `is_image: true`.
+- Links inside fenced code blocks and inline code spans — pulldown-cmark excludes
+  these automatically; no special handling needed.

@@ -6,6 +6,25 @@ live in release-level design docs.
 
 ---
 
+## Design Tenets
+
+**Standard Markdown first.** Knap uses plain `[text](path/to/file.md)` links
+throughout. No wiki-link extensions, no proprietary syntax. Notes written with
+knap render correctly in any Markdown tool — GitHub, static site generators,
+other editors — without knap present.
+
+**Explicit paths, no ambiguity.** Links use standard relative paths — relative to
+the current file's location (e.g. `[My Note](../projects/foo.md)`). There is no
+stem-based resolution and no concept of an "ambiguous" link. What you write is
+what resolves.
+
+**Portable over convenient.** Where there is a tradeoff between a clever
+shorthand and a format that is legible without tooling, knap chooses legibility.
+The editor integration provides the convenience (completions, quick-fix, rename);
+the files stay clean.
+
+---
+
 ## Overview
 
 ```
@@ -135,11 +154,10 @@ pure — given the same source text it always returns the same result.
 
 **Responsibilities (full target state — fields added per release):**
 
-- Extracting `[[wiki-links]]` with position, target stem, optional alias,
-  optional heading anchor _(v0.1)_
+- Extracting standard Markdown links and images with position, target path, and
+  optional heading anchor _(v0.1 for wiki-links; superseded by standard links)_
 - Extracting all headings with their level and text _(v0.3)_
 - Extracting YAML frontmatter (title, tags, arbitrary keys) _(v0.4)_
-- Extracting standard Markdown links and images with position _(v0.4)_
 
 **Contract:**
 
@@ -147,10 +165,9 @@ pure — given the same source text it always returns the same result.
 parse(path: string, content: string) → Note
 ```
 
-`Note` grows across releases. In v0.1 it carries only `path`, `stem`,
-`wikiLinks`, and `content` (raw source). Fields for headings, frontmatter, and
-standard links are added in later releases. See the per-release design docs for
-the current shape.
+`Note` grows across releases. See the per-release design docs for the current
+shape. The parser does not resolve links — it only records what is written in
+the file.
 
 The parser does not resolve links — it only records what is written in the file.
 
@@ -167,10 +184,8 @@ notes in the workspace.
   startup
 - Accepting incremental updates (note added, changed, deleted) from the Protocol
   Handler
-- Resolving `[[link]]` stems to file paths according to the configured
-  `linkResolution` strategy
-- Detecting broken links (no matching file) and ambiguous stems (multiple
-  matching files)
+- Resolving standard Markdown link paths to file paths within the workspace
+- Detecting broken links (references to files or anchors that don't exist)
 - Maintaining a reverse index: for each file, which files link to it (backlinks)
 
 **Contract (writes):**
@@ -183,10 +198,10 @@ remove(path: string) → IndexDelta // delete; returns affected paths for diagno
 **Contract (reads):**
 
 ```
-resolve(target: string) → ResolvedLink  // checks by_stem first, then by_filename
+resolve(source: Path, target: string) → ResolvedLink  // resolves target relative to source file
 get_note(path: string) → Note | null
 all_notes() → Note[]
-links_to(path: string) → LocatedLink[]  // wiki-links from other notes pointing here
+links_to(path: string) → LocatedLink[]  // standard links from other notes pointing here
 all_tags() → string[]
 notes_by_tag(tag: string) → Note[]
 add_attachment(path: PathBuf) → IndexDelta
@@ -259,10 +274,10 @@ by the Protocol Handler.
    builds initial index
 5. Server sends initial diagnostics for any broken links found
 
-### User types `[[`
+### User opens a Markdown link
 
-1. Client sends `textDocument/completion`
-2. Completion Handler queries `index.all_notes()` for stems/titles
+1. Client sends `textDocument/completion` (triggered inside `[text](` path)
+2. Completion Handler queries `index.all_notes()` for paths and frontmatter titles
 3. Returns completion list; no filesystem I/O
 
 ### File renamed in editor

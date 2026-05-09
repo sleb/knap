@@ -13,12 +13,12 @@ sends.
 
 ### find_link_at_position()
 
-Used by Definition, References, and Hover. Finds the wiki-link in a note whose
-range contains a given cursor position.
+Used by Definition, References, and Hover. Finds the Markdown link in a note
+whose range contains a given cursor position.
 
 ```rust
-fn find_link_at_position(note: &Note, pos: Position) -> Option<&WikiLink> {
-    note.wiki_links.iter().find(|link| contains(link.range, pos))
+fn find_link_at_position(note: &Note, pos: Position) -> Option<&MarkdownLink> {
+    note.md_links.iter().find(|link| contains(link.range, pos))
 }
 
 fn contains(range: Range, pos: Position) -> bool {
@@ -46,7 +46,7 @@ fn find_tag_at_position(note: &Note, pos: Position) -> Option<&Tag> {
 
 ### When it fires
 
-The client sends a completion request when the user types `[` (registered as a
+The client sends a completion request when the user types `(` (registered as a
 trigger character). Before building the list, the handler checks trigger
 conditions in priority order:
 
@@ -59,8 +59,9 @@ conditions in priority order:
    (no `:`) and a schema is present → returns schema keys not yet present in
    the note's frontmatter (`CompletionItemKind::PROPERTY`, `insert_text` is
    `"key: "`).
-4. **Wiki-link trigger** — the text on the cursor's line immediately before the
-   cursor ends with `[[` → returns note completions.
+4. **Link path trigger** — the text on the cursor's line immediately before the
+   cursor matches `](` (inside the `()` of a Markdown link) → returns note
+   completions.
 
 ```rust
 pub fn handle_completion(
@@ -72,10 +73,10 @@ pub fn handle_completion(
 
 ### Response
 
-For the wiki-link trigger, one `CompletionItem` per note in the index. When the
+For the link path trigger, one `CompletionItem` per note in the index. When the
 note has a frontmatter `title`, the label is the title and `insert_text` /
-`filter_text` are the stem; otherwise label, insert_text, and filter_text all
-equal the stem.
+`filter_text` are the path relative to the current file; otherwise label,
+insert_text, and filter_text all equal the relative path.
 
 For the tag trigger, one `CompletionItem` per distinct tag in the index
 (`CompletionItemKind::VALUE`).
@@ -88,16 +89,15 @@ For the tag trigger, one `CompletionItem` per distinct tag in the index
 pub fn handle_hover(params: HoverParams, index: &NoteIndex) -> Option<Hover>
 ```
 
-Priority:
+**Markdown link at cursor** → varies by target type:
 
-1. **Wiki-link at cursor** → resolved note preview (bold title + first
-   `PREVIEW_LINES` body lines, frontmatter stripped, truncated with `…`).
-   Returns `None` for broken/ambiguous links.
-2. **Standard Markdown link at cursor** → varies by target type:
-   - External URL → formatted `[text](url)` string.
-   - Local path resolving to an indexed note → note preview.
-   - Image → `**Image**\n\n\`path\`` string.
-   - Unresolved local path → `` `path` `` string.
+- Local path resolving to an indexed note → note preview (bold title + first
+  `PREVIEW_LINES` body lines, frontmatter stripped, truncated with `…`).
+- External URL → formatted `[text](url)` string.
+- Image → `**Image**\n\n\`path\`` string.
+- Unresolved local path → `` `path` `` string.
+
+Returns `None` when the cursor is not on any link.
 
 `render_preview(note)` builds the hover markdown. It strips frontmatter via
 `frontmatter_body_offset` and takes the first `PREVIEW_LINES = 10` body lines.
@@ -144,9 +144,9 @@ pub fn handle_definition(
 
 Priority:
 
-1. **Wiki-link at cursor** → `GotoDefinitionResponse::Scalar(Location)`. The
+1. **Markdown link at cursor** → `GotoDefinitionResponse::Scalar(Location)`. The
    location is the heading range if the link has a matching anchor, otherwise
-   `Range::default()` (top of file). Returns `None` for broken/ambiguous links.
+   `Range::default()` (top of file). Returns `None` for broken links.
 2. **Tag in frontmatter at cursor** → `GotoDefinitionResponse::Array(locations)`
    with one `Location` per note that carries that tag (pointing at the tag's
    range in each note). Case-insensitive match.
@@ -161,7 +161,7 @@ pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Loca
 
 Priority:
 
-1. **Wiki-link at cursor** → all `LocatedLink`s from `index.links_to(target)`.
+1. **Markdown link at cursor** → all `LocatedLink`s from `index.links_to(target)`.
 2. **Tag in frontmatter at cursor** → same locations as `handle_definition` for
    that tag.
 3. **No symbol at cursor** → all backlinks to the current document
@@ -194,8 +194,8 @@ pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<Workspac
 Builds a `WorkspaceEdit` that:
 
 1. Rewrites the heading text itself (at `text_range`).
-2. Rewrites every `[[note#OldText]]` anchor link whose stem resolves to the
-   heading's file and whose anchor matches the old text (case-insensitive),
+2. Rewrites every `[text](note.md#old-anchor)` anchor link whose resolved target
+   is the heading's file and whose anchor matches the old text (case-insensitive),
    using the stored `anchor_range`.
 
 Returns `None` when the cursor is not on any heading.
@@ -212,20 +212,19 @@ pub fn handle_code_action(
 ) -> Vec<CodeAction>
 ```
 
-Returns zero or more `CodeAction` values for the wiki-link at `params.range.start`.
-Returns `vec![]` when there is no wiki-link at the cursor, the note is not indexed,
+Returns zero or more `CodeAction` values for the Markdown link at `params.range.start`.
+Returns `vec![]` when there is no link at the cursor, the note is not indexed,
 or the link resolves in a way that offers no action.
 
 `new_note_dir` is the resolved absolute path for new notes (from `Config::new_note_dir`,
 already joined to the workspace root by `dispatch_request`). When `None`, new files
 are created in the same directory as the current note.
 
-| Condition                                           | Actions returned                                                                                                                                                                                                                                                                                                                                                                                |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Link resolves to `Broken`                           | One `QUICKFIX` action: `"Create note 'stem.ext'"` (or `"Create note 'dir/stem.ext'"` when `new_note_dir` is set) — a `WorkspaceEdit` with a `CreateFile` operation. New file lands in `new_note_dir` if configured, otherwise the same directory as the current note. Extension inferred from the current note's own extension; defaults to `md`. `ignore_if_exists: true` makes it idempotent. |
-| Link resolves to `Found` with a non-matching anchor | One `QUICKFIX` action per heading in the target note: `"Change anchor to '#HeadingText'"` — a `WorkspaceEdit` with a `TextEdit` replacing `link.anchor_range` with the heading text. Returns `vec![]` if the target has no headings or the anchor already matches.                                                                                                                              |
-| Link resolves to `Ambiguous`                        | `vec![]` — not actionable                                                                                                                                                                                                                                                                                                                                                                       |
-| Link resolves to `Found` with no anchor             | `vec![]`                                                                                                                                                                                                                                                                                                                                                                                        |
+| Condition                                           | Actions returned                                                                                                                                                                                                                                                                                                                                         |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Link resolves to `Broken`                           | One `QUICKFIX` action: `"Create note 'path/to/note.ext'"` — a `WorkspaceEdit` with a `CreateFile` operation. New file lands in `new_note_dir` if configured, otherwise the directory implied by the link's target path. Extension inferred from the target path; defaults to the current note's extension. `ignore_if_exists: true` makes it idempotent. |
+| Link resolves to `Found` with a non-matching anchor | One `QUICKFIX` action per heading in the target note: `"Change anchor to '#heading-text'"` — a `WorkspaceEdit` with a `TextEdit` replacing `link.anchor_range` with the heading slug. Returns `vec![]` if the target has no headings or the anchor already matches.                                                                                      |
+| Link resolves to `Found` with no anchor             | `vec![]`                                                                                                                                                                                                                                                                                                                                                 |
 
 ---
 
@@ -238,10 +237,22 @@ pub fn handle_will_rename_files(
 ) -> WorkspaceEdit
 ```
 
-Returns a `WorkspaceEdit` that rewrites every `[[old-stem]]` backlink (via
-`index.links_to(old_path)`) to use the new stem. The edit targets `inner_range`
-so that aliases (`[[old|display]]`) are rewritten to `[[new|display]]` — the
-alias is preserved.
+Returns a `WorkspaceEdit` with two classes of edits:
+
+1. **Incoming links** — every `[text](../old/path.md)` in other notes (via
+   `index.links_to(old_path)`) is rewritten to a new relative path computed from
+   that linking note's location to `new_path`. The edit targets `target_range`
+   so the link text is preserved.
+
+2. **Outgoing links** — every `[text](../relative/path.md)` inside the renamed
+   file itself must be recomputed, because the file's new location changes the
+   base for all its relative paths. The handler iterates the note's own
+   `md_links`, re-resolves each against `old_path` to get the absolute target,
+   then computes the new relative path from `new_path` to that same absolute
+   target.
+
+Both edits are returned in the same `WorkspaceEdit` so the client applies them
+atomically.
 
 ---
 
@@ -291,14 +302,13 @@ pub fn compute_diagnostics(
 ) -> Vec<Diagnostic>
 ```
 
-For each wiki-link in the note:
+For each local Markdown link in the note:
 
-| Resolution                                | Diagnostic                                                           |
-| ----------------------------------------- | -------------------------------------------------------------------- |
-| `Broken`                                  | Warning: `Link target not found: '[[stem]]'`                         |
-| `Ambiguous`                               | Warning: `'[[stem]]' matches multiple files: /a/stem.md, /b/stem.md` |
-| `Found` + no anchor                       | No diagnostic                                                        |
-| `Found` + anchor not matching any heading | Warning: `Heading not found: '#anchor' in '[[stem#anchor]]'`         |
+| Resolution                                | Diagnostic                                                          |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| `Broken`                                  | Warning: `Link target not found: 'path/to/note.md'`                 |
+| `Found` + no anchor                       | No diagnostic                                                       |
+| `Found` + anchor not matching any heading | Warning: `Heading not found: '#anchor' in 'path/to/note.md#anchor'` |
 
 When `schema` is `Some`, three additional classes are emitted:
 
