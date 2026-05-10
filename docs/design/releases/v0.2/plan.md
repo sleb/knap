@@ -11,12 +11,22 @@ untested code for the next step to build on.
 
 ## Status
 
-| Step                     | Status | Notes |
-| ------------------------ | ------ | ----- |
-| 1 — Broaden file watcher | Todo   |       |
-| 2 — Non-note completions | Todo   |       |
-| 3 — Rename handler       | Todo   |       |
-| 4 — Integration tests    | Todo   |       |
+| Step                     | Status | Notes                     |
+| ------------------------ | ------ | ------------------------- |
+| 1 — Broaden file watcher | Done   |                           |
+| 2 — Non-note completions | Done   |                           |
+| 3 — Rename handler       | Done   | TDD (tests written first) |
+| 4 — Integration tests    | Todo   |                           |
+
+## Approach
+
+Starting from Step 3, all new logic follows TDD:
+
+1. Write all unit tests for the deliverable first — stub the function signature if needed to compile
+2. Run `cargo test` and confirm the tests **fail** before writing any implementation
+3. Implement until all tests pass, then run `cargo clippy -- -D warnings`
+
+Step 4 must follow the same cycle: write the integration tests, confirm they fail, then make them pass.
 
 ---
 

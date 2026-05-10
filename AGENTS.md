@@ -52,6 +52,18 @@ invariants.
 
 ## Testing
 
+### Test-driven development
+
+All new handler functions, index mutations, and non-trivial logic follow TDD:
+
+1. Write the tests first — stub the function signature so the file compiles
+2. Run `cargo test` and confirm the new tests **fail** before writing any implementation
+3. Implement until all tests pass, then run `cargo clippy -- -D warnings`
+
+Do not write implementation code before the failing tests exist.
+
+### Guidelines
+
 Keep tests lean:
 
 - **Unit test** pure logic: the parser, `LineIndex`, `NoteIndex` operations
