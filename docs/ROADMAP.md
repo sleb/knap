@@ -36,11 +36,12 @@ _incoming_ links (other files pointing at it, recomputed from each linker's
 location) and _outgoing_ links (links within the moved file, whose base has
 changed). Both are handled atomically.
 
-| Story | Feature                                                                 |
-| ----- | ----------------------------------------------------------------------- |
-| US-04 | Rename file → all standard Markdown links updated (incoming + outgoing) |
-| US-26 | Attachment links (`![alt](img.png)`, `[doc](file.pdf)`) resolve cleanly |
-| US-21 | Config: file extensions treated as notes                                |
+| Story | Feature                                                                     |
+| ----- | --------------------------------------------------------------------------- |
+| US-04 | Rename file → all standard Markdown links updated (incoming + outgoing)     |
+| US-26 | Attachment links (`![alt](img.png)`, `[doc](file.pdf)`) resolve cleanly     |
+| US-44 | Path completions inside `[text](` include non-Markdown files (images, PDFs) |
+| US-21 | Config: file extensions treated as notes                                    |
 
 **LSP capabilities delivered:** `workspace/willRenameFiles`
 

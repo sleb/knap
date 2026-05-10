@@ -18,6 +18,10 @@ diagnostics to any LSP-compatible editor — using standard Markdown syntax.
 completions for all Markdown files in my workspace, so I can link to notes
 without remembering exact paths.
 
+**US-44** — As a writer, path completions inside `[text](` include non-Markdown
+files in my workspace (images, PDFs, etc.), so I can easily link to attachments
+without remembering their paths.
+
 **US-02** — As a writer, I can `Go to Definition` on a `[text](path/to/note.md)`
 link to open the target file, so I can navigate my knowledge base from the
 keyboard.
