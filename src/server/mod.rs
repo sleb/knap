@@ -10,9 +10,11 @@ use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWatchedFilesRegistrationOptions, DidOpenTextDocumentParams, FileChangeType,
-    FileSystemWatcher, GlobPattern, GotoDefinitionParams, InitializeParams, InitializeResult,
-    OneOf, ReferenceParams, Registration, RegistrationParams, RelativePattern,
-    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    FileOperationFilter, FileOperationPattern, FileOperationRegistrationOptions, FileSystemWatcher,
+    GlobPattern, GotoDefinitionParams, InitializeParams, InitializeResult, OneOf, ReferenceParams,
+    Registration, RegistrationParams, RelativePattern, RenameFilesParams, ServerCapabilities,
+    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities,
 };
 
 use crate::handlers::{self, uri_to_path};
@@ -106,6 +108,21 @@ pub fn run(connection: Connection) -> Result<()> {
         }),
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
+        workspace: Some(WorkspaceServerCapabilities {
+            file_operations: Some(WorkspaceFileOperationsServerCapabilities {
+                will_rename: Some(FileOperationRegistrationOptions {
+                    filters: vec![FileOperationFilter {
+                        scheme: Some("file".to_string()),
+                        pattern: FileOperationPattern {
+                            glob: "**/*".to_string(),
+                            ..Default::default()
+                        },
+                    }],
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
         ..Default::default()
     };
 
@@ -225,6 +242,14 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, locations)))?;
+        }
+        "workspace/willRenameFiles" => {
+            let edit = serde_json::from_value::<RenameFilesParams>(req.params)
+                .ok()
+                .map(|params| handlers::handle_will_rename_files(params, index));
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, edit)))?;
         }
         _ => {
             // Unknown methods return null (not an error) per LSP spec.

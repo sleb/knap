@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
 use crossbeam_channel::Sender;
@@ -7,7 +7,7 @@ use lsp_server::{Message, Notification};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
     GotoDefinitionParams, GotoDefinitionResponse, Location, Position, PublishDiagnosticsParams,
-    Range, ReferenceParams,
+    Range, ReferenceParams, RenameFilesParams, TextEdit, WorkspaceEdit,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -242,6 +242,62 @@ pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Loca
             range: located.md_link.range,
         })
         .collect()
+}
+
+// ─── Rename ───────────────────────────────────────────────────────────────────
+
+#[allow(clippy::mutable_key_type)] // lsp_types::Uri has interior mutability; HashMap<Uri, _> is the LSP-spec type
+pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) -> WorkspaceEdit {
+    use crate::index::{looks_like_url, normalize_path};
+
+    let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
+
+    for file_rename in params.files {
+        let Some(old_path) = url::Url::parse(&file_rename.old_uri)
+            .ok()
+            .and_then(|u| u.to_file_path().ok())
+        else {
+            continue;
+        };
+        let Some(new_path) = url::Url::parse(&file_rename.new_uri)
+            .ok()
+            .and_then(|u| u.to_file_path().ok())
+        else {
+            continue;
+        };
+        let old_dir = old_path.parent().unwrap_or(Path::new(""));
+        let new_dir = new_path.parent().unwrap_or(Path::new(""));
+
+        // Incoming: other notes linking to old_path need their target updated.
+        for located in index.links_to(&old_path) {
+            let source_dir = located.source_path.parent().unwrap_or(Path::new(""));
+            let new_target = relative_path(source_dir, &new_path);
+            changes
+                .entry(path_to_uri(&located.source_path))
+                .or_default()
+                .push(TextEdit { range: located.md_link.target_range, new_text: new_target });
+        }
+
+        // Outgoing: links inside the renamed file that point to other files may
+        // need updating if the file moves to a different directory.
+        if let Some(note) = index.get_note(&old_path) {
+            for link in &note.md_links {
+                if link.target.is_empty() || looks_like_url(&link.target) {
+                    continue;
+                }
+                let abs_target = normalize_path(&old_dir.join(&link.target));
+                let new_target = relative_path(new_dir, &abs_target);
+                if new_target != link.target {
+                    changes
+                        .entry(path_to_uri(&old_path))
+                        .or_default()
+                        .push(TextEdit { range: link.target_range, new_text: new_target });
+                }
+            }
+        }
+    }
+
+    WorkspaceEdit { changes: Some(changes), ..Default::default() }
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
@@ -543,5 +599,93 @@ mod tests {
         let params = make_references_params("/vault/a.md", 0, 3);
         let locs = handle_references(params, &idx);
         assert!(locs.is_empty());
+    }
+
+    // ── handle_will_rename_files ──────────────────────────────────────────────
+
+    fn make_rename_params(old_path: &str, new_path: &str) -> lsp_types::RenameFilesParams {
+        lsp_types::RenameFilesParams {
+            files: vec![lsp_types::FileRename {
+                old_uri: format!("file://{old_path}"),
+                new_uri: format!("file://{new_path}"),
+            }],
+        }
+    }
+
+    #[test]
+    fn rename_updates_incoming_links() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", ""));
+        idx.seed(note("/vault/b.md", "[link](a.md)"));
+        let params = make_rename_params("/vault/a.md", "/vault/sub/a.md");
+        let edit = handle_will_rename_files(params, &idx);
+        let changes = edit.changes.unwrap();
+        let b_uri = file_uri("/vault/b.md");
+        assert!(changes.contains_key(&b_uri), "b.md should have edits");
+        assert_eq!(changes[&b_uri].len(), 1);
+        assert_eq!(changes[&b_uri][0].new_text, "sub/a.md");
+    }
+
+    #[test]
+    fn rename_updates_outgoing_links() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/sub/a.md", "[link](../b.md)"));
+        let params = make_rename_params("/vault/sub/a.md", "/vault/a.md");
+        let edit = handle_will_rename_files(params, &idx);
+        let changes = edit.changes.unwrap();
+        let a_uri = file_uri("/vault/sub/a.md");
+        assert!(changes.contains_key(&a_uri), "a.md should have outgoing edits");
+        assert_eq!(changes[&a_uri].len(), 1);
+        assert_eq!(changes[&a_uri][0].new_text, "b.md");
+    }
+
+    #[test]
+    fn rename_updates_both_incoming_and_outgoing() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/c.md", ""));
+        idx.seed(note("/vault/a.md", "[link](c.md)"));
+        idx.seed(note("/vault/b.md", "[link](a.md)"));
+        let params = make_rename_params("/vault/a.md", "/vault/sub/a.md");
+        let edit = handle_will_rename_files(params, &idx);
+        let changes = edit.changes.unwrap();
+        let b_uri = file_uri("/vault/b.md");
+        let a_uri = file_uri("/vault/a.md");
+        assert!(changes.contains_key(&b_uri), "b.md should have incoming edit");
+        assert_eq!(changes[&b_uri][0].new_text, "sub/a.md");
+        assert!(changes.contains_key(&a_uri), "a.md should have outgoing edit");
+        assert_eq!(changes[&a_uri][0].new_text, "../c.md");
+    }
+
+    #[test]
+    fn rename_skips_url_targets() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[ext](https://example.com)"));
+        let params = make_rename_params("/vault/a.md", "/vault/sub/a.md");
+        let edit = handle_will_rename_files(params, &idx);
+        let changes = edit.changes.unwrap_or_default();
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn rename_no_changes_same_dir() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[link](b.md)"));
+        // rename a.md → a2.md within same directory; outgoing link "b.md" unchanged
+        let params = make_rename_params("/vault/a.md", "/vault/a2.md");
+        let edit = handle_will_rename_files(params, &idx);
+        let changes = edit.changes.unwrap_or_default();
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn rename_unlinked_file_empty_edit() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/c.md", ""));
+        let params = make_rename_params("/vault/c.md", "/vault/d.md");
+        let edit = handle_will_rename_files(params, &idx);
+        let changes = edit.changes.unwrap_or_default();
+        assert!(changes.is_empty());
     }
 }
