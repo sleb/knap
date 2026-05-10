@@ -1,0 +1,50 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(npx prettier:*)",
+      "Skill(update-config)",
+      "Bash(cargo run:*)",
+      "Bash(git:*)",
+      "Bash(gh run:*)",
+      "Read(//private/tmp/**)",
+      "Bash(tar -xzf /Users/scott/.cargo/registry/cache/index.crates.io-1949cf8c6b5b557f/lsp-types-0.97.0.crate)",
+      "mcp__scheduled-tasks__create_scheduled_task",
+      "Bash(gh release *)",
+      "Bash(grep -n \"fn handle_hover\\\\|fn find_link\\\\|fn find_md\\\\|fn is_external\\\\|fn normalize\\\\|fn render_preview\\\\|fn body_after\\\\|None$\" /Users/scott/Code/knap/src/handlers.rs)",
+      "Bash(cargo metadata *)",
+      "Bash(python3 -c \"import json,sys; pkgs=[p for p in json.load\\(sys.stdin\\)['packages'] if p['name']=='lsp-types']; print\\(pkgs[0]['version']\\)\")",
+      "Bash(cargo install *)",
+      "Bash(rustup target *)",
+      "WebFetch(domain:zed.dev)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh api *)",
+      "Bash(gh search *)",
+      "Bash(cargo search *)",
+      "Read(//Users/scott/.config/zed/**)",
+      "Bash(bun --version)",
+      "Bash(bun install *)",
+      "Bash(bun run *)",
+      "Skill(code-review-skill)",
+      "Bash(cargo check *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(p['name'],p['version']\\) for p in d['packages']]\")",
+      "Bash(grep -n \"RenameFilesParams\\\\|FileRename\" ~/.cargo/registry/src/*/lsp-types-*/src/*.rs 2>/dev/null | head -20)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | { read -r f && case \"$f\" in *.md) npx prettier --write \"$f\" 2>/dev/null ;; esac; } || true"
+          }
+        ]
+      }
+    ]
+  }
+}
