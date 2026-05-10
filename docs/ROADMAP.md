@@ -27,7 +27,7 @@ jump between them, find what links back, and catch broken links.
 
 ---
 
-## v0.2 — Rename & Refactor
+## v0.2 — Rename & Refactor _(released 2026-05-10)_
 
 **Goal:** Reorganizing your workspace doesn't break links.
 

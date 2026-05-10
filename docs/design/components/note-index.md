@@ -97,12 +97,15 @@ pub fn index(&mut self, note: Note) -> IndexDelta {
         if link.target.is_empty() || looks_like_url(&link.target) {
             continue;
         }
-        if let ResolvedLink::Found(target) = self.resolve(&note.path, &link.target) {
-            self.links_to.entry(target.clone()).or_default().push(LocatedLink {
+        let candidate = normalize_path(
+            &note.path.parent().unwrap().join(&link.target)
+        );
+        if self.all_files.contains(&candidate) {
+            self.links_to.entry(candidate.clone()).or_default().push(LocatedLink {
                 source_path: note.path.clone(),
                 md_link: link.clone(),
             });
-            affected.insert(target);
+            affected.insert(candidate);
         }
     }
 
@@ -145,19 +148,18 @@ fn recheck_incoming(&mut self, new_path: &Path) -> AffectedPaths {
             if link.target.is_empty() || looks_like_url(&link.target) {
                 continue;
             }
-            let resolves_here = matches!(
-                self.resolve(&note.path, &link.target),
-                ResolvedLink::Found(ref p) if p == new_path
+            let candidate = normalize_path(
+                &note.path.parent().unwrap().join(&link.target)
             );
-            if !resolves_here { continue; }
+            if candidate != new_path { continue; }
 
-            let already_tracked = links_to
+            let already_tracked = self.links_to
                 .get(new_path)
                 .map(|ls| ls.iter().any(|l| l.source_path == note.path))
                 .unwrap_or(false);
 
             if !already_tracked {
-                links_to.entry(new_path.to_path_buf()).or_default().push(LocatedLink {
+                self.links_to.entry(new_path.to_path_buf()).or_default().push(LocatedLink {
                     source_path: note.path.clone(),
                     md_link: link.clone(),
                 });
@@ -265,6 +267,12 @@ impl NoteIndex {
         if let Some(incoming) = self.links_to.remove(path) {
             for l in &incoming { affected.insert(l.source_path.clone()); }
         }
+        // Remove any links_to entries sourced from this path (no-op for
+        // attachments in practice, but keeps the index consistent).
+        for links in self.links_to.values_mut() {
+            links.retain(|l| l.source_path != path);
+        }
+        self.links_to.retain(|_, v| !v.is_empty());
         affected.insert(path.to_path_buf());
         IndexDelta { affected_paths: affected }
     }

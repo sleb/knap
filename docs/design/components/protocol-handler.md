@@ -70,6 +70,21 @@ ServerCapabilities {
     }),
     definition_provider: Some(OneOf::Left(true)),
     references_provider: Some(OneOf::Left(true)),
+    workspace: Some(WorkspaceServerCapabilities {
+        file_operations: Some(WorkspaceFileOperationsServerCapabilities {
+            will_rename: Some(FileOperationRegistrationOptions {
+                filters: vec![FileOperationFilter {
+                    scheme: Some("file".to_string()),
+                    pattern: FileOperationPattern {
+                        glob: "**/*".to_string(),
+                        ..Default::default()
+                    },
+                }],
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }),
     ..Default::default()
 }
 ```
@@ -136,10 +151,11 @@ for msg in &connection.receiver {
 ```rust
 fn dispatch_request(req: Request, ...) {
     match req.method.as_str() {
-        Completion::METHOD       => handle_completion(req, ...),
-        GotoDefinition::METHOD   => handle_definition(req, ...),
-        References::METHOD       => handle_references(req, ...),
-        _                        => respond_with_null(req, ...),
+        Completion::METHOD         => handle_completion(req, ...),
+        GotoDefinition::METHOD     => handle_definition(req, ...),
+        References::METHOD         => handle_references(req, ...),
+        "workspace/willRenameFiles" => handle_will_rename_files(req, ...),
+        _                          => respond_with_null(req, ...),
     }
 }
 ```

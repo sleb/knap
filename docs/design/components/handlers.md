@@ -49,10 +49,13 @@ pub fn handle_completion(
 
 ### Response
 
-One `CompletionItem` per note in the index (excluding the current file).
-`insert_text` and `filter_text` are the path relative to the current file's
-directory. When the note has a frontmatter `title`, the label is the title and
-`detail` is the relative path; otherwise label equals the relative path.
+One `CompletionItem` per note in the index (excluding the current file), plus
+one item per non-note file (attachment) in the index. For notes, `insert_text`
+and `filter_text` are the path relative to the current file's directory; when
+the note has a frontmatter `title`, the label is the title and `detail` is the
+relative path; otherwise label equals the relative path. For attachments, the
+label is the bare filename and `insert_text` is the relative path from the
+current file's directory; `kind` is `FILE`.
 
 ---
 
@@ -124,6 +127,37 @@ For each local Markdown link with a non-empty target:
 | `Broken`                                  | `link.target_range` | `Link target not found: 'path/to/note.md'` |
 | `Found` + anchor not matching any heading | `link.anchor_range` | `Heading not found: '#anchor'`             |
 | `Found` + no anchor (or valid anchor)     | —                   | No diagnostic                              |
+
+---
+
+## Rename (`workspace/willRenameFiles`)
+
+```rust
+#[allow(clippy::mutable_key_type)]
+pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) -> WorkspaceEdit
+```
+
+Called by the editor before applying a rename. Returns a `WorkspaceEdit` that
+rewrites all affected links atomically — editors apply the edit and the rename
+together so no link is left broken.
+
+For each `FileRename { old_uri, new_uri }` in `params.files`:
+
+1. **Incoming links** — iterates `index.links_to(&old_path)`. For each
+   `LocatedLink`, computes `new_target = relative_path(source_dir, new_path)`
+   and pushes a `TextEdit` on `located.md_link.target_range` into the source
+   file's entry in `changes`.
+
+2. **Outgoing links** — fetches `index.get_note(&old_path).md_links`. For each
+   link, skips empty targets and URLs; computes
+   `abs_target = normalize_path(old_dir.join(&link.target))`, then
+   `new_target = relative_path(new_dir, &abs_target)`; pushes a `TextEdit` on
+   `link.target_range` into `old_path`'s entry only when
+   `new_target != link.target` (i.e. the rename changes the relative path).
+
+Returns `WorkspaceEdit { changes: Some(changes), ..Default::default() }`. The
+`changes` map is keyed by `lsp_types::Uri`; an empty map is returned for files
+with no affected links.
 
 ---
 

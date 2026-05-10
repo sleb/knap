@@ -240,12 +240,13 @@ handle(params: LspParams, index: NoteIndex, config: Config) → LspResult
 Handlers are stateless — all state lives in the Note Index; config is passed in
 by the Protocol Handler.
 
-| Handler     | LSP Method                        | Shipped |
-| ----------- | --------------------------------- | ------- |
-| Completion  | `textDocument/completion`         | v0.1    |
-| Definition  | `textDocument/definition`         | v0.1    |
-| References  | `textDocument/references`         | v0.1    |
-| Diagnostics | `textDocument/publishDiagnostics` | v0.1    |
+| Handler         | LSP Method                        | Shipped |
+| --------------- | --------------------------------- | ------- |
+| Completion      | `textDocument/completion`         | v0.1    |
+| Definition      | `textDocument/definition`         | v0.1    |
+| References      | `textDocument/references`         | v0.1    |
+| Diagnostics     | `textDocument/publishDiagnostics` | v0.1    |
+| WillRenameFiles | `workspace/willRenameFiles`       | v0.2    |
 
 ---
 

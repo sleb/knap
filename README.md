@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -19,11 +19,14 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 ## What it does
 
 - `[text](path/to/note.md)` completions — triggered by `(`, inserts the path
-  relative to the current file
+  relative to the current file; includes non-Markdown files (images, PDFs)
 - Go to Definition — jumps to the linked note; navigates to the heading when an
   anchor is present (`[text](note.md#heading)`)
 - Find References — all standard Markdown links pointing to a file
-- Broken link diagnostics — warnings for links to missing files or headings
+- Rename a file — all incoming and outgoing links rewritten atomically via
+  `workspace/willRenameFiles`
+- Broken link diagnostics — warnings for links to missing files or headings;
+  attachment links (images, PDFs) resolve against the full workspace
 - Incremental index — the workspace index stays live as files change
 - Configurable file extensions (e.g. `.md`, `.mdx`) via `initializationOptions`
 
@@ -42,7 +45,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.1.0 — Standard Markdown link MVP. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.2.0 — Rename & Refactor. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 
