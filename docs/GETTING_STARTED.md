@@ -1,8 +1,8 @@
 # Getting Started with knap
 
-knap is a Markdown language server that brings Obsidian-style `[[wiki-link]]`
-navigation to any LSP-compatible editor. Install the server binary, connect
-your editor, and your notes become navigable: jump to definitions, find
+knap is a Markdown language server that makes standard Markdown `[text](path)`
+links fully navigable in any LSP-compatible editor. Install the server binary,
+connect your editor, and your notes become navigable: jump to definitions, find
 backlinks, catch broken links, and rename files without breaking anything.
 
 ---
@@ -130,51 +130,50 @@ when you need to customise behaviour:
 
 Once connected, knap provides the following in any Markdown file:
 
-### `[[wiki-link]]` completions
+### Link completions
 
-Type `[[` to get a completion list of every note in your workspace. Completions
-are filtered as you type.
+Inside a Markdown link, type `(` to get a completion list of every note in your
+workspace. Completions are filtered as you continue typing the path.
 
 ### Go to Definition
 
-Place your cursor on a `[[wiki-link]]` and trigger Go to Definition
-(`gd` in Neovim, `F12` in VS Code / Zed) to jump directly to the target file.
+Place your cursor on a `[text](path/to/file.md)` link and trigger Go to
+Definition (`gd` in Neovim, `F12` in VS Code / Zed) to jump directly to the
+target file.
 
 Supported link forms:
 
-| Syntax                   | Behaviour                                          |
-| ------------------------ | -------------------------------------------------- |
-| `[[note]]`               | Navigate to `note.md` (or whichever extension)     |
-| `[[note#Heading]]`       | Navigate to `note.md` (heading nav coming in v0.3) |
-| `[[note\|display text]]` | Navigate to `note.md`; display text is ignored     |
-| `[[image.png]]`          | Navigate to `image.png` in the workspace           |
+| Syntax                      | Behaviour                                          |
+| --------------------------- | -------------------------------------------------- |
+| `[text](note.md)`           | Navigate to `note.md`                              |
+| `[text](note.md#Heading)`   | Navigate to `note.md` (heading nav coming in v0.3) |
+| `[text](../folder/note.md)` | Relative paths resolved from the current file      |
+| `![alt](image.png)`         | Navigate to `image.png` in the workspace           |
 
 ### Find References
 
-Place your cursor on a `[[wiki-link]]` (or anywhere in a file) and trigger Find
-References to see every file that links to the current target.
+Place your cursor anywhere in a file and trigger Find References to see every
+file that links to the current target via a `[text](path)` link.
 
 ### Rename a file
 
 Use your editor's file-tree rename (or the rename refactor action if your
 editor supports it). knap intercepts the rename via `workspace/willRenameFiles`
-and returns a workspace edit that rewrites every `[[backlink]]` before the file
-moves. Aliased links like `[[old-name|display text]]` are rewritten to
-`[[new-name|display text]]` — the alias is preserved.
+and returns a workspace edit that rewrites every `[text](old-name.md)` link
+before the file moves.
 
-### Broken and ambiguous link diagnostics
+### Broken link diagnostics
 
 knap publishes warnings for:
 
-- **Broken links** — `[[target]]` where no file with that stem (or filename)
-  exists in the workspace. Message: `Link target not found: '[[target]]'`
-- **Ambiguous links** — `[[name]]` where two or more files share the same stem.
-  Message: `'[[name]]' matches multiple files: a/name.md, b/name.md`
+- **Broken links** — `[text](target.md)` where the relative path doesn't
+  resolve to an existing file in the workspace.
+  Message: `Link target not found: 'target.md'`
 
 Diagnostics update as files are opened, saved, created, and deleted — no
 restart needed.
 
-**Attachment links:** `[[image.png]]` resolves against all files in the
+**Attachment links:** `![alt](image.png)` resolves against all files in the
 workspace, not just note files. If `image.png` exists anywhere under the
 workspace root, the link is considered resolved and no diagnostic is emitted.
 
