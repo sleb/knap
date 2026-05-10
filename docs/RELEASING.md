@@ -85,7 +85,7 @@ Work through these in order. Every item must pass before tagging.
 
 ### 1. Verify the implementation is complete
 
-- [ ] All steps in `docs/design/v{N}/plan.md` are marked ✅ Done
+- [ ] All steps in `docs/design/releases/v{N}/plan.md` are marked ✅ Done
 - [ ] All user stories for the milestone are implemented (cross-check
       `docs/ROADMAP.md`)
 
@@ -133,7 +133,7 @@ cargo clippy -- -D warnings   # zero warnings
       (remove features that are still in future milestones)
 - [ ] **`docs/ROADMAP.md`** — add the release date to the completed milestone
       heading (e.g. `## v0.1 — MVP _(released YYYY-MM-DD)_`)
-- [ ] **`docs/design/v{N}/plan.md`** — confirm all steps show ✅ Done in the
+- [ ] **`docs/design/releases/v{N}/plan.md`** — confirm all steps show ✅ Done in the
       status table
 
 **CHANGELOG entry format:**
@@ -163,7 +163,7 @@ Stage only the files changed in steps 2–4. Include any doc files changed durin
 the sync check:
 
 ```bash
-git add CHANGELOG.md Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/v{N}/plan.md
+git add CHANGELOG.md Cargo.toml Cargo.lock README.md docs/ROADMAP.md docs/design/releases/v{N}/plan.md
 # plus any docs/ARCHITECTURE.md or docs/design/components/*.md changed in step 2
 git commit -m "Release v{VERSION}"
 ```
@@ -195,4 +195,4 @@ No manual `gh release create` needed.
 - [ ] Verify the GitHub release page looks correct (notes match CHANGELOG, all
       binaries attached)
 - [ ] Open the next milestone in `docs/ROADMAP.md` — create
-      `docs/design/v{N+1}/plan.md` if it doesn't already exist
+      `docs/design/releases/v{N+1}/plan.md` if it doesn't already exist

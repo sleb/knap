@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
-use crate::parser::{self, Note, WikiLink};
+use crate::parser::{self, MarkdownLink, Note};
 
 #[cfg(test)]
 mod tests;
@@ -11,15 +11,11 @@ pub struct NoteIndex {
     /// Primary store: absolute path → parsed note.
     by_path: HashMap<PathBuf, Note>,
 
-    /// Stem → all paths that have that stem.
-    /// Length 0: broken. Length 1: resolved. Length >1: ambiguous.
-    by_stem: HashMap<String, Vec<PathBuf>>,
+    /// Every file in the workspace — notes and attachments alike.
+    /// Used for path-relative link resolution.
+    all_files: HashSet<PathBuf>,
 
-    /// Full filename (including extension) → all paths that have that filename.
-    /// Covers every file in the workspace, not just note extensions.
-    by_filename: HashMap<String, Vec<PathBuf>>,
-
-    /// Reverse index: target path → all wiki-links pointing to it.
+    /// Reverse index: target path → all standard Markdown links pointing to it.
     /// Only contains links that resolved successfully at index time.
     links_to: HashMap<PathBuf, Vec<LocatedLink>>,
 
@@ -27,16 +23,15 @@ pub struct NoteIndex {
     by_tag: HashMap<String, Vec<PathBuf>>,
 }
 
-/// A wiki-link together with the file it lives in.
+/// A Markdown link together with the file it lives in.
 pub struct LocatedLink {
     pub source_path: PathBuf,
-    pub wiki_link: WikiLink,
+    pub md_link: MarkdownLink,
 }
 
 #[derive(Debug)]
 pub enum ResolvedLink {
     Found(PathBuf),
-    Ambiguous(Vec<PathBuf>),
     Broken,
 }
 
@@ -50,20 +45,49 @@ pub struct IndexDelta {
     pub affected_paths: AffectedPaths,
 }
 
-impl NoteIndex {
-    /// Resolve a link target. Checks `by_stem` first; if not found, falls
-    /// through to `by_filename`. This handles both note links (`[[stem]]`)
-    /// and attachment links (`[[image.png]]`) without any classification step.
-    pub fn resolve(&self, target: &str) -> ResolvedLink {
-        match self.by_stem.get(target).map(|v| v.as_slice()) {
-            Some([path]) => return ResolvedLink::Found(path.clone()),
-            Some(paths) => return ResolvedLink::Ambiguous(paths.to_vec()),
-            None => {}
+/// Returns `true` for targets that are external URLs.
+pub fn looks_like_url(s: &str) -> bool {
+    s.starts_with("https://")
+        || s.starts_with("http://")
+        || s.starts_with("ftp://")
+        || s.starts_with("mailto:")
+}
+
+/// Collapse `.` and `..` components in `path` lexically (no syscalls).
+///
+/// This works correctly for paths that don't yet exist on disk, which is
+/// needed during link resolution where the target file may not exist yet.
+pub fn normalize_path(path: &Path) -> PathBuf {
+    let mut out: Vec<Component> = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}           // drop `.`
+            Component::ParentDir => { out.pop(); } // resolve `..`
+            c => out.push(c),
         }
-        match self.by_filename.get(target).map(|v| v.as_slice()) {
-            Some([path]) => ResolvedLink::Found(path.clone()),
-            Some(paths) => ResolvedLink::Ambiguous(paths.to_vec()),
-            None => ResolvedLink::Broken,
+    }
+    out.iter().collect()
+}
+
+impl NoteIndex {
+    /// Resolve a link target relative to `source` (the linking note's path).
+    ///
+    /// External URLs resolve `Found` immediately without any filesystem check.
+    /// Relative paths are joined to `source`'s parent directory, normalized,
+    /// and looked up in `all_files`.
+    pub fn resolve(&self, source: &Path, target: &str) -> ResolvedLink {
+        if looks_like_url(target) {
+            return ResolvedLink::Found(PathBuf::from(target));
+        }
+        let candidate = source
+            .parent()
+            .expect("note path must have a parent directory")
+            .join(target);
+        let candidate = normalize_path(&candidate);
+        if self.all_files.contains(&candidate) {
+            ResolvedLink::Found(candidate)
+        } else {
+            ResolvedLink::Broken
         }
     }
 
@@ -77,23 +101,31 @@ impl NoteIndex {
             AffectedPaths::default()
         };
 
-        // 2. Add to by_stem and by_filename.
-        self.by_stem.entry(note.stem.clone()).or_default().push(note.path.clone());
-        self.by_filename.entry(note.filename()).or_default().push(note.path.clone());
+        // 2. Register in all_files so incoming links can resolve to this note.
+        self.all_files.insert(note.path.clone());
 
-        // 3. Resolve each wiki-link and populate links_to.
-        for link in &note.wiki_links {
-            if let ResolvedLink::Found(target) = self.resolve(&link.stem) {
-                self.links_to.entry(target.clone()).or_default().push(LocatedLink {
+        // 3. Resolve each md_link and populate links_to.
+        for link in &note.md_links {
+            if link.target.is_empty() || looks_like_url(&link.target) {
+                continue;
+            }
+            let candidate = note
+                .path
+                .parent()
+                .expect("note path must have a parent directory")
+                .join(&link.target);
+            let candidate = normalize_path(&candidate);
+            if self.all_files.contains(&candidate) {
+                self.links_to.entry(candidate.clone()).or_default().push(LocatedLink {
                     source_path: note.path.clone(),
-                    wiki_link: link.clone(),
+                    md_link: link.clone(),
                 });
-                affected.insert(target);
+                affected.insert(candidate);
             }
         }
 
         // 4. Adding this note may resolve previously broken links in other notes.
-        affected.extend(self.recheck_links_to(&note.stem));
+        affected.extend(self.recheck_incoming(&note.path));
 
         // 5. Populate by_tag. Deduplicate so `tags: [rust, rust]` doesn't
         //    push the same path twice into by_tag["rust"].
@@ -114,37 +146,49 @@ impl NoteIndex {
         IndexDelta { affected_paths: affected }
     }
 
-    /// When a new note is indexed, links in other notes that previously pointed
-    /// at its stem (and were broken) now resolve. Find and record them.
-    fn recheck_links_to(&mut self, new_stem: &str) -> AffectedPaths {
+    /// When a new file is added to `all_files`, links in other notes that
+    /// previously couldn't resolve to it (because it didn't exist) now resolve.
+    /// Find and record them in `links_to`.
+    fn recheck_incoming(&mut self, new_path: &Path) -> AffectedPaths {
         let mut affected = AffectedPaths::default();
-        let new_path = match self.resolve(new_stem) {
-            ResolvedLink::Found(p) => p,
-            _ => return affected, // still ambiguous or broken after add
-        };
 
-        // Split borrow: iterate by_path immutably while mutating links_to.
-        let by_path = &self.by_path;
-        let links_to = &mut self.links_to;
+        // Collect what we need while borrowing by_path immutably.
+        // Each entry: (source_path, md_link_clone) for links that now resolve.
+        let mut new_links: Vec<(PathBuf, MarkdownLink)> = Vec::new();
 
-        for note in by_path.values() {
-            for link in &note.wiki_links {
-                if link.stem == new_stem {
-                    let already_tracked = links_to
-                        .get(&new_path)
-                        .map(|ls| ls.iter().any(|l| l.source_path == note.path))
-                        .unwrap_or(false);
-
-                    if !already_tracked {
-                        links_to.entry(new_path.clone()).or_default().push(LocatedLink {
-                            source_path: note.path.clone(),
-                            wiki_link: link.clone(),
-                        });
-                        affected.insert(note.path.clone());
-                    }
+        for note in self.by_path.values() {
+            for link in &note.md_links {
+                if link.target.is_empty() || looks_like_url(&link.target) {
+                    continue;
+                }
+                let candidate = note
+                    .path
+                    .parent()
+                    .expect("note path must have a parent directory")
+                    .join(&link.target);
+                let candidate = normalize_path(&candidate);
+                if candidate != new_path {
+                    continue;
+                }
+                let already_tracked = self
+                    .links_to
+                    .get(new_path)
+                    .map(|ls| ls.iter().any(|l| l.source_path == note.path))
+                    .unwrap_or(false);
+                if !already_tracked {
+                    new_links.push((note.path.clone(), link.clone()));
                 }
             }
         }
+
+        for (source_path, md_link) in new_links {
+            self.links_to
+                .entry(new_path.to_path_buf())
+                .or_default()
+                .push(LocatedLink { source_path: source_path.clone(), md_link });
+            affected.insert(source_path);
+        }
+
         affected
     }
 
@@ -161,13 +205,8 @@ impl NoteIndex {
             return affected;
         };
 
-        // Remove from by_stem.
-        if let Some(paths) = self.by_stem.get_mut(&note.stem) {
-            paths.retain(|p| p != path);
-            if paths.is_empty() {
-                self.by_stem.remove(&note.stem);
-            }
-        }
+        // Remove from all_files.
+        self.all_files.remove(path);
 
         // Remove from by_tag.
         if let Some(fm) = &note.frontmatter {
@@ -179,15 +218,6 @@ impl NoteIndex {
                         self.by_tag.remove(&key);
                     }
                 }
-            }
-        }
-
-        // Remove from by_filename.
-        let filename = note.filename();
-        if let Some(paths) = self.by_filename.get_mut(&filename) {
-            paths.retain(|p| p != path);
-            if paths.is_empty() {
-                self.by_filename.remove(&filename);
             }
         }
 
@@ -204,14 +234,6 @@ impl NoteIndex {
             links.retain(|l| l.source_path != path);
         }
         self.links_to.retain(|_, v| !v.is_empty());
-
-        // Files this note linked to may also have changed diagnostics
-        // (e.g. ambiguous stem resolves now that one candidate is gone).
-        for link in &note.wiki_links {
-            if let ResolvedLink::Found(target) = self.resolve(&link.stem) {
-                affected.insert(target);
-            }
-        }
 
         affected.insert(path.to_path_buf());
         affected
@@ -245,39 +267,31 @@ impl NoteIndex {
             .unwrap_or_default()
     }
 
-    /// Register a non-note file (attachment) in `by_filename`. Rechecks all
-    /// existing notes that link to this filename so their diagnostics clear.
+    /// Register a non-note file (attachment) in `all_files`. Rechecks all
+    /// existing notes that link to this path so their diagnostics clear.
     pub fn add_attachment(&mut self, path: PathBuf) -> IndexDelta {
-        let filename = path
-            .file_name()
-            .expect("attachment path must have a filename")
-            .to_string_lossy()
-            .into_owned();
-        self.by_filename.entry(filename.clone()).or_default().push(path);
-        let affected = self.recheck_links_to(&filename);
+        self.all_files.insert(path.clone());
+        let affected = self.recheck_incoming(&path);
         IndexDelta { affected_paths: affected }
     }
 
-    /// Remove a non-note file from `by_filename`. Notes that linked to it now
+    /// Remove a non-note file from `all_files`. Notes that linked to it now
     /// have broken links and are returned in the delta.
     pub fn remove_attachment(&mut self, path: &Path) -> IndexDelta {
-        let filename = path
-            .file_name()
-            .expect("attachment path must have a filename")
-            .to_string_lossy()
-            .into_owned();
-        if let Some(paths) = self.by_filename.get_mut(&filename) {
-            paths.retain(|p| p != path);
-            if paths.is_empty() {
-                self.by_filename.remove(&filename);
-            }
-        }
+        self.all_files.remove(path);
         let mut affected = AffectedPaths::default();
         if let Some(incoming) = self.links_to.remove(path) {
             for l in &incoming {
                 affected.insert(l.source_path.clone());
             }
         }
+        // Remove any outgoing entries sourced from this path
+        // (attachments have no md_links so this is a no-op in practice,
+        // but keeps the index consistent).
+        for links in self.links_to.values_mut() {
+            links.retain(|l| l.source_path != path);
+        }
+        self.links_to.retain(|_, v| !v.is_empty());
         affected.insert(path.to_path_buf());
         IndexDelta { affected_paths: affected }
     }
@@ -285,7 +299,7 @@ impl NoteIndex {
 
 /// Build an initial index by crawling `roots`. Note files (matching
 /// `extensions`) are fully parsed; all other files are registered in
-/// `by_filename` only so attachment links resolve immediately.
+/// `all_files` only so attachment links resolve immediately.
 pub fn build(roots: &[PathBuf], extensions: &[&str]) -> (NoteIndex, IndexDelta) {
     let mut index = NoteIndex::default();
     let mut all_affected = HashSet::new();

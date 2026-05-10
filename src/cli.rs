@@ -11,7 +11,6 @@ pub fn cmd_parse(args: &[String]) -> anyhow::Result<()> {
     let note = parser::parse(path, &content);
 
     println!("path:  {}", note.path.display());
-    println!("stem:  {}", note.stem);
 
     match &note.frontmatter {
         None => println!("title: (no frontmatter)"),
@@ -24,33 +23,6 @@ pub fn cmd_parse(args: &[String]) -> anyhow::Result<()> {
                 let names: Vec<&str> = fm.tags.iter().map(|t| t.name.as_str()).collect();
                 println!("tags:  [{}]", names.join(", "));
             }
-        }
-    }
-
-    if note.wiki_links.is_empty() {
-        println!("links: none");
-    } else {
-        println!("links: {}", note.wiki_links.len());
-        for link in &note.wiki_links {
-            let r = &link.range;
-            let ir = &link.inner_range;
-            let anchor_str = match &link.anchor {
-                Some(a) => format!("  anchor: #{a}"),
-                None => String::new(),
-            };
-            println!(
-                "  [[{}]]  {}:{}\u{2013}{}:{}  (inner: {}:{}\u{2013}{}:{}){}",
-                link.stem,
-                r.start.line,
-                r.start.character,
-                r.end.line,
-                r.end.character,
-                ir.start.line,
-                ir.start.character,
-                ir.end.line,
-                ir.end.character,
-                anchor_str,
-            );
         }
     }
 
@@ -83,15 +55,29 @@ pub fn cmd_parse(args: &[String]) -> anyhow::Result<()> {
         println!("md_links: {}", note.md_links.len());
         for link in &note.md_links {
             let r = &link.range;
+            let tr = &link.target_range;
             let kind = if link.is_image { "image" } else { "link" };
+            let anchor_str = match (&link.anchor, &link.anchor_range) {
+                (Some(a), Some(ar)) => format!(
+                    "  #{a}  (anchor: {}:{}\u{2013}{}:{})",
+                    ar.start.line, ar.start.character, ar.end.line, ar.end.character
+                ),
+                (Some(a), None) => format!("  #{a}"),
+                _ => String::new(),
+            };
             println!(
-                "  [{kind}]  \"{}\"  →  {}  {}:{}\u{2013}{}:{}",
+                "  [{kind}]  \"{}\"  →  {}  (target: {}:{}\u{2013}{}:{})  range: {}:{}\u{2013}{}:{}{}",
                 link.text,
                 link.target,
+                tr.start.line,
+                tr.start.character,
+                tr.end.line,
+                tr.end.character,
                 r.start.line,
                 r.start.character,
                 r.end.line,
                 r.end.character,
+                anchor_str,
             );
         }
     }
@@ -112,18 +98,20 @@ pub fn cmd_index(args: &[String]) -> anyhow::Result<()> {
 
     for note in notes {
         println!();
-        println!("{}  (stem: {})", note.path.display(), note.stem);
+        println!("{}", note.path.display());
 
-        if note.wiki_links.is_empty() {
+        if note.md_links.is_empty() {
             println!("  links: none");
         } else {
-            for link in &note.wiki_links {
-                let status = match idx.resolve(&link.stem) {
+            for link in &note.md_links {
+                let status = match idx.resolve(&note.path, &link.target) {
                     ResolvedLink::Found(p) => format!("→ {}", p.display()),
-                    ResolvedLink::Ambiguous(_) => "ambiguous".to_string(),
                     ResolvedLink::Broken => "broken".to_string(),
                 };
-                println!("  [[{}]]  {}", link.stem, status);
+                let anchor_str = link.anchor.as_deref()
+                    .map(|a| format!("#{a}"))
+                    .unwrap_or_default();
+                println!("  [{}]{}  {}", link.target, anchor_str, status);
             }
         }
 
@@ -217,9 +205,9 @@ pub fn cmd_check() -> anyhow::Result<()> {
         .completion_provider
         .as_ref()
         .and_then(|c| c.trigger_characters.as_ref())
-        .map(|ts| ts.contains(&"[".to_string()))
+        .map(|ts| ts.contains(&"(".to_string()))
         .unwrap_or(false);
-    check!("completion trigger", trigger_ok, r#""[""#);
+    check!("completion trigger", trigger_ok, r#""(""#);
 
     check!("definition provider", caps.definition_provider.is_some(), "advertised");
     check!("references provider", caps.references_provider.is_some(), "advertised");

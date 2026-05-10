@@ -1,161 +1,71 @@
-// Steps 6–9: completion, definition, references, and diagnostics.
-// See docs/design/components/handlers.md
-
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashSet;
+use std::path::{Component, Path, PathBuf};
 
 use crossbeam_channel::Sender;
 use log::warn;
 use lsp_server::{Message, Notification};
 use lsp_types::{
-    CodeAction, CodeActionKind, CodeActionParams, CodeLens, CodeLensParams,
-    CompletionItem, CompletionItemKind,
-    CreateFile, CreateFileOptions, DocumentChangeOperation, DocumentChanges, ResourceOp,
-    CompletionParams, Diagnostic, DiagnosticSeverity, DocumentSymbol, DocumentSymbolParams,
-    DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents,
-    HoverParams, Location, MarkupContent, MarkupKind, Position, PrepareRenameResponse,
-    PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams, RenameParams,
-    SymbolInformation, SymbolKind, TextDocumentPositionParams, TextEdit, WorkspaceEdit,
-    WorkspaceSymbolParams,
+    CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
+    GotoDefinitionParams, GotoDefinitionResponse, Location, Position, PublishDiagnosticsParams,
+    Range, ReferenceParams,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
-use crate::server::FrontmatterSchema;
-
-// ─── URI utilities ────────────────────────────────────────────────────────────
 
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
-pub fn compute_diagnostics(path: &Path, index: &NoteIndex, schema: Option<&FrontmatterSchema>) -> Vec<Diagnostic> {
+pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
     let Some(note) = index.get_note(path) else {
         return vec![];
     };
 
-    let mut diagnostics: Vec<Diagnostic> = note.wiki_links
-        .iter()
-        .filter_map(|link| match index.resolve(&link.stem) {
-            ResolvedLink::Broken => Some(Diagnostic {
-                range: link.inner_range,
-                severity: Some(DiagnosticSeverity::WARNING),
-                message: format!("Link target not found: '[[{}]]'", link.stem),
-                source: Some("knap".to_string()),
-                ..Default::default()
-            }),
-            ResolvedLink::Ambiguous(paths) => Some(Diagnostic {
-                range: link.inner_range,
-                severity: Some(DiagnosticSeverity::WARNING),
-                message: format!(
-                    "'[[{}]]' matches multiple files: {}",
-                    link.stem,
-                    paths
-                        .iter()
-                        .map(|p| p.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                source: Some("knap".to_string()),
-                ..Default::default()
-            }),
-            ResolvedLink::Found(target_path) => link.anchor.as_ref().and_then(|anchor| {
-                let target_note = index.get_note(&target_path)?;
-                let found = target_note
-                    .headings
-                    .iter()
-                    .any(|h| h.text.to_lowercase() == anchor.to_lowercase());
-                if found {
-                    return None;
-                }
-                Some(Diagnostic {
-                    range: link.inner_range,
+    let mut diagnostics = Vec::new();
+
+    for link in &note.md_links {
+        if link.target.is_empty() {
+            continue; // anchor-only links; nothing to resolve
+        }
+        match index.resolve(path, &link.target) {
+            ResolvedLink::Broken => {
+                diagnostics.push(Diagnostic {
+                    range: link.target_range,
                     severity: Some(DiagnosticSeverity::WARNING),
-                    message: format!(
-                        "Heading not found: '#{}' in '[[{}#{}]]'",
-                        anchor, link.stem, anchor
-                    ),
+                    message: format!("Link target not found: '{}'", link.target),
                     source: Some("knap".to_string()),
                     ..Default::default()
-                })
-            }),
-        })
-        .collect();
-
-    if let Some(s) = schema {
-        append_schema_diagnostics(note, s, &mut diagnostics);
+                });
+            }
+            ResolvedLink::Found(target_path) => {
+                if let Some(anchor) = &link.anchor {
+                    let found = index
+                        .get_note(&target_path)
+                        .map(|n| {
+                            n.headings
+                                .iter()
+                                .any(|h| h.text.to_lowercase() == anchor.to_lowercase())
+                        })
+                        .unwrap_or(false);
+                    if !found {
+                        let range = link.anchor_range.unwrap_or(link.range);
+                        diagnostics.push(Diagnostic {
+                            range,
+                            severity: Some(DiagnosticSeverity::WARNING),
+                            message: format!("Heading not found: '#{anchor}'"),
+                            source: Some("knap".to_string()),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
     }
 
     diagnostics
 }
 
-fn append_schema_diagnostics(
-    note: &crate::parser::Note,
-    schema: &FrontmatterSchema,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let zero_range = lsp_types::Range {
-        start: Position { line: 0, character: 0 },
-        end: Position { line: 0, character: 3 },
-    };
-
-    let fields = note
-        .frontmatter
-        .as_ref()
-        .map(|fm| fm.fields.as_slice())
-        .unwrap_or(&[]);
-
-    // 1. Unknown key and invalid enum value diagnostics.
-    for field in fields {
-        match schema.properties.get(&field.key) {
-            None => {
-                diagnostics.push(Diagnostic {
-                    range: field.key_range,
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    message: format!("Unknown frontmatter key: '{}'", field.key),
-                    source: Some("knap".to_string()),
-                    ..Default::default()
-                });
-            }
-            Some(field_schema) if !field_schema.enum_values.is_empty() => {
-                if let Some(value) = &field.value
-                    && !field_schema.enum_values.iter().any(|e| e == value)
-                {
-                    let range = field.value_range.unwrap_or(field.key_range);
-                    diagnostics.push(Diagnostic {
-                        range,
-                        severity: Some(DiagnosticSeverity::WARNING),
-                        message: format!(
-                            "Invalid value '{}' for '{}': expected one of [{}]",
-                            value,
-                            field.key,
-                            field_schema.enum_values.join(", ")
-                        ),
-                        source: Some("knap".to_string()),
-                        ..Default::default()
-                    });
-                }
-            }
-            Some(_) => {} // known key with no enum — no validation
-        }
-    }
-
-    // 2. Missing required key diagnostics.
-    let present: std::collections::HashSet<&str> =
-        fields.iter().map(|f| f.key.as_str()).collect();
-    for required_key in &schema.required {
-        if !present.contains(required_key.as_str()) {
-            diagnostics.push(Diagnostic {
-                range: zero_range,
-                severity: Some(DiagnosticSeverity::WARNING),
-                message: format!("Missing required frontmatter key: '{required_key}'"),
-                source: Some("knap".to_string()),
-                ..Default::default()
-            });
-        }
-    }
-}
-
-pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>, schema: Option<&FrontmatterSchema>) {
+pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>) {
     for path in paths {
-        let diagnostics = compute_diagnostics(path, index, schema);
+        let diagnostics = compute_diagnostics(path, index);
         let params = PublishDiagnosticsParams {
             uri: path_to_uri(path),
             diagnostics,
@@ -189,158 +99,32 @@ fn utf16_to_byte_offset(s: &str, utf16_offset: u32) -> usize {
 }
 
 /// Returns `true` if the text on the cursor's line immediately before the
-/// cursor position ends with `[[`, indicating the user wants note completion.
-fn check_trigger(content: &str, pos: Position) -> bool {
+/// cursor ends with `](`, indicating the user is about to type a link path.
+fn check_link_trigger(content: &str, pos: Position) -> bool {
     let line = content.lines().nth(pos.line as usize).unwrap_or("");
     let cursor = utf16_to_byte_offset(line, pos.character);
-    line[..cursor].ends_with("[[")
+    line[..cursor].ends_with("](")
 }
 
-/// Returns the line number (0-indexed) of the frontmatter closing `---`, or
-/// `None` when the content has no valid frontmatter block.
-fn frontmatter_close_line(content: &str) -> Option<usize> {
-    let offset = crate::parser::frontmatter_body_offset(content);
-    if offset == 0 { None } else { Some(content[..offset].lines().count() - 1) }
+/// Compute the relative path from `from_dir` to `to`, suitable as a Markdown
+/// link target. Both arguments must be absolute paths.
+fn relative_path(from_dir: &Path, to: &Path) -> String {
+    let from: Vec<Component> = from_dir.components().collect();
+    let to_comps: Vec<Component> = to.components().collect();
+
+    let common = from.iter().zip(to_comps.iter()).take_while(|(a, b)| a == b).count();
+
+    let mut result = PathBuf::new();
+    for _ in 0..(from.len() - common) {
+        result.push("..");
+    }
+    for c in &to_comps[common..] {
+        result.push(c.as_os_str());
+    }
+    result.to_string_lossy().into_owned()
 }
 
-/// Returns `true` when the cursor is inside the frontmatter block in a position
-/// that calls for tag completions:
-/// 1. The cursor is on the `tags:` line itself (any column), or
-/// 2. The cursor is on a `- ` list-item line that follows a bare `tags:` key
-///    within the same frontmatter block.
-fn check_tag_trigger(content: &str, pos: Position) -> bool {
-    let close_line = match frontmatter_close_line(content) {
-        Some(l) => l,
-        None => return false,
-    };
-    // Cursor must be inside the frontmatter (after opening `---`, before closing `---`)
-    if pos.line == 0 || pos.line as usize >= close_line {
-        return false;
-    }
-
-    let lines: Vec<&str> = content.lines().collect();
-    let current = lines.get(pos.line as usize).unwrap_or(&"");
-
-    // Pattern 1: cursor is on the `tags:` line
-    if current.trim_start().starts_with("tags:") {
-        return true;
-    }
-
-    // Pattern 2: cursor is on a `- ` list item; scan backwards for a bare `tags:` key
-    let cursor = utf16_to_byte_offset(current, pos.character);
-    let up_to_cursor = &current[..cursor];
-    if up_to_cursor.trim_start().starts_with('-') || up_to_cursor.trim() == "-" {
-        for i in (1..pos.line as usize).rev() {
-            let prev = lines[i].trim();
-            if prev == "tags:" {
-                return true;
-            }
-            // Any non-empty, non-list line that contains `:` is a different YAML key — stop
-            if !prev.is_empty() && !prev.starts_with('-') && prev.contains(':') {
-                break;
-            }
-        }
-    }
-
-    false
-}
-
-fn tag_completions(index: &NoteIndex) -> Vec<CompletionItem> {
-    index
-        .all_tags()
-        .map(|tag| CompletionItem {
-            label: tag.to_string(),
-            kind: Some(CompletionItemKind::VALUE),
-            insert_text: Some(tag.to_string()),
-            ..Default::default()
-        })
-        .collect()
-}
-
-/// Returns the key name from the current frontmatter line if the cursor is
-/// at a value position (i.e. after the `:`). Returns `None` if the line has
-/// no `:` or the cursor is before the colon.
-fn frontmatter_key_at_cursor(content: &str, pos: Position) -> Option<String> {
-    let line = content.lines().nth(pos.line as usize)?;
-    let colon = line.find(':')?;
-    let cursor = utf16_to_byte_offset(line, pos.character);
-    if cursor <= colon {
-        return None;
-    }
-    let key = line[..colon].trim();
-    if key.is_empty() { None } else { Some(key.to_string()) }
-}
-
-/// Returns enum-value completions when:
-/// - the cursor is inside the frontmatter
-/// - the current line has a key with enum values in the schema
-/// - the key is not `tags` (handled separately)
-fn schema_value_completions(
-    content: &str,
-    pos: Position,
-    schema: &crate::server::FrontmatterSchema,
-) -> Option<Vec<CompletionItem>> {
-    let close_line = frontmatter_close_line(content)?;
-    if pos.line == 0 || pos.line as usize >= close_line {
-        return None;
-    }
-    let key = frontmatter_key_at_cursor(content, pos)?;
-    if key == "tags" {
-        return None;
-    }
-    let field_schema = schema.properties.get(&key)?;
-    if field_schema.enum_values.is_empty() {
-        return None;
-    }
-    Some(
-        field_schema
-            .enum_values
-            .iter()
-            .map(|v| CompletionItem {
-                label: v.clone(),
-                kind: Some(CompletionItemKind::VALUE),
-                insert_text: Some(v.clone()),
-                ..Default::default()
-            })
-            .collect(),
-    )
-}
-
-/// Returns key-name completions when:
-/// - the cursor is inside the frontmatter
-/// - the current line has no `:` (blank or key-only)
-/// - schema is provided
-fn schema_key_completions(
-    content: &str,
-    pos: Position,
-    schema: &crate::server::FrontmatterSchema,
-    existing_fields: &[crate::parser::FrontmatterField],
-) -> Option<Vec<CompletionItem>> {
-    let close_line = frontmatter_close_line(content)?;
-    if pos.line == 0 || pos.line as usize >= close_line {
-        return None;
-    }
-    let line = content.lines().nth(pos.line as usize).unwrap_or("");
-    if line.contains(':') {
-        return None;
-    }
-    let present: std::collections::HashSet<&str> =
-        existing_fields.iter().map(|f| f.key.as_str()).collect();
-    let items: Vec<CompletionItem> = schema
-        .properties
-        .keys()
-        .filter(|k| !present.contains(k.as_str()))
-        .map(|k| CompletionItem {
-            label: k.clone(),
-            kind: Some(CompletionItemKind::PROPERTY),
-            insert_text: Some(format!("{k}: ")),
-            ..Default::default()
-        })
-        .collect();
-    if items.is_empty() { None } else { Some(items) }
-}
-
-pub fn handle_completion(params: CompletionParams, index: &NoteIndex, schema: Option<&FrontmatterSchema>) -> Vec<CompletionItem> {
+pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
     let pos = params.text_document_position.position;
     let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
         return vec![];
@@ -348,216 +132,30 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex, schema: Op
     let Some(note) = index.get_note(&path) else {
         return vec![];
     };
-    if check_tag_trigger(&note.content, pos) {
-        return tag_completions(index);
-    }
-    if let Some(s) = schema {
-        if let Some(items) = schema_value_completions(&note.content, pos, s) {
-            return items;
-        }
-        if let Some(fm) = &note.frontmatter
-            && let Some(items) = schema_key_completions(&note.content, pos, s, &fm.fields)
-        {
-            return items;
-        }
-    }
-    if !check_trigger(&note.content, pos) {
+    if !check_link_trigger(&note.content, pos) {
         return vec![];
     }
+    let from_dir = path.parent().unwrap_or(Path::new(""));
     index
         .all_notes()
+        .filter(|n| n.path != path)
         .map(|n| {
+            let rel = relative_path(from_dir, &n.path);
             let title = n
                 .frontmatter
                 .as_ref()
                 .and_then(|fm| fm.title.as_deref())
                 .map(str::to_owned);
-            let label = title.clone().unwrap_or_else(|| n.stem.clone());
-            let detail = if title.is_some() { Some(n.stem.clone()) } else { None };
+            let label = title.clone().unwrap_or_else(|| rel.clone());
+            let detail = title.map(|_| rel.clone());
             CompletionItem {
                 label,
                 kind: Some(CompletionItemKind::FILE),
-                filter_text: Some(n.stem.clone()),
-                insert_text: Some(n.stem.clone()),
+                filter_text: Some(rel.clone()),
+                insert_text: Some(rel),
                 detail,
                 ..Default::default()
             }
-        })
-        .collect()
-}
-
-// ─── Hover ────────────────────────────────────────────────────────────────────
-
-const PREVIEW_LINES: usize = 10;
-
-/// Returns the body of `content` with the YAML frontmatter block stripped.
-/// Delegates to `frontmatter_body_offset` so the logic stays in one place.
-fn body_after_frontmatter(content: &str) -> &str {
-    &content[crate::parser::frontmatter_body_offset(content)..]
-}
-
-/// Build a Markdown hover-preview string: `**title**\n\n<body>` where body is
-/// the first `PREVIEW_LINES` lines after any frontmatter, followed by `\n…`
-/// when truncated.
-pub fn render_preview(note: &crate::parser::Note) -> String {
-    let title = note
-        .frontmatter
-        .as_ref()
-        .and_then(|fm| fm.title.as_deref())
-        .unwrap_or(&note.stem);
-
-    let body = body_after_frontmatter(&note.content);
-    let lines: Vec<&str> = body.lines().collect();
-
-    let (preview, truncated) = if lines.len() <= PREVIEW_LINES {
-        (lines.join("\n"), false)
-    } else {
-        (lines[..PREVIEW_LINES].join("\n"), true)
-    };
-
-    let suffix = if truncated { "\n\u{2026}" } else { "" };
-    format!("**{title}**\n\n{preview}{suffix}")
-}
-
-/// Returns `true` for targets that are external URLs (http, https, //, mailto,
-/// ftp). Local relative paths return `false`.
-fn is_external_url(target: &str) -> bool {
-    target.starts_with("http://")
-        || target.starts_with("https://")
-        || target.starts_with("//")
-        || target.starts_with("mailto:")
-        || target.starts_with("ftp://")
-}
-
-/// Normalize `.` and `..` components in `path` without touching the filesystem.
-///
-/// Note: `..` components that exhaust all prefix components (e.g. a relative
-/// Markdown link that navigates above the filesystem root) are silently dropped.
-/// In practice `path` is always `note_dir.join(relative_target)` where
-/// `note_dir` is absolute, so this only matters for links attempting to escape
-/// the filesystem root — an extreme edge case that would fail to resolve anyway.
-fn normalize_path(path: &std::path::Path) -> PathBuf {
-    use std::path::Component;
-    let mut out: Vec<Component> = Vec::new();
-    for c in path.components() {
-        match c {
-            Component::CurDir => {}                    // drop `.`
-            Component::ParentDir => { out.pop(); }     // resolve `..`
-            c => out.push(c),
-        }
-    }
-    out.iter().collect()
-}
-
-fn find_md_link_at_position(
-    note: &crate::parser::Note,
-    pos: Position,
-) -> Option<&crate::parser::MarkdownLink> {
-    note.md_links.iter().find(|link| contains(link.range, pos))
-}
-
-pub fn handle_hover(params: HoverParams, index: &NoteIndex) -> Option<Hover> {
-    let pos = params.text_document_position_params.position;
-    let path = uri_to_path(&params.text_document_position_params.text_document.uri)?;
-    let note = index.get_note(&path)?;
-
-    // 1. Wiki-link at cursor position.
-    if let Some(link) = find_link_at_position(note, pos) {
-        let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else {
-            return None; // broken or ambiguous — diagnostic already covers this
-        };
-        let target = index.get_note(&target_path)?;
-        return Some(Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: render_preview(target),
-            }),
-            range: Some(link.range),
-        });
-    }
-
-    // 2. Standard Markdown link or image at cursor position.
-    if let Some(md_link) = find_md_link_at_position(note, pos) {
-        let value = if md_link.is_image {
-            format!("**Image**\n\n`{}`", md_link.target)
-        } else if is_external_url(&md_link.target) {
-            format!("[{}]({})", md_link.text, md_link.target)
-        } else {
-            // Local path: resolve relative to the current file's directory.
-            let parent = path.parent().unwrap_or_else(|| std::path::Path::new(""));
-            let resolved = normalize_path(&parent.join(&md_link.target));
-            if let Some(target_note) = index.get_note(&resolved) {
-                render_preview(target_note)
-            } else {
-                format!("`{}`", md_link.target)
-            }
-        };
-        let range = md_link.range;
-        return Some(Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value,
-            }),
-            range: Some(range),
-        });
-    }
-
-    None
-}
-
-// ─── Document Symbols ─────────────────────────────────────────────────────────
-
-#[allow(deprecated)] // DocumentSymbol.deprecated field
-pub fn handle_document_symbols(
-    params: DocumentSymbolParams,
-    index: &NoteIndex,
-) -> DocumentSymbolResponse {
-    let symbols = uri_to_path(&params.text_document.uri)
-        .as_ref()
-        .and_then(|p| index.get_note(p))
-        .map(|note| {
-            note.headings
-                .iter()
-                .map(|h| DocumentSymbol {
-                    name: h.text.clone(),
-                    kind: SymbolKind::STRING,
-                    range: h.range,
-                    selection_range: h.text_range,
-                    detail: None,
-                    tags: None,
-                    deprecated: None,
-                    children: None,
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    DocumentSymbolResponse::Nested(symbols)
-}
-
-// ─── Workspace Symbols ────────────────────────────────────────────────────────
-
-#[allow(deprecated)] // SymbolInformation.deprecated field
-pub fn handle_workspace_symbols(
-    params: WorkspaceSymbolParams,
-    index: &NoteIndex,
-) -> Vec<SymbolInformation> {
-    let query = params.query.to_lowercase();
-    index
-        .all_notes()
-        .flat_map(|note| {
-            note.headings.iter().filter_map(|h| {
-                if !query.is_empty() && !h.text.to_lowercase().contains(&query) {
-                    return None;
-                }
-                Some(SymbolInformation {
-                    name: h.text.clone(),
-                    kind: SymbolKind::STRING,
-                    location: Location { uri: path_to_uri(&note.path), range: h.range },
-                    container_name: Some(note.stem.clone()),
-                    tags: None,
-                    deprecated: None,
-                })
-            })
         })
         .collect()
 }
@@ -571,33 +169,11 @@ fn contains(range: Range, pos: Position) -> bool {
             || (pos.line == range.end.line && pos.character <= range.end.character))
 }
 
-fn find_link_at_position(note: &crate::parser::Note, pos: Position) -> Option<&crate::parser::WikiLink> {
-    note.wiki_links.iter().find(|link| contains(link.range, pos))
-}
-
-fn find_tag_at_position(note: &crate::parser::Note, pos: Position) -> Option<&crate::parser::Tag> {
-    note.frontmatter
-        .as_ref()?
-        .tags
-        .iter()
-        .find(|t| contains(t.range, pos))
-}
-
-fn locations_for_tag(tag: &str, index: &NoteIndex) -> Vec<Location> {
-    index
-        .notes_by_tag(tag)
-        .iter()
-        .filter_map(|note| {
-            let tag_range = note
-                .frontmatter
-                .as_ref()?
-                .tags
-                .iter()
-                .find(|t| t.name.to_lowercase() == tag.to_lowercase())?
-                .range;
-            Some(Location { uri: path_to_uri(&note.path), range: tag_range })
-        })
-        .collect()
+fn find_md_link_at_position(
+    note: &crate::parser::Note,
+    pos: Position,
+) -> Option<&crate::parser::MarkdownLink> {
+    note.md_links.iter().find(|link| contains(link.range, pos))
 }
 
 pub fn handle_definition(
@@ -608,282 +184,53 @@ pub fn handle_definition(
     let path = uri_to_path(&params.text_document_position_params.text_document.uri)?;
     let note = index.get_note(&path)?;
 
-    // 1. Wiki-link at cursor position.
-    if let Some(link) = find_link_at_position(note, pos) {
-        let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else {
-            return None;
-        };
-        let anchor_range = link.anchor.as_ref().and_then(|anchor| {
-            let target_note = index.get_note(&target_path)?;
-            let heading = target_note
-                .headings
-                .iter()
-                .find(|h| h.text.to_lowercase() == anchor.to_lowercase())?;
-            Some(heading.range)
-        });
-        let range = anchor_range.unwrap_or_default();
-        return Some(GotoDefinitionResponse::Scalar(Location {
-            uri: path_to_uri(&target_path),
-            range,
-        }));
-    }
-
-    // 2. Tag in frontmatter at cursor position.
-    if let Some(tag) = find_tag_at_position(note, pos) {
-        let locs = locations_for_tag(&tag.name, index);
-        return Some(GotoDefinitionResponse::Array(locs));
-    }
-
-    None
+    let link = find_md_link_at_position(note, pos)?;
+    let ResolvedLink::Found(target_path) = index.resolve(&path, &link.target) else {
+        return None;
+    };
+    let anchor_range = link.anchor.as_ref().and_then(|anchor| {
+        let target_note = index.get_note(&target_path)?;
+        let heading = target_note
+            .headings
+            .iter()
+            .find(|h| h.text.to_lowercase() == anchor.to_lowercase())?;
+        Some(heading.range)
+    });
+    let range = anchor_range.unwrap_or_default();
+    Some(GotoDefinitionResponse::Scalar(Location {
+        uri: path_to_uri(&target_path),
+        range,
+    }))
 }
 
 // ─── Find References ──────────────────────────────────────────────────────────
 
 pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Location> {
     let pos = params.text_document_position.position;
-    let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else { return vec![] };
-    let Some(note) = index.get_note(&path) else { return vec![] };
+    let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
+        return vec![];
+    };
+    let Some(note) = index.get_note(&path) else {
+        return vec![];
+    };
 
-    // 1. Wiki-link at cursor position.
-    if let Some(link) = find_link_at_position(note, pos) {
-        let ResolvedLink::Found(target_path) = index.resolve(&link.stem) else { return vec![] };
-        return index
-            .links_to(&target_path)
-            .iter()
-            .map(|located| Location {
-                uri: path_to_uri(&located.source_path),
-                range: located.wiki_link.range,
-            })
-            .collect();
-    }
+    let target_path = if let Some(link) = find_md_link_at_position(note, pos) {
+        match index.resolve(&path, &link.target) {
+            ResolvedLink::Found(p) => p,
+            ResolvedLink::Broken => return vec![],
+        }
+    } else {
+        path.clone()
+    };
 
-    // 2. Tag in frontmatter at cursor position.
-    if let Some(tag) = find_tag_at_position(note, pos) {
-        return locations_for_tag(&tag.name, index);
-    }
-
-    // 3. No symbol at cursor — return all backlinks to this document.
-    //    This makes "Find References" at any non-link position behave as
-    //    "who links to me", which is what the backlinks code lens triggers.
     index
-        .links_to(&path)
+        .links_to(&target_path)
         .iter()
         .map(|located| Location {
             uri: path_to_uri(&located.source_path),
-            range: located.wiki_link.range,
+            range: located.md_link.range,
         })
         .collect()
-}
-
-// ─── Heading Rename ───────────────────────────────────────────────────────────
-
-/// Returns `RangeWithPlaceholder` covering the heading text when the cursor is
-/// on a heading line; `None` otherwise (editor shows "nothing to rename").
-pub fn handle_prepare_rename(
-    params: TextDocumentPositionParams,
-    index: &NoteIndex,
-) -> Option<PrepareRenameResponse> {
-    let path = uri_to_path(&params.text_document.uri)?;
-    let note = index.get_note(&path)?;
-    let heading = note.headings.iter().find(|h| contains(h.range, params.position))?;
-    Some(PrepareRenameResponse::RangeWithPlaceholder {
-        range: heading.text_range,
-        placeholder: heading.text.clone(),
-    })
-}
-
-/// Builds a `WorkspaceEdit` that:
-/// 1. Rewrites the heading text in its own file.
-/// 2. Rewrites every `[[note#OldText]]` anchor whose stem resolves to the
-///    heading's file and whose anchor matches the old text (case-insensitive).
-///
-/// Returns `None` when the cursor is not on any heading.
-#[allow(clippy::mutable_key_type)]
-pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<WorkspaceEdit> {
-    let path = uri_to_path(&params.text_document_position.text_document.uri)?;
-    let pos = params.text_document_position.position;
-
-    // Extract the heading's data in a scoped block so the borrow of `index`
-    // via `get_note` is released before the iterator loop below.
-    let (old_text, text_range) = {
-        let note = index.get_note(&path)?;
-        let h = note.headings.iter().find(|h| contains(h.range, pos))?;
-        (h.text.clone(), h.text_range)
-    };
-
-    let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
-
-    // 1. Rewrite the heading text itself.
-    changes
-        .entry(path_to_uri(&path))
-        .or_default()
-        .push(TextEdit { range: text_range, new_text: params.new_name.clone() });
-
-    // 2. Rewrite every anchor link that resolves to this heading.
-    for note in index.all_notes() {
-        for link in &note.wiki_links {
-            let Some(anchor) = &link.anchor else { continue };
-            if anchor.to_lowercase() != old_text.to_lowercase() {
-                continue;
-            }
-            let ResolvedLink::Found(target) = index.resolve(&link.stem) else { continue };
-            if target != path {
-                continue;
-            }
-            let Some(anchor_range) = link.anchor_range else { continue };
-            changes
-                .entry(path_to_uri(&note.path))
-                .or_default()
-                .push(TextEdit { range: anchor_range, new_text: params.new_name.clone() });
-        }
-    }
-
-    Some(WorkspaceEdit { changes: Some(changes), ..Default::default() })
-}
-
-// ─── File Rename ──────────────────────────────────────────────────────────────
-
-/// Returns a `WorkspaceEdit` that rewrites every `[[old-stem]]` backlink to
-/// use the new stem. The editor applies this edit before performing the rename.
-// lsp_types::Uri contains a Cell internally; clippy flags it as a mutable key
-// type, but it's the exact type WorkspaceEdit::changes requires.
-#[allow(clippy::mutable_key_type)]
-pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) -> WorkspaceEdit {
-    let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
-
-    for rename in params.files {
-        let Ok(old_uri) = rename.old_uri.parse() else { continue; };
-        let Some(old_path) = uri_to_path(&old_uri) else { continue; };
-        let Ok(new_uri) = rename.new_uri.parse() else { continue; };
-        let Some(new_path) = uri_to_path(&new_uri) else { continue; };
-        let new_stem = new_path
-            .file_stem()
-            .expect("willRenameFiles: new_uri has no filename")
-            .to_string_lossy()
-            .into_owned();
-
-        for located in index.links_to(&old_path) {
-            let edit = TextEdit {
-                range: located.wiki_link.inner_range,
-                new_text: new_stem.clone(),
-            };
-            changes
-                .entry(path_to_uri(&located.source_path))
-                .or_default()
-                .push(edit);
-        }
-    }
-
-    WorkspaceEdit { changes: Some(changes), ..Default::default() }
-}
-
-// ─── Code Lens ────────────────────────────────────────────────────────────────
-
-pub fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec<CodeLens> {
-    let Some(path) = uri_to_path(&params.text_document.uri) else { return vec![] };
-    if index.get_note(&path).is_none() {
-        return vec![];
-    }
-
-    let count = index.links_to(&path).len();
-    let label = match count {
-        1 => "↑ 1 backlink".to_string(),
-        n => format!("↑ {n} backlinks"),
-    };
-    let zero = Position { line: 0, character: 0 };
-    vec![CodeLens {
-        range: Range { start: zero, end: zero },
-        command: Some(lsp_types::Command {
-            title: label,
-            command: "knap.findBacklinks".to_string(),
-            arguments: None,
-        }),
-        data: None,
-    }]
-}
-
-// ─── Code Actions ─────────────────────────────────────────────────────────────
-
-pub fn handle_code_action(
-    params: CodeActionParams,
-    index: &NoteIndex,
-    new_note_dir: Option<&std::path::Path>,
-) -> Vec<CodeAction> {
-    let Some(path) = uri_to_path(&params.text_document.uri) else { return vec![] };
-    let Some(note) = index.get_note(&path) else { return vec![] };
-    let Some(link) = find_link_at_position(note, params.range.start) else { return vec![] };
-
-    match index.resolve(&link.stem) {
-        ResolvedLink::Broken => {
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("md");
-            let default_dir = path.parent().unwrap_or(std::path::Path::new(""));
-            let dir = new_note_dir.unwrap_or(default_dir);
-            let new_path = dir.join(format!("{}.{ext}", link.stem));
-            let new_uri = path_to_uri(&new_path);
-            let title = match new_note_dir {
-                Some(d) => format!(
-                    "Create note '{}/{}.{ext}'",
-                    d.file_name()
-                        .unwrap_or(d.as_os_str())
-                        .to_string_lossy(),
-                    link.stem
-                ),
-                None => format!("Create note '{}.{ext}'", link.stem),
-            };
-            vec![CodeAction {
-                title,
-                kind: Some(CodeActionKind::QUICKFIX),
-                edit: Some(WorkspaceEdit {
-                    document_changes: Some(DocumentChanges::Operations(vec![
-                        DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
-                            uri: new_uri,
-                            options: Some(CreateFileOptions {
-                                overwrite: Some(false),
-                                ignore_if_exists: Some(true),
-                            }),
-                            annotation_id: None,
-                        })),
-                    ])),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }]
-        }
-        ResolvedLink::Found(target_path) => {
-            let Some(anchor) = &link.anchor else { return vec![] };
-            let Some(target_note) = index.get_note(&target_path) else { return vec![] };
-            let anchor_lower = anchor.to_lowercase();
-            let already_valid = target_note
-                .headings
-                .iter()
-                .any(|h| h.text.to_lowercase() == anchor_lower);
-            if already_valid {
-                return vec![];
-            }
-            if target_note.headings.is_empty() {
-                return vec![];
-            }
-            let anchor_range = link.anchor_range.expect("anchor_range present when anchor is Some");
-            let current_uri = path_to_uri(&path);
-            target_note
-                .headings
-                .iter()
-                .map(|h| CodeAction {
-                    title: format!("Change anchor to '#{}'", h.text),
-                    kind: Some(CodeActionKind::QUICKFIX),
-                    edit: Some(WorkspaceEdit {
-                        changes: Some(std::collections::HashMap::from([(
-                            current_uri.clone(),
-                            vec![TextEdit { range: anchor_range, new_text: h.text.clone() }],
-                        )])),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                })
-                .collect()
-        }
-        ResolvedLink::Ambiguous(_) => vec![],
-    }
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
@@ -909,11 +256,10 @@ pub fn path_to_uri(path: &Path) -> lsp_types::Uri {
 }
 
 #[cfg(test)]
-#[allow(clippy::mutable_key_type)]
 mod tests {
     use std::path::Path;
 
-    use lsp_types::{FileRename, RenameFilesParams};
+    use lsp_types::{CompletionParams, GotoDefinitionParams, Position, ReferenceParams};
 
     use super::*;
     use crate::index::NoteIndex;
@@ -927,654 +273,19 @@ mod tests {
         path_to_uri(Path::new(path))
     }
 
-    /// File with two backlinks → WorkspaceEdit with two TextEdits.
-    #[test]
-    fn rename_produces_edits() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", ""));
-        idx.seed(note("/vault/a.md", "[[b]]\n[[b]]"));
-
-        let params = RenameFilesParams {
-            files: vec![FileRename {
-                old_uri: "file:///vault/b.md".to_string(),
-                new_uri: "file:///vault/new-b.md".to_string(),
-            }],
-        };
-        let edit = handle_will_rename_files(params, &idx);
-        let changes = edit.changes.expect("expected changes");
-        let edits = changes.get(&file_uri("/vault/a.md")).expect("expected edits for a.md");
-        assert_eq!(edits.len(), 2);
-        assert!(edits.iter().all(|e| e.new_text == "new-b"));
-    }
-
-    /// File with no backlinks → empty WorkspaceEdit.
-    #[test]
-    fn rename_no_backlinks_empty_edit() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/lonely.md", ""));
-
-        let params = RenameFilesParams {
-            files: vec![FileRename {
-                old_uri: "file:///vault/lonely.md".to_string(),
-                new_uri: "file:///vault/new-lonely.md".to_string(),
-            }],
-        };
-        let edit = handle_will_rename_files(params, &idx);
-        let changes = edit.changes.expect("expected changes map");
-        assert!(changes.is_empty(), "expected no changes for a file with no backlinks");
-    }
-
-    /// `[[old|alias]]` → edit replaces only the stem; alias is untouched.
-    #[test]
-    fn rename_preserves_alias() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/old.md", ""));
-        idx.seed(note("/vault/src.md", "[[old|my alias]]"));
-
-        let params = RenameFilesParams {
-            files: vec![FileRename {
-                old_uri: "file:///vault/old.md".to_string(),
-                new_uri: "file:///vault/new.md".to_string(),
-            }],
-        };
-        let edit = handle_will_rename_files(params, &idx);
-        let changes = edit.changes.expect("expected changes");
-        let edits = changes.get(&file_uri("/vault/src.md")).expect("expected edits for src.md");
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "new");
-        // inner_range covers only "old" (chars 2–5 on line 0), not the alias
-        assert_eq!(edits[0].range.start.character, 2);
-        assert_eq!(edits[0].range.end.character, 5);
-    }
-
-    // ── Go to Definition — anchor navigation ─────────────────────────────────
-
-    fn make_definition_params(path: &str, line: u32, character: u32) -> GotoDefinitionParams {
-        GotoDefinitionParams {
-            text_document_position_params: lsp_types::TextDocumentPositionParams {
+    fn make_completion_params(path: &str, line: u32, character: u32) -> CompletionParams {
+        CompletionParams {
+            text_document_position: lsp_types::TextDocumentPositionParams {
                 text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
                 position: Position { line, character },
             },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
-        }
-    }
-
-    fn unwrap_scalar(resp: Option<GotoDefinitionResponse>) -> Location {
-        match resp.expect("expected a response") {
-            GotoDefinitionResponse::Scalar(loc) => loc,
-            other => panic!("expected Scalar, got {:?}", other),
-        }
-    }
-
-    /// `[[b#Section]]` with b.md having `## Section` → Location on heading line.
-    #[test]
-    fn definition_anchor_navigates_to_heading() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "## Section\n"));
-        idx.seed(note("/vault/a.md", "[[b#Section]]\n"));
-
-        let params = make_definition_params("/vault/a.md", 0, 3);
-        let loc = unwrap_scalar(handle_definition(params, &idx));
-        assert!(loc.uri.as_str().ends_with("b.md"));
-        assert_eq!(loc.range.start.line, 0, "expected to navigate to heading line");
-        assert_ne!(loc.range, Range::default(), "expected heading range, not file top");
-    }
-
-    /// `[[b#Missing]]` with no matching heading → Location at file top (line 0, col 0).
-    #[test]
-    fn definition_anchor_not_found_falls_back() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "## Section\n"));
-        idx.seed(note("/vault/a.md", "[[b#Missing]]\n"));
-
-        let params = make_definition_params("/vault/a.md", 0, 3);
-        let loc = unwrap_scalar(handle_definition(params, &idx));
-        assert!(loc.uri.as_str().ends_with("b.md"));
-        assert_eq!(loc.range, Range::default(), "expected file top on anchor miss");
-    }
-
-    /// `[[b]]` (no anchor) → Location at file top, same as before.
-    #[test]
-    fn definition_no_anchor_unchanged() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "## Section\n"));
-        idx.seed(note("/vault/a.md", "[[b]]\n"));
-
-        let params = make_definition_params("/vault/a.md", 0, 3);
-        let loc = unwrap_scalar(handle_definition(params, &idx));
-        assert!(loc.uri.as_str().ends_with("b.md"));
-        assert_eq!(loc.range, Range::default(), "expected file top for plain link");
-    }
-
-    // ── Document Symbols ─────────────────────────────────────────────────────
-
-    /// Note with 3 headings → 3 DocumentSymbols with correct text and level kind.
-    #[test]
-    fn document_symbols_returns_headings() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "# Title\n\n## Section\n\n### Sub\n"));
-
-        let params = DocumentSymbolParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let DocumentSymbolResponse::Nested(symbols) = handle_document_symbols(params, &idx)
-        else {
-            panic!("expected Nested response");
-        };
-        assert_eq!(symbols.len(), 3);
-        assert_eq!(symbols[0].name, "Title");
-        assert_eq!(symbols[1].name, "Section");
-        assert_eq!(symbols[2].name, "Sub");
-    }
-
-    /// Note with no headings → empty symbol list.
-    #[test]
-    fn document_symbols_empty() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/plain.md", "Just some prose.\n"));
-
-        let params = DocumentSymbolParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/plain.md") },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let DocumentSymbolResponse::Nested(symbols) = handle_document_symbols(params, &idx)
-        else {
-            panic!("expected Nested response");
-        };
-        assert!(symbols.is_empty(), "expected no symbols for a file with no headings");
-    }
-
-    // ── Workspace Symbols ────────────────────────────────────────────────────
-
-    /// Query "sec" matches only headings containing "sec" (case-insensitive).
-    #[test]
-    fn workspace_symbols_filtered() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "# Title\n\n## Section\n"));
-        idx.seed(note("/vault/b.md", "## Other\n"));
-
-        let params = WorkspaceSymbolParams {
-            query: "sec".to_string(),
-            ..Default::default()
-        };
-        let symbols = handle_workspace_symbols(params, &idx);
-        assert_eq!(symbols.len(), 1);
-        assert_eq!(symbols[0].name, "Section");
-    }
-
-    /// Empty query returns all headings across all indexed notes.
-    #[test]
-    fn workspace_symbols_empty_query() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "# Alpha\n\n## Beta\n"));
-        idx.seed(note("/vault/b.md", "# Gamma\n"));
-
-        let params = WorkspaceSymbolParams { query: String::new(), ..Default::default() };
-        let symbols = handle_workspace_symbols(params, &idx);
-        assert_eq!(symbols.len(), 3);
-    }
-
-    // ── Heading rename ───────────────────────────────────────────────────────
-
-    fn make_position_params(path: &str, line: u32, character: u32) -> TextDocumentPositionParams {
-        TextDocumentPositionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
-            position: Position { line, character },
-        }
-    }
-
-    fn make_rename_params(path: &str, line: u32, character: u32, new_name: &str) -> RenameParams {
-        RenameParams {
-            text_document_position: make_position_params(path, line, character),
-            new_name: new_name.to_string(),
-            work_done_progress_params: Default::default(),
-        }
-    }
-
-    /// Cursor on heading → WorkspaceEdit contains TextEdit at text_range.
-    #[test]
-    fn rename_heading_updates_heading_text() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/target.md", "## Old Text\n"));
-
-        let params = make_rename_params("/vault/target.md", 0, 5, "New Text");
-        let edit = handle_rename(params, &idx).expect("expected a WorkspaceEdit");
-        let changes = edit.changes.expect("expected changes");
-        let edits = changes.get(&file_uri("/vault/target.md")).expect("expected edits");
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "New Text");
-        // text_range covers "Old Text": chars 3–11 on line 0
-        assert_eq!(edits[0].range.start.character, 3);
-        assert_eq!(edits[0].range.end.character, 11);
-    }
-
-    /// Two files with `[[target#Old Text]]` → both anchor_range edits included.
-    #[test]
-    fn rename_heading_updates_anchor_links() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/target.md", "## Old Text\n"));
-        idx.seed(note("/vault/s1.md", "[[target#Old Text]]\n"));
-        idx.seed(note("/vault/s2.md", "[[target#Old Text]]\n"));
-
-        let params = make_rename_params("/vault/target.md", 0, 5, "New Text");
-        let edit = handle_rename(params, &idx).expect("expected a WorkspaceEdit");
-        let changes = edit.changes.expect("expected changes");
-        assert!(changes.contains_key(&file_uri("/vault/s1.md")), "expected edit for s1.md");
-        assert!(changes.contains_key(&file_uri("/vault/s2.md")), "expected edit for s2.md");
-        assert_eq!(changes[&file_uri("/vault/s1.md")][0].new_text, "New Text");
-        assert_eq!(changes[&file_uri("/vault/s2.md")][0].new_text, "New Text");
-    }
-
-    /// `[[target#old text]]` (lowercase) matches `## Old Text` → anchor edit included.
-    #[test]
-    fn rename_heading_case_insensitive_match() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/target.md", "## Old Text\n"));
-        idx.seed(note("/vault/src.md", "[[target#old text]]\n"));
-
-        let params = make_rename_params("/vault/target.md", 0, 5, "New Text");
-        let edit = handle_rename(params, &idx).expect("expected a WorkspaceEdit");
-        let changes = edit.changes.expect("expected changes");
-        assert!(changes.contains_key(&file_uri("/vault/src.md")), "expected edit for src.md");
-    }
-
-    /// Cursor not on any heading → `None`.
-    #[test]
-    fn rename_heading_no_match_returns_none() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/prose.md", "## Heading\n\nJust prose here.\n"));
-
-        // Cursor on the prose line (line 2), not on the heading
-        let params = make_rename_params("/vault/prose.md", 2, 5, "Anything");
-        assert!(handle_rename(params, &idx).is_none(), "expected None for cursor off heading");
-    }
-
-    /// Cursor on heading → `RangeWithPlaceholder` with text_range and heading text.
-    #[test]
-    fn prepare_rename_on_heading() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/target.md", "## Old Text\n"));
-
-        let params = make_position_params("/vault/target.md", 0, 5);
-        let resp = handle_prepare_rename(params, &idx).expect("expected a response");
-        let PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } = resp else {
-            panic!("expected RangeWithPlaceholder");
-        };
-        assert_eq!(placeholder, "Old Text");
-        assert_eq!(range.start.character, 3, "range should start after '## '");
-        assert_eq!(range.end.character, 11, "range should end at end of text");
-    }
-
-    /// Cursor not on any heading → `None`.
-    #[test]
-    fn prepare_rename_not_on_heading() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/prose.md", "## Heading\n\nJust prose here.\n"));
-
-        let params = make_position_params("/vault/prose.md", 2, 5);
-        assert!(handle_prepare_rename(params, &idx).is_none(), "expected None off heading");
-    }
-
-    // ── Anchor diagnostics ───────────────────────────────────────────────────
-
-    /// `[[b#Missing]]` with no matching heading in b.md → Warning diagnostic.
-    #[test]
-    fn anchor_diagnostic_missing() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "## Exists\n"));
-        idx.seed(note("/vault/a.md", "[[b#Missing]]\n"));
-
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
-        assert_eq!(diags.len(), 1);
-        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
-        assert_eq!(diags[0].message, "Heading not found: '#Missing' in '[[b#Missing]]'");
-    }
-
-    /// `[[b#Exists]]` with a matching heading → no diagnostic.
-    #[test]
-    fn anchor_diagnostic_present() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "## Exists\n"));
-        idx.seed(note("/vault/a.md", "[[b#Exists]]\n"));
-
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
-        assert!(diags.is_empty(), "expected no diagnostic when heading exists");
-    }
-
-    /// `[[b#my section]]` matches `## My Section` case-insensitively → no diagnostic.
-    #[test]
-    fn anchor_diagnostic_case_insensitive() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "## My Section\n"));
-        idx.seed(note("/vault/a.md", "[[b#my section]]\n"));
-
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, None);
-        assert!(diags.is_empty(), "expected no diagnostic for case-insensitive match");
-    }
-
-    // ── File rename ───────────────────────────────────────────────────────────
-
-    /// Two files renamed in one batch → edits produced for both.
-    #[test]
-    fn rename_multiple_files_in_one_batch() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/x.md", ""));
-        idx.seed(note("/vault/y.md", ""));
-        idx.seed(note("/vault/linker.md", "[[x]] and [[y]]"));
-
-        let params = RenameFilesParams {
-            files: vec![
-                FileRename {
-                    old_uri: "file:///vault/x.md".to_string(),
-                    new_uri: "file:///vault/new-x.md".to_string(),
-                },
-                FileRename {
-                    old_uri: "file:///vault/y.md".to_string(),
-                    new_uri: "file:///vault/new-y.md".to_string(),
-                },
-            ],
-        };
-        let edit = handle_will_rename_files(params, &idx);
-        let changes = edit.changes.expect("expected changes");
-        let edits =
-            changes.get(&file_uri("/vault/linker.md")).expect("expected edits for linker.md");
-        assert_eq!(edits.len(), 2);
-        let texts: Vec<&str> = edits.iter().map(|e| e.new_text.as_str()).collect();
-        assert!(texts.contains(&"new-x"), "expected new-x in edits");
-        assert!(texts.contains(&"new-y"), "expected new-y in edits");
-    }
-
-    // ── completion ────────────────────────────────────────────────────────────
-
-    /// Note with a frontmatter title → label is the title; insert_text and
-    /// filter_text are the stem; detail disambiguates with the stem.
-    #[test]
-    fn completion_uses_title_as_label() {
-        use lsp_types::TextDocumentIdentifier;
-
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/titled.md", "---\ntitle: My Title\n---\nBody.\n"));
-        idx.seed(note("/vault/cursor.md", "[["));
-
-        let params = CompletionParams {
-            text_document_position: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri: file_uri("/vault/cursor.md") },
-                position: Position { line: 0, character: 2 },
-            },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-            context: None,
-        };
-        let items = handle_completion(params, &idx, None);
-        let item = items
-            .iter()
-            .find(|i| i.filter_text.as_deref() == Some("titled"))
-            .expect("item for titled.md not found");
-        assert_eq!(item.label, "My Title");
-        assert_eq!(item.insert_text.as_deref(), Some("titled"));
-        assert_eq!(item.detail.as_deref(), Some("titled"));
-    }
-
-    /// Note without frontmatter → label equals stem; no detail or insert_text
-    /// override needed, but they are still set for consistency.
-    #[test]
-    fn completion_falls_back_to_stem() {
-        use lsp_types::TextDocumentIdentifier;
-
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/plain.md", "Body with no frontmatter.\n"));
-        idx.seed(note("/vault/cursor.md", "[["));
-
-        let params = CompletionParams {
-            text_document_position: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri: file_uri("/vault/cursor.md") },
-                position: Position { line: 0, character: 2 },
-            },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-            context: None,
-        };
-        let items = handle_completion(params, &idx, None);
-        let item = items
-            .iter()
-            .find(|i| i.filter_text.as_deref() == Some("plain"))
-            .expect("item for plain.md not found");
-        assert_eq!(item.label, "plain");
-        assert_eq!(item.insert_text.as_deref(), Some("plain"));
-        assert_eq!(item.detail, None);
-    }
-
-    // ── hover ─────────────────────────────────────────────────────────────────
-
-    fn hover_params(path: &str, line: u32, character: u32) -> HoverParams {
-        use lsp_types::TextDocumentIdentifier;
-        HoverParams {
-            text_document_position_params: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri: file_uri(path) },
-                position: Position { line, character },
-            },
-            work_done_progress_params: Default::default(),
-        }
-    }
-
-    /// Resolved wiki-link on a note with a frontmatter title → hover contains
-    /// the bold title.
-    #[test]
-    fn hover_wiki_link_resolved() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "---\ntitle: B Note\n---\nSome content.\n"));
-        idx.seed(note("/vault/a.md", "[[b]]"));
-
-        let hover = handle_hover(hover_params("/vault/a.md", 0, 2), &idx)
-            .expect("expected a hover result");
-        let HoverContents::Markup(mc) = hover.contents else {
-            panic!("expected Markup hover contents");
-        };
-        assert!(mc.value.contains("**B Note**"), "expected bold title: {}", mc.value);
-    }
-
-    /// Broken wiki-link → `None`.
-    #[test]
-    fn hover_wiki_link_broken_returns_none() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "[[missing]]"));
-
-        assert!(handle_hover(hover_params("/vault/a.md", 0, 3), &idx).is_none());
-    }
-
-    /// Target with more than PREVIEW_LINES body lines → body truncated with `…`.
-    #[test]
-    fn hover_wiki_link_shows_preview_lines() {
-        let body: String = (1..=20).map(|i| format!("line {i}\n")).collect();
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", &body));
-        idx.seed(note("/vault/a.md", "[[b]]"));
-
-        let hover = handle_hover(hover_params("/vault/a.md", 0, 2), &idx)
-            .expect("expected hover");
-        let HoverContents::Markup(mc) = hover.contents else {
-            panic!("expected Markup");
-        };
-        assert!(mc.value.contains('\u{2026}'), "expected truncation marker");
-        assert!(mc.value.contains("line 10"), "line 10 should be present");
-        assert!(!mc.value.contains("line 11"), "line 11 should be truncated");
-    }
-
-    /// Target with frontmatter → hover body omits the `---` delimiters.
-    #[test]
-    fn hover_wiki_link_skips_frontmatter() {
-        let content = "---\ntitle: My Note\n---\nBody line here.\n";
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", content));
-        idx.seed(note("/vault/a.md", "[[b]]"));
-
-        let hover = handle_hover(hover_params("/vault/a.md", 0, 2), &idx)
-            .expect("expected hover");
-        let HoverContents::Markup(mc) = hover.contents else {
-            panic!("expected Markup");
-        };
-        assert!(!mc.value.contains("---"), "frontmatter delimiters must not appear: {}", mc.value);
-        assert!(mc.value.contains("Body line here."), "body must appear: {}", mc.value);
-    }
-
-    /// Cursor not on any link → `None`.
-    #[test]
-    fn hover_off_link_returns_none() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "plain text [[b]]"));
-
-        assert!(handle_hover(hover_params("/vault/a.md", 0, 0), &idx).is_none());
-    }
-
-    /// External URL Markdown link → formatted `[text](url)` hover.
-    #[test]
-    fn hover_md_link_external_url() {
-        let mut idx = NoteIndex::default();
-        // "[text](https://example.com)" is 28 chars; (0,5) is inside
-        idx.seed(note("/vault/a.md", "[text](https://example.com)"));
-
-        let hover = handle_hover(hover_params("/vault/a.md", 0, 5), &idx)
-            .expect("expected hover for external URL");
-        let HoverContents::Markup(mc) = hover.contents else {
-            panic!("expected Markup");
-        };
-        assert_eq!(mc.value, "[text](https://example.com)");
-    }
-
-    /// Local relative link that resolves to an indexed note → note preview.
-    #[test]
-    fn hover_md_link_local_note() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/other.md", "---\ntitle: Other\n---\nContent here.\n"));
-        // "[text](./other.md)" is 19 chars; path.parent() = /vault,
-        // normalized resolved = /vault/other.md which is indexed.
-        idx.seed(note("/vault/a.md", "[text](./other.md)"));
-
-        let hover = handle_hover(hover_params("/vault/a.md", 0, 5), &idx)
-            .expect("expected hover for local note link");
-        let HoverContents::Markup(mc) = hover.contents else {
-            panic!("expected Markup");
-        };
-        assert!(mc.value.contains("**Other**"), "expected note title: {}", mc.value);
-        assert!(mc.value.contains("Content here."), "expected note body: {}", mc.value);
-    }
-
-    /// Image link → "**Image**" header with the path.
-    #[test]
-    fn hover_md_link_image() {
-        let mut idx = NoteIndex::default();
-        // "![alt](img.png)" is 15 chars; (0,3) is inside
-        idx.seed(note("/vault/a.md", "![alt](img.png)"));
-
-        let hover = handle_hover(hover_params("/vault/a.md", 0, 3), &idx)
-            .expect("expected hover for image");
-        let HoverContents::Markup(mc) = hover.contents else {
-            panic!("expected Markup");
-        };
-        assert!(mc.value.contains("**Image**"), "expected Image header: {}", mc.value);
-        assert!(mc.value.contains("img.png"), "expected path: {}", mc.value);
-    }
-
-    // ── tag completion ────────────────────────────────────────────────────────
-
-    fn completion_params_at(path: &str, line: u32, character: u32) -> CompletionParams {
-        use lsp_types::TextDocumentIdentifier;
-        CompletionParams {
-            text_document_position: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri: file_uri(path) },
-                position: Position { line, character },
-            },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
             context: None,
         }
     }
 
-    /// Cursor on the `tags: [` line → tag completions.
-    #[test]
-    fn completion_tag_inline_trigger() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
-        // b.md has tags: [lsp], cursor on the tags: [ line at col 9
-        idx.seed(note("/vault/b.md", "---\ntags: [lsp]\n---\n"));
-        // cursor.md has the trigger line
-        idx.seed(note("/vault/cursor.md", "---\ntags: [\n---\n"));
-
-        let params = completion_params_at("/vault/cursor.md", 1, 8);
-        let items = handle_completion(params, &idx, None);
-        assert!(!items.is_empty(), "expected tag completions");
-        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"rust"), "expected 'rust': {:?}", labels);
-        assert!(labels.contains(&"lsp"), "expected 'lsp': {:?}", labels);
-    }
-
-    /// Cursor on a `- ` list item following a bare `tags:` key → tag completions.
-    #[test]
-    fn completion_tag_block_trigger() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
-        // cursor.md uses block list form
-        idx.seed(note("/vault/cursor.md", "---\ntags:\n  - \n---\n"));
-
-        let params = completion_params_at("/vault/cursor.md", 2, 4);
-        let items = handle_completion(params, &idx, None);
-        assert!(!items.is_empty(), "expected tag completions for block list item");
-        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"rust"), "expected 'rust': {:?}", labels);
-    }
-
-    /// Cursor on `title:` line → no tag completions (different key).
-    #[test]
-    fn completion_tag_no_trigger_title() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/cursor.md", "---\ntitle: \n---\n"));
-
-        let params = completion_params_at("/vault/cursor.md", 1, 7);
-        let items = handle_completion(params, &idx, None);
-        assert!(items.is_empty(), "expected no completions on title: line");
-    }
-
-    /// Cursor in body (below frontmatter) → wiki-link trigger path, not tags.
-    #[test]
-    fn completion_tag_no_trigger_body() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
-        idx.seed(note("/vault/cursor.md", "---\ntags: [rust]\n---\n[["));
-
-        // line 3 is the body `[[` line — should get wiki-link completions (non-empty)
-        // but NOT tag completions. We verify by checking item kinds.
-        let params = completion_params_at("/vault/cursor.md", 3, 2);
-        let items = handle_completion(params, &idx, None);
-        // All items from wiki-link trigger have kind FILE, not VALUE
-        for item in &items {
-            assert_ne!(item.kind, Some(CompletionItemKind::VALUE),
-                "body line should not produce tag (VALUE) completions");
-        }
-    }
-
-    /// Tag completions contain all known tags from the index.
-    #[test]
-    fn completion_tag_items_from_index() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\ntags: [alpha, beta]\n---\n"));
-        idx.seed(note("/vault/b.md", "---\ntags: [gamma]\n---\n"));
-        idx.seed(note("/vault/cursor.md", "---\ntags: [\n---\n"));
-
-        let params = completion_params_at("/vault/cursor.md", 1, 8);
-        let items = handle_completion(params, &idx, None);
-        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"alpha"));
-        assert!(labels.contains(&"beta"));
-        assert!(labels.contains(&"gamma"));
-    }
-
-    // ── tag definition / references ───────────────────────────────────────────
-
-    fn make_definition_params_at(path: &str, line: u32, character: u32) -> GotoDefinitionParams {
+    fn make_definition_params(path: &str, line: u32, character: u32) -> GotoDefinitionParams {
         GotoDefinitionParams {
             text_document_position_params: lsp_types::TextDocumentPositionParams {
                 text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
@@ -1597,596 +308,204 @@ mod tests {
         }
     }
 
-    /// Cursor on a tag → definition returns all notes carrying that tag.
-    #[test]
-    fn definition_tag_returns_all_locations() {
-        let mut idx = NoteIndex::default();
-        // "---\ntags: [rust]\n---\n"
-        //  line 1: tags: [rust]
-        //  'rust' starts at col 8 on line 1
-        idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
-        idx.seed(note("/vault/b.md", "---\ntags: [rust, lsp]\n---\n"));
-        idx.seed(note("/vault/c.md", "---\ntags: [lsp]\n---\n")); // no rust
-
-        // Cursor on 'rust' in a.md: line 1, char 8
-        let params = make_definition_params_at("/vault/a.md", 1, 8);
-        let resp = handle_definition(params, &idx).expect("expected a response");
-        let GotoDefinitionResponse::Array(locs) = resp else {
-            panic!("expected Array response for tag definition");
-        };
-        assert_eq!(locs.len(), 2, "expected two notes with 'rust' tag: {:?}", locs);
-        let uris: Vec<&str> = locs.iter().map(|l| l.uri.as_str()).collect();
-        assert!(uris.iter().any(|u| u.ends_with("a.md")));
-        assert!(uris.iter().any(|u| u.ends_with("b.md")));
-    }
-
-    /// Tag matching is case-insensitive.
-    #[test]
-    fn definition_tag_case_insensitive() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\ntags: [Rust]\n---\n"));
-        idx.seed(note("/vault/b.md", "---\ntags: [rust]\n---\n"));
-
-        // Cursor on 'Rust' in a.md (line 1, char 8)
-        let params = make_definition_params_at("/vault/a.md", 1, 8);
-        let resp = handle_definition(params, &idx).expect("expected a response");
-        let GotoDefinitionResponse::Array(locs) = resp else {
-            panic!("expected Array");
-        };
-        assert_eq!(locs.len(), 2, "case-insensitive: both notes should match");
-    }
-
-    /// Wiki-link definition still returns Scalar (unchanged behaviour).
-    #[test]
-    fn definition_wiki_link_unchanged() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/target.md", ""));
-        idx.seed(note("/vault/src.md", "[[target]]\n"));
-
-        let params = make_definition_params_at("/vault/src.md", 0, 3);
-        let resp = handle_definition(params, &idx).expect("expected a response");
-        assert!(matches!(resp, GotoDefinitionResponse::Scalar(_)),
-            "wiki-link definition should still return Scalar");
-    }
-
-    /// Cursor on prose (no link, no tag) → returns all backlinks to the document.
-    #[test]
-    fn references_no_symbol_at_cursor() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/target.md", "Just prose here\n"));
-        idx.seed(note("/vault/a.md", "[[target]]\n"));
-        idx.seed(note("/vault/b.md", "[[target]]\n"));
-
-        let params = make_references_params("/vault/target.md", 0, 5);
-        let locs = handle_references(params, &idx);
-        assert_eq!(locs.len(), 2, "expected backlinks from a.md and b.md");
-    }
-
-    /// Cursor on a tag → references returns the same set as definition.
-    #[test]
-    fn references_tag_returns_all_locations() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
-        idx.seed(note("/vault/b.md", "---\ntags: [rust]\n---\n"));
-
-        // Cursor on 'rust' in a.md: line 1, char 8
-        let params = make_references_params("/vault/a.md", 1, 8);
-        let locs = handle_references(params, &idx);
-        assert_eq!(locs.len(), 2, "expected references for both notes with 'rust'");
-    }
-
-    /// Cursor on non-tag frontmatter text → no tag result.
-    #[test]
-    fn tag_at_position_miss() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\ntitle: My Note\ntags: [rust]\n---\n"));
-
-        // Cursor on 'title:' line — not a tag
-        let params = make_definition_params_at("/vault/a.md", 1, 3);
-        assert!(handle_definition(params, &idx).is_none(), "title: line should not match tags");
-    }
-
-    // ── UTF-16 trigger correctness ────────────────────────────────────────────
-
-    /// `[[` after a multi-byte character (e.g. `é` = 1 UTF-16 unit, 2 UTF-8
-    /// bytes). pos.character is a UTF-16 unit count, not a byte count.
-    #[test]
-    fn check_trigger_unicode_prefix() {
-        // "café [[" — é is 2 UTF-8 bytes but 1 UTF-16 unit
-        // UTF-16 offsets: c=1 a=2 f=3 é=4 space=5 [=6 [=7
-        assert!(check_trigger("café [[", Position { line: 0, character: 7 }));
-    }
-
-    /// `[[` fires correctly when the cursor is right after it with emoji prefix.
-    #[test]
-    fn check_trigger_emoji_prefix() {
-        // "🎉 [[" — emoji is 2 UTF-16 units, 4 UTF-8 bytes
-        // UTF-16 offsets: 🎉=2 space=3 [=4 [=5
-        assert!(check_trigger("🎉 [[", Position { line: 0, character: 5 }));
-    }
-
-    /// Cursor one unit short of `[[` → no trigger.
-    #[test]
-    fn check_trigger_unicode_prefix_short() {
-        // "café [" — cursor at UTF-16 offset 6, only one `[`
-        assert!(!check_trigger("café [[", Position { line: 0, character: 6 }));
-    }
-
-    fn pos(line: u32, character: u32) -> Position {
-        Position { line, character }
-    }
-
-    #[test]
-    fn code_action_no_link_at_cursor() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "no links here"));
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            range: Range { start: pos(0, 0), end: pos(0, 0) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        assert!(handle_code_action(params, &idx, None).is_empty());
-    }
-
-    #[test]
-    fn code_action_resolved_link_no_action() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", ""));
-        idx.seed(note("/vault/a.md", "[[b]]"));
-        // cursor at column 2 — inside [[b]]
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            range: Range { start: pos(0, 2), end: pos(0, 2) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        assert!(handle_code_action(params, &idx, None).is_empty());
-    }
-
-    #[test]
-    fn code_action_broken_link_creates_file() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "[[missing]]"));
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            range: Range { start: pos(0, 2), end: pos(0, 2) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let actions = handle_code_action(params, &idx, None);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].title, "Create note 'missing.md'");
-        assert_eq!(actions[0].kind, Some(CodeActionKind::QUICKFIX));
-        let edit = actions[0].edit.as_ref().unwrap();
-        let Some(DocumentChanges::Operations(ops)) = &edit.document_changes else {
-            panic!("expected Operations");
-        };
-        assert_eq!(ops.len(), 1);
-        let DocumentChangeOperation::Op(ResourceOp::Create(create)) = &ops[0] else {
-            panic!("expected CreateFile");
-        };
-        assert!(create.uri.as_str().ends_with("/vault/missing.md"));
-    }
-
-    #[test]
-    fn code_action_broken_link_same_extension() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.mdx", "[[missing]]"));
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.mdx") },
-            range: Range { start: pos(0, 2), end: pos(0, 2) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let actions = handle_code_action(params, &idx, None);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].title, "Create note 'missing.mdx'");
-        let edit = actions[0].edit.as_ref().unwrap();
-        let Some(DocumentChanges::Operations(ops)) = &edit.document_changes else {
-            panic!("expected Operations");
-        };
-        let DocumentChangeOperation::Op(ResourceOp::Create(create)) = &ops[0] else {
-            panic!("expected CreateFile");
-        };
-        assert!(create.uri.as_str().ends_with("/vault/missing.mdx"));
-    }
-
-    #[test]
-    fn code_action_ambiguous_no_action() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/sub/b.md", ""));
-        idx.seed(note("/vault/other/b.md", ""));
-        idx.seed(note("/vault/a.md", "[[b]]"));
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            range: Range { start: pos(0, 2), end: pos(0, 2) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        assert!(handle_code_action(params, &idx, None).is_empty());
-    }
-
-    #[test]
-    fn code_action_broken_anchor_lists_headings() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "## Alpha\n## Beta"));
-        idx.seed(note("/vault/a.md", "[[b#Bad]]"));
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            range: Range { start: pos(0, 2), end: pos(0, 2) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let actions = handle_code_action(params, &idx, None);
-        assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0].title, "Change anchor to '#Alpha'");
-        assert_eq!(actions[1].title, "Change anchor to '#Beta'");
-    }
-
-    #[test]
-    fn code_action_broken_anchor_edit_range() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "## Alpha"));
-        idx.seed(note("/vault/a.md", "[[b#Bad]]"));
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            range: Range { start: pos(0, 2), end: pos(0, 2) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let actions = handle_code_action(params, &idx, None);
-        assert_eq!(actions.len(), 1);
-        let edit = actions[0].edit.as_ref().unwrap();
-        let changes = edit.changes.as_ref().unwrap();
-        let edits = changes.values().next().unwrap();
-        assert_eq!(edits.len(), 1);
-        assert_eq!(edits[0].new_text, "Alpha");
-        // anchor range must not include the '#'
-        assert_eq!(edits[0].range.start.character, 4); // [[b# → col 4
-    }
-
-    #[test]
-    fn code_action_no_headings_no_anchor_actions() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "no headings here"));
-        idx.seed(note("/vault/a.md", "[[b#Bad]]"));
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            range: Range { start: pos(0, 2), end: pos(0, 2) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        assert!(handle_code_action(params, &idx, None).is_empty());
-    }
-
-    #[test]
-    fn code_action_valid_anchor_no_action() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/b.md", "## Good"));
-        idx.seed(note("/vault/a.md", "[[b#Good]]"));
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            range: Range { start: pos(0, 2), end: pos(0, 2) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        assert!(handle_code_action(params, &idx, None).is_empty());
-    }
-
-    #[test]
-    fn code_action_new_note_dir_used() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/notes/a.md", "[[missing]]"));
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier {
-                uri: file_uri("/vault/notes/a.md"),
-            },
-            range: Range { start: pos(0, 2), end: pos(0, 2) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let new_note_dir = std::path::Path::new("/vault/0-Inbox");
-        let actions = handle_code_action(params, &idx, Some(new_note_dir));
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].title, "Create note '0-Inbox/missing.md'");
-        let edit = actions[0].edit.as_ref().unwrap();
-        let Some(DocumentChanges::Operations(ops)) = &edit.document_changes else {
-            panic!("expected Operations");
-        };
-        let DocumentChangeOperation::Op(ResourceOp::Create(create)) = &ops[0] else {
-            panic!("expected CreateFile");
-        };
-        assert!(create.uri.as_str().ends_with("/vault/0-Inbox/missing.md"));
-    }
-
-    #[test]
-    fn code_action_new_note_dir_fallback() {
-        // When new_note_dir is None, falls back to same directory as current note.
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/notes/a.md", "[[missing]]"));
-        let params = CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier {
-                uri: file_uri("/vault/notes/a.md"),
-            },
-            range: Range { start: pos(0, 2), end: pos(0, 2) },
-            context: lsp_types::CodeActionContext::default(),
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let actions = handle_code_action(params, &idx, None);
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0].title, "Create note 'missing.md'");
-        let edit = actions[0].edit.as_ref().unwrap();
-        let Some(DocumentChanges::Operations(ops)) = &edit.document_changes else {
-            panic!("expected Operations");
-        };
-        let DocumentChangeOperation::Op(ResourceOp::Create(create)) = &ops[0] else {
-            panic!("expected CreateFile");
-        };
-        assert!(create.uri.as_str().ends_with("/vault/notes/missing.md"));
-    }
-
-    #[test]
-    fn code_lens_unknown_uri() {
-        let idx = NoteIndex::default();
-        let params = CodeLensParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        assert!(handle_code_lens(params, &idx).is_empty());
-    }
-
-    #[test]
-    fn code_lens_no_backlinks() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "no links here"));
-        let params = CodeLensParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let lenses = handle_code_lens(params, &idx);
-        assert_eq!(lenses.len(), 1);
-        assert_eq!(lenses[0].command.as_ref().unwrap().title, "↑ 0 backlinks");
-    }
-
-    #[test]
-    fn code_lens_single_backlink() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", ""));
-        idx.seed(note("/vault/b.md", "[[a]]"));
-        let params = CodeLensParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let lenses = handle_code_lens(params, &idx);
-        assert_eq!(lenses.len(), 1);
-        assert_eq!(lenses[0].command.as_ref().unwrap().title, "↑ 1 backlink");
-    }
-
-    #[test]
-    fn code_lens_multiple_backlinks() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", ""));
-        idx.seed(note("/vault/b.md", "[[a]]"));
-        idx.seed(note("/vault/c.md", "[[a]]"));
-        idx.seed(note("/vault/d.md", "[[a]]"));
-        let params = CodeLensParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let lenses = handle_code_lens(params, &idx);
-        assert_eq!(lenses.len(), 1);
-        assert_eq!(lenses[0].command.as_ref().unwrap().title, "↑ 3 backlinks");
-    }
-
-    #[test]
-    fn code_lens_position_is_zero() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "line one\nline two\nline three"));
-        let params = CodeLensParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri("/vault/a.md") },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-        };
-        let lenses = handle_code_lens(params, &idx);
-        assert_eq!(lenses[0].range.start, Position { line: 0, character: 0 });
-        assert_eq!(lenses[0].range.end, Position { line: 0, character: 0 });
-    }
-
-    // ── schema-driven completions ─────────────────────────────────────────────
-
-    fn schema_with(properties: &[(&str, &[&str])], required: &[&str]) -> crate::server::FrontmatterSchema {
-        use crate::server::{FrontmatterFieldSchema, FrontmatterSchema};
-        FrontmatterSchema {
-            properties: properties
-                .iter()
-                .map(|(k, vs)| {
-                    (
-                        k.to_string(),
-                        FrontmatterFieldSchema {
-                            enum_values: vs.iter().map(|v| v.to_string()).collect(),
-                        },
-                    )
-                })
-                .collect(),
-            required: required.iter().map(|s| s.to_string()).collect(),
+    fn unwrap_scalar(resp: Option<GotoDefinitionResponse>) -> Location {
+        match resp.expect("expected a response") {
+            GotoDefinitionResponse::Scalar(loc) => loc,
+            other => panic!("expected Scalar, got {:?}", other),
         }
     }
 
-    fn completion_at(path: &str, line: u32, character: u32, idx: &NoteIndex, schema: Option<&crate::server::FrontmatterSchema>) -> Vec<CompletionItem> {
-        use lsp_types::TextDocumentIdentifier;
-        let params = CompletionParams {
-            text_document_position: TextDocumentPositionParams {
-                text_document: TextDocumentIdentifier { uri: file_uri(path) },
-                position: Position { line, character },
-            },
-            work_done_progress_params: Default::default(),
-            partial_result_params: Default::default(),
-            context: None,
-        };
-        handle_completion(params, idx, schema)
+    // ── relative_path ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn relative_path_same_dir() {
+        let from = Path::new("/vault");
+        let to = Path::new("/vault/b.md");
+        assert_eq!(relative_path(from, to), "b.md");
     }
 
     #[test]
-    fn schema_value_completion_enum() {
-        let mut idx = NoteIndex::default();
-        // line 0: ---         line 1: status: <cursor>   line 2: ---
-        idx.seed(note("/vault/a.md", "---\nstatus: \n---\n"));
-        let schema = schema_with(&[("status", &["draft", "published"])], &[]);
-        let items = completion_at("/vault/a.md", 1, 8, &idx, Some(&schema));
-        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"draft"), "expected 'draft': {labels:?}");
-        assert!(labels.contains(&"published"), "expected 'published': {labels:?}");
-        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+    fn relative_path_parent_dir() {
+        let from = Path::new("/vault/sub");
+        let to = Path::new("/vault/b.md");
+        assert_eq!(relative_path(from, to), "../b.md");
     }
 
     #[test]
-    fn schema_value_completion_no_enum() {
-        // Key exists in schema but has no enum → no schema value completions.
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\nauthor: \n---\n"));
-        let schema = schema_with(&[("author", &[])], &[]);
-        let items = completion_at("/vault/a.md", 1, 8, &idx, Some(&schema));
-        assert!(items.is_empty(), "expected no completions when no enum values");
+    fn relative_path_subdirectory() {
+        let from = Path::new("/vault");
+        let to = Path::new("/vault/sub/c.md");
+        assert_eq!(relative_path(from, to), "sub/c.md");
     }
+
+    // ── compute_diagnostics ───────────────────────────────────────────────────
 
     #[test]
-    fn schema_value_completion_unknown_key() {
-        // Key not in schema → no schema value completions.
+    fn diagnostics_broken_link() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\nunknown: \n---\n"));
-        let schema = schema_with(&[("status", &["draft"])], &[]);
-        let items = completion_at("/vault/a.md", 1, 9, &idx, Some(&schema));
-        assert!(items.is_empty(), "expected no completions for unknown key");
-    }
-
-    #[test]
-    fn schema_key_completion() {
-        // Blank line inside frontmatter → schema keys offered.
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\n\n---\n"));
-        let schema = schema_with(&[("status", &["draft"]), ("author", &[])], &[]);
-        let items = completion_at("/vault/a.md", 1, 0, &idx, Some(&schema));
-        assert!(!items.is_empty(), "expected schema key completions");
-        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"status"), "expected 'status': {labels:?}");
-        assert!(labels.contains(&"author"), "expected 'author': {labels:?}");
-        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::PROPERTY)));
-    }
-
-    #[test]
-    fn schema_key_completion_excludes_present() {
-        // `status` already in frontmatter → only `author` offered.
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\nstatus: draft\n\n---\n"));
-        let schema = schema_with(&[("status", &["draft"]), ("author", &[])], &[]);
-        // cursor on blank line (line 2)
-        let items = completion_at("/vault/a.md", 2, 0, &idx, Some(&schema));
-        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(!labels.contains(&"status"), "status already present, should not appear");
-        assert!(labels.contains(&"author"), "expected 'author': {labels:?}");
-    }
-
-    #[test]
-    fn schema_no_schema_unchanged() {
-        // With schema: None, existing wiki-link completion is unaffected.
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/target.md", ""));
-        idx.seed(note("/vault/a.md", "[["));
-        let items = completion_at("/vault/a.md", 0, 2, &idx, None);
-        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"target"), "expected wiki-link completion: {labels:?}");
-    }
-
-    // ── schema-driven diagnostics ─────────────────────────────────────────────
-
-    fn diags_with_schema(path: &str, idx: &NoteIndex, schema: Option<&crate::server::FrontmatterSchema>) -> Vec<Diagnostic> {
-        compute_diagnostics(Path::new(path), idx, schema)
-    }
-
-    #[test]
-    fn schema_diag_unknown_key() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\nunknown: val\n---\n"));
-        let schema = schema_with(&[("status", &["draft"])], &[]);
-        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        idx.seed(note("/vault/a.md", "[text](missing.md)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("Unknown frontmatter key"), "{}", diags[0].message);
-        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
-        // key_range for "unknown" starts at line 1, col 0
-        assert_eq!(diags[0].range.start, Position { line: 1, character: 0 });
+        assert!(diags[0].message.contains("missing.md"));
     }
 
     #[test]
-    fn schema_diag_invalid_enum_value() {
+    fn diagnostics_valid_link_no_warning() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\nstatus: bad\n---\n"));
-        let schema = schema_with(&[("status", &["draft", "published"])], &[]);
-        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[text](b.md)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn diagnostics_broken_anchor() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "## Existing\n"));
+        idx.seed(note("/vault/a.md", "[text](b.md#Missing)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("Invalid value"), "{}", diags[0].message);
-        assert!(diags[0].message.contains("bad"), "{}", diags[0].message);
-        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
-        // value_range for "bad": "status: " is 8 chars → col 8
-        assert_eq!(diags[0].range.start, Position { line: 1, character: 8 });
+        assert!(diags[0].message.contains("Missing"));
     }
 
     #[test]
-    fn schema_diag_missing_required() {
+    fn diagnostics_valid_anchor_no_warning() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\nauthor: alice\n---\n"));
-        let schema = schema_with(&[("author", &[]), ("status", &[])], &["status"]);
-        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
-        assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("Missing required frontmatter key"), "{}", diags[0].message);
-        assert_eq!(diags[0].severity, Some(DiagnosticSeverity::WARNING));
-        // diagnostic anchored at opening ---
-        assert_eq!(diags[0].range.start, Position { line: 0, character: 0 });
-        assert_eq!(diags[0].range.end,   Position { line: 0, character: 3 });
+        idx.seed(note("/vault/b.md", "## Existing\n"));
+        idx.seed(note("/vault/a.md", "[text](b.md#Existing)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert!(diags.is_empty());
     }
 
     #[test]
-    fn schema_diag_no_schema() {
+    fn diagnostics_anchor_only_skipped() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\nunknown: val\n---\n"));
-        // No schema → no schema diagnostics (only link diagnostics, none here)
-        let diags = diags_with_schema("/vault/a.md", &idx, None);
-        assert!(diags.is_empty(), "expected no diagnostics without schema");
+        idx.seed(note("/vault/a.md", "[text](#section)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert!(diags.is_empty(), "anchor-only links should not produce diagnostics");
+    }
+
+    // ── handle_completion ─────────────────────────────────────────────────────
+
+    #[test]
+    fn completion_no_trigger_empty() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "hello world"));
+        let params = make_completion_params("/vault/a.md", 0, 5);
+        let items = handle_completion(params, &idx);
+        assert!(items.is_empty());
     }
 
     #[test]
-    fn schema_diag_valid_note() {
+    fn completion_trigger_returns_notes() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\nstatus: draft\nauthor: alice\n---\n"));
-        let schema = schema_with(&[("status", &["draft", "published"]), ("author", &[])], &["status"]);
-        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
-        assert!(diags.is_empty(), "expected no diagnostics for a valid note");
+        idx.seed(note("/vault/b.md", ""));
+        // "[link](" → cursor at position 7 (after the `(`)
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        assert!(!items.is_empty());
+        assert!(items.iter().any(|i| i.insert_text.as_deref() == Some("b.md")));
     }
 
     #[test]
-    fn schema_diag_no_frontmatter_missing_required() {
-        // No frontmatter at all but required key declared → diagnostic at (0,0).
+    fn completion_relative_path_subdirectory() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "Just prose.\n"));
-        let schema = schema_with(&[], &["status"]);
-        let diags = diags_with_schema("/vault/a.md", &idx, Some(&schema));
-        assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("Missing required"), "{}", diags[0].message);
-        assert_eq!(diags[0].range.start, Position { line: 0, character: 0 });
+        idx.seed(note("/vault/sub/b.md", ""));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        assert!(items.iter().any(|i| i.insert_text.as_deref() == Some("sub/b.md")));
+    }
+
+    #[test]
+    fn completion_title_used_as_label() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntitle: My Note\n---\n"));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        let item = items.iter().find(|i| i.insert_text.as_deref() == Some("b.md")).unwrap();
+        assert_eq!(item.label, "My Note");
+        assert_eq!(item.detail.as_deref(), Some("b.md"));
+    }
+
+    // ── handle_definition ─────────────────────────────────────────────────────
+
+    #[test]
+    fn definition_navigates_to_file_top() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[link](b.md)"));
+        let params = make_definition_params("/vault/a.md", 0, 3);
+        let loc = unwrap_scalar(handle_definition(params, &idx));
+        assert!(loc.uri.as_str().ends_with("b.md"));
+        assert_eq!(loc.range, Range::default());
+    }
+
+    #[test]
+    fn definition_navigates_to_heading() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "## Section\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md#Section)"));
+        let params = make_definition_params("/vault/a.md", 0, 3);
+        let loc = unwrap_scalar(handle_definition(params, &idx));
+        assert!(loc.uri.as_str().ends_with("b.md"));
+        assert_ne!(loc.range, Range::default());
+        assert_eq!(loc.range.start.line, 0);
+    }
+
+    #[test]
+    fn definition_missing_anchor_falls_back_to_top() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "## Section\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md#Missing)"));
+        let params = make_definition_params("/vault/a.md", 0, 3);
+        let loc = unwrap_scalar(handle_definition(params, &idx));
+        assert!(loc.uri.as_str().ends_with("b.md"));
+        assert_eq!(loc.range, Range::default());
+    }
+
+    #[test]
+    fn definition_broken_link_returns_none() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](missing.md)"));
+        let params = make_definition_params("/vault/a.md", 0, 3);
+        assert!(handle_definition(params, &idx).is_none());
+    }
+
+    // ── handle_references ─────────────────────────────────────────────────────
+
+    #[test]
+    fn references_from_link_returns_backlinks() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[link](b.md)"));
+        // cursor on `[link](b.md)` in a.md → backlinks to b.md
+        let params = make_references_params("/vault/a.md", 0, 3);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 1);
+        assert!(locs[0].uri.as_str().ends_with("a.md"));
+    }
+
+    #[test]
+    fn references_fallback_returns_backlinks_to_self() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "[link](a.md)"));
+        idx.seed(note("/vault/a.md", "no links here"));
+        // cursor at (0, 0) in a.md — no link, so fallback to links_to(a.md)
+        let params = make_references_params("/vault/a.md", 0, 0);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 1);
+        assert!(locs[0].uri.as_str().ends_with("b.md"));
+    }
+
+    #[test]
+    fn references_broken_link_returns_empty() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](missing.md)"));
+        let params = make_references_params("/vault/a.md", 0, 3);
+        let locs = handle_references(params, &idx);
+        assert!(locs.is_empty());
     }
 }

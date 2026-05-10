@@ -43,20 +43,14 @@ struct Config {
     /// Optional attachments directory relative to each index root.
     /// When set, a separate file watcher is registered for this directory.
     attachments_dir: Option<PathBuf>,
-    /// Optional folder (relative to each index root) where Quick Fix
-    /// "Create note" actions create new files. When absent, new notes
-    /// are created in the same directory as the current note.
-    new_note_dir: Option<PathBuf>,
-    /// Optional schema for frontmatter key/value validation and completions.
-    frontmatter_schema: Option<FrontmatterSchema>,
 }
 ```
 
 `index_roots` is set directly from `params.workspace_folders` at init time.
-`attachments_dir`, `extensions`, `new_note_dir`, and `frontmatter_schema` come
-from `initializationOptions`. If `initializationOptions` cannot be deserialized
-(e.g. a typo in the editor's LSP config), a `warn!()` is logged and defaults
-are used — the server still starts rather than rejecting the session.
+`attachments_dir` and `extensions` come from `initializationOptions`. If
+`initializationOptions` cannot be deserialized (e.g. a typo in the editor's LSP
+config), a `warn!()` is logged and defaults are used — the server still starts
+rather than rejecting the session.
 
 ---
 
@@ -74,33 +68,11 @@ ServerCapabilities {
         TextDocumentSyncKind::FULL,
     )),
     completion_provider: Some(CompletionOptions {
-        trigger_characters: Some(vec!["[".to_string()]),
+        trigger_characters: Some(vec!["(".to_string()]),
         ..Default::default()
-    }),
-    code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
-        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
-        resolve_provider: Some(false),
-        ..Default::default()
-    })),
-    code_lens_provider: Some(CodeLensOptions {
-        resolve_provider: Some(false),
     }),
     definition_provider: Some(OneOf::Left(true)),
     references_provider: Some(OneOf::Left(true)),
-    document_symbol_provider: Some(OneOf::Left(true)),
-    workspace_symbol_provider: Some(OneOf::Left(true)),
-    hover_provider: Some(HoverProviderCapability::Simple(true)),
-    rename_provider: Some(OneOf::Right(RenameOptions {
-        prepare_provider: Some(true),
-        ..Default::default()
-    })),
-    workspace: Some(WorkspaceServerCapabilities {
-        file_operations: Some(WorkspaceFileOperationsServerCapabilities {
-            will_rename: Some(/* file operation filter for ** */),
-            ..Default::default()
-        }),
-        ..Default::default()
-    }),
     ..Default::default()
 }
 ```

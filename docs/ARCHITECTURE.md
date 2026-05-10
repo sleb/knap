@@ -74,8 +74,6 @@ Config {
   extensions: string[]            // default: ["md"]
   attachments_dir?: string        // relative path of attachments folder; when set, a
                                   // separate file watcher is registered for it
-  new_note_dir?: string           // relative path for new notes created by Quick Fix
-  frontmatter_schema?: Schema     // optional schema for frontmatter validation/completions
 }
 ```
 
@@ -244,20 +242,12 @@ handle(params: LspParams, index: NoteIndex, config: Config) → LspResult
 Handlers are stateless — all state lives in the Note Index; config is passed in
 by the Protocol Handler.
 
-| Handler          | LSP Method                        | Releases                     |
-| ---------------- | --------------------------------- | ---------------------------- |
-| Completion       | `textDocument/completion`         | v0.1, v0.2, v0.4, v0.5, v0.8 |
-| Definition       | `textDocument/definition`         | v0.1, v0.3, v0.5             |
-| References       | `textDocument/references`         | v0.1, v0.5, v0.7             |
-| Diagnostics      | `textDocument/publishDiagnostics` | v0.1, v0.2, v0.3, v0.8       |
-| FileRename       | `workspace/willRenameFiles`       | v0.2                         |
-| PrepareRename    | `textDocument/prepareRename`      | v0.3                         |
-| HeadingRename    | `textDocument/rename`             | v0.3                         |
-| DocumentSymbols  | `textDocument/documentSymbol`     | v0.3                         |
-| WorkspaceSymbols | `workspace/symbol`                | v0.3                         |
-| Hover            | `textDocument/hover`              | v0.4                         |
-| CodeAction       | `textDocument/codeAction`         | v0.6                         |
-| CodeLens         | `textDocument/codeLens`           | v0.7                         |
+| Handler     | LSP Method                        | Shipped |
+| ----------- | --------------------------------- | ------- |
+| Completion  | `textDocument/completion`         | v0.1    |
+| Definition  | `textDocument/definition`         | v0.1    |
+| References  | `textDocument/references`         | v0.1    |
+| Diagnostics | `textDocument/publishDiagnostics` | v0.1    |
 
 ---
 
@@ -279,14 +269,6 @@ by the Protocol Handler.
 1. Client sends `textDocument/completion` (triggered inside `[text](` path)
 2. Completion Handler queries `index.all_notes()` for paths and frontmatter titles
 3. Returns completion list; no filesystem I/O
-
-### File renamed in editor
-
-1. Client sends `workspace/willRenameFiles`
-2. Rename Handler queries `index.links_to(old_path)` to find all linking notes
-3. Returns a `WorkspaceEdit` with text edits for each linking note
-4. Client applies edits; sends `textDocument/didChange` for affected files
-5. Note Index updates affected notes
 
 ### External file change (e.g. git checkout)
 

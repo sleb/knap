@@ -8,17 +8,11 @@ use log::{debug, info, warn};
 use crossbeam_channel::Sender;
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
-    CodeActionOptions, CodeActionParams, CodeActionProviderCapability,
-    CodeLensOptions, CodeLensParams,
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidOpenTextDocumentParams, DidChangeWatchedFilesRegistrationOptions,
-    DocumentSymbolParams, FileChangeType, FileOperationFilter, FileOperationPattern,
-    FileOperationRegistrationOptions, FileSystemWatcher, GlobPattern, GotoDefinitionParams,
-    HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, OneOf,
-    ReferenceParams, Registration, RegistrationParams, RelativePattern, RenameFilesParams,
-    RenameOptions, RenameParams, ServerCapabilities, ServerInfo, TextDocumentPositionParams,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
-    WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
+    DidChangeWatchedFilesRegistrationOptions, DidOpenTextDocumentParams, FileChangeType,
+    FileSystemWatcher, GlobPattern, GotoDefinitionParams, InitializeParams, InitializeResult,
+    OneOf, ReferenceParams, Registration, RegistrationParams, RelativePattern,
+    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
 };
 
 use crate::handlers::{self, uri_to_path};
@@ -29,25 +23,6 @@ struct Config {
     index_roots: Vec<PathBuf>,
     extensions: Vec<String>,
     attachments_dir: Option<PathBuf>,
-    new_note_dir: Option<PathBuf>,
-    frontmatter_schema: Option<FrontmatterSchema>,
-}
-
-/// Per-key definition inside `frontmatterSchema.properties`.
-#[derive(serde::Deserialize, Default, Clone)]
-pub struct FrontmatterFieldSchema {
-    #[serde(rename = "enum", default)]
-    pub enum_values: Vec<String>,
-}
-
-/// Schema for frontmatter validation and completions, passed via
-/// `initializationOptions.frontmatterSchema`.
-#[derive(serde::Deserialize, Default, Clone)]
-pub struct FrontmatterSchema {
-    #[serde(default)]
-    pub properties: std::collections::HashMap<String, FrontmatterFieldSchema>,
-    #[serde(default)]
-    pub required: Vec<String>,
 }
 
 /// Mirrors the shape of `initializationOptions` sent by the editor.
@@ -56,8 +31,6 @@ pub struct FrontmatterSchema {
 struct InitOptions {
     extensions: Option<Vec<String>>,
     attachments_dir: Option<String>,
-    new_note_dir: Option<String>,
-    frontmatter_schema: Option<FrontmatterSchema>,
 }
 
 impl Config {
@@ -90,8 +63,6 @@ impl Config {
             index_roots,
             extensions: opts.extensions.unwrap_or_else(|| vec!["md".to_string()]),
             attachments_dir: opts.attachments_dir.map(PathBuf::from),
-            new_note_dir: opts.new_note_dir.map(PathBuf::from),
-            frontmatter_schema: opts.frontmatter_schema,
         }
     }
 }
@@ -133,41 +104,11 @@ pub fn run(connection: Connection) -> Result<()> {
             TextDocumentSyncKind::FULL,
         )),
         completion_provider: Some(CompletionOptions {
-            trigger_characters: Some(vec!["[".to_string()]),
+            trigger_characters: Some(vec!["(".to_string()]),
             ..Default::default()
-        }),
-        code_action_provider: Some(CodeActionProviderCapability::Options(CodeActionOptions {
-            code_action_kinds: Some(vec![lsp_types::CodeActionKind::QUICKFIX]),
-            resolve_provider: Some(false),
-            ..Default::default()
-        })),
-        code_lens_provider: Some(CodeLensOptions {
-            resolve_provider: Some(false),
         }),
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
-        document_symbol_provider: Some(OneOf::Left(true)),
-        workspace_symbol_provider: Some(OneOf::Left(true)),
-        hover_provider: Some(HoverProviderCapability::Simple(true)),
-        rename_provider: Some(OneOf::Right(RenameOptions {
-            prepare_provider: Some(true),
-            work_done_progress_options: Default::default(),
-        })),
-        workspace: Some(WorkspaceServerCapabilities {
-            file_operations: Some(WorkspaceFileOperationsServerCapabilities {
-                will_rename: Some(FileOperationRegistrationOptions {
-                    filters: vec![FileOperationFilter {
-                        scheme: Some("file".to_string()),
-                        pattern: FileOperationPattern {
-                            glob: "**".to_string(),
-                            ..Default::default()
-                        },
-                    }],
-                }),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }),
         ..Default::default()
     };
 
@@ -192,7 +133,7 @@ pub fn run(connection: Connection) -> Result<()> {
     let exts: Vec<&str> = config.extensions.iter().map(|s| s.as_str()).collect();
     let (mut index, initial_delta) = index::build(&config.index_roots, &exts);
     info!("index ready: {} notes", index.all_notes().count());
-    handlers::publish_diagnostics(&initial_delta.affected_paths, &index, &connection.sender, config.frontmatter_schema.as_ref());
+    handlers::publish_diagnostics(&initial_delta.affected_paths, &index, &connection.sender);
 
     for msg in &connection.receiver {
         match msg {
@@ -202,11 +143,11 @@ pub fn run(connection: Connection) -> Result<()> {
                     info!("shutdown requested");
                     break;
                 }
-                dispatch_request(req, &connection, &index, &config)?;
+                dispatch_request(req, &connection, &index)?;
             }
             Message::Notification(notif) => {
                 debug!("notification: method={}", notif.method);
-                dispatch_notification(notif, &mut index, &connection.sender, &config.extensions, config.frontmatter_schema.as_ref());
+                dispatch_notification(notif, &mut index, &connection.sender, &config.extensions);
             }
             Message::Response(_) => {
                 // Responses to our outbound requests (e.g. registerCapability) — ignored.
@@ -266,76 +207,26 @@ fn register_file_watcher(
         )?),
     };
 
-    let rename_registration = Registration {
-        id: "will-rename-files".to_string(),
-        method: "workspace/willRenameFiles".to_string(),
-        register_options: Some(serde_json::to_value(FileOperationRegistrationOptions {
-            filters: vec![FileOperationFilter {
-                scheme: Some("file".to_string()),
-                pattern: FileOperationPattern {
-                    glob: "**".to_string(),
-                    ..Default::default()
-                },
-            }],
-        })?),
-    };
-
     connection.sender.send(Message::Request(Request {
         id: lsp_server::RequestId::from(id),
         method: "client/registerCapability".to_string(),
         params: serde_json::to_value(RegistrationParams {
-            registrations: vec![watcher_registration, rename_registration],
+            registrations: vec![watcher_registration],
         })?,
     }))?;
 
     Ok(())
 }
 
-fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex, config: &Config) -> Result<()> {
+fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) -> Result<()> {
     match req.method.as_str() {
-        "textDocument/codeLens" => {
-            let lenses = serde_json::from_value::<CodeLensParams>(req.params)
-                .ok()
-                .map(|params| handlers::handle_code_lens(params, index))
-                .unwrap_or_default();
-            connection
-                .sender
-                .send(Message::Response(Response::new_ok(req.id, lenses)))?;
-        }
-        "textDocument/codeAction" => {
-            let actions = match serde_json::from_value::<CodeActionParams>(req.params) {
-                Ok(params) => {
-                    let new_note_dir = config.new_note_dir.as_ref().and_then(|rel| {
-                        let doc_path = handlers::uri_to_path(&params.text_document.uri)?;
-                        let root = config.index_roots.iter().find(|r| doc_path.starts_with(r))?;
-                        Some(root.join(rel))
-                    });
-                    handlers::handle_code_action(params, index, new_note_dir.as_deref())
-                }
-                Err(e) => {
-                    warn!("codeAction: bad params: {e}");
-                    vec![]
-                }
-            };
-            connection
-                .sender
-                .send(Message::Response(Response::new_ok(req.id, actions)))?;
-        }
         "textDocument/completion" => {
             let items = serde_json::from_value::<CompletionParams>(req.params)
                 .ok()
-                .map(|params| handlers::handle_completion(params, index, config.frontmatter_schema.as_ref()));
+                .map(|params| handlers::handle_completion(params, index));
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, items)))?;
-        }
-        "textDocument/hover" => {
-            let hover = serde_json::from_value::<HoverParams>(req.params)
-                .ok()
-                .and_then(|params| handlers::handle_hover(params, index));
-            connection
-                .sender
-                .send(Message::Response(Response::new_ok(req.id, hover)))?;
         }
         "textDocument/definition" => {
             let response = serde_json::from_value::<GotoDefinitionParams>(req.params)
@@ -353,46 +244,6 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex, co
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, locations)))?;
         }
-        "textDocument/prepareRename" => {
-            let response = serde_json::from_value::<TextDocumentPositionParams>(req.params)
-                .ok()
-                .and_then(|params| handlers::handle_prepare_rename(params, index));
-            connection
-                .sender
-                .send(Message::Response(Response::new_ok(req.id, response)))?;
-        }
-        "textDocument/rename" => {
-            let edit = serde_json::from_value::<RenameParams>(req.params)
-                .ok()
-                .and_then(|params| handlers::handle_rename(params, index));
-            connection
-                .sender
-                .send(Message::Response(Response::new_ok(req.id, edit)))?;
-        }
-        "workspace/symbol" => {
-            let symbols = serde_json::from_value::<WorkspaceSymbolParams>(req.params)
-                .map(|params| handlers::handle_workspace_symbols(params, index))
-                .unwrap_or_default();
-            connection
-                .sender
-                .send(Message::Response(Response::new_ok(req.id, symbols)))?;
-        }
-        "textDocument/documentSymbol" => {
-            let response = serde_json::from_value::<DocumentSymbolParams>(req.params)
-                .map(|params| handlers::handle_document_symbols(params, index))
-                .unwrap_or(lsp_types::DocumentSymbolResponse::Nested(vec![]));
-            connection
-                .sender
-                .send(Message::Response(Response::new_ok(req.id, response)))?;
-        }
-        "workspace/willRenameFiles" => {
-            let edit = serde_json::from_value::<RenameFilesParams>(req.params)
-                .map(|params| handlers::handle_will_rename_files(params, index))
-                .unwrap_or_default();
-            connection
-                .sender
-                .send(Message::Response(Response::new_ok(req.id, edit)))?;
-        }
         _ => {
             // Unknown methods return null (not an error) per LSP spec.
             connection
@@ -408,20 +259,19 @@ fn dispatch_notification(
     index: &mut NoteIndex,
     sender: &Sender<Message>,
     extensions: &[String],
-    schema: Option<&FrontmatterSchema>,
 ) {
     match notif.method.as_str() {
-        "textDocument/didOpen" => on_did_open(notif, index, sender, schema),
-        "textDocument/didChange" => on_did_change(notif, index, sender, schema),
+        "textDocument/didOpen" => on_did_open(notif, index, sender),
+        "textDocument/didChange" => on_did_change(notif, index, sender),
         "textDocument/didClose" => {} // no-op: on-disk version already indexed
         "workspace/didChangeWatchedFiles" => {
-            on_did_change_watched_files(notif, index, sender, extensions, schema)
+            on_did_change_watched_files(notif, index, sender, extensions)
         }
         _ => {}
     }
 }
 
-fn on_did_open(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>, schema: Option<&FrontmatterSchema>) {
+fn on_did_open(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>) {
     let params: DidOpenTextDocumentParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -432,10 +282,10 @@ fn on_did_open(notif: Notification, index: &mut NoteIndex, sender: &Sender<Messa
     let Some(path) = uri_to_path(&params.text_document.uri) else { return; };
     let note = parser::parse(&path, &params.text_document.text);
     let delta = index.index(note);
-    handlers::publish_diagnostics(&delta.affected_paths, index, sender, schema);
+    handlers::publish_diagnostics(&delta.affected_paths, index, sender);
 }
 
-fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>, schema: Option<&FrontmatterSchema>) {
+fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>) {
     let params: DidChangeTextDocumentParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -453,7 +303,7 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
     let Some(path) = uri_to_path(&params.text_document.uri) else { return; };
     let note = parser::parse(&path, &content);
     let delta = index.index(note);
-    handlers::publish_diagnostics(&delta.affected_paths, index, sender, schema);
+    handlers::publish_diagnostics(&delta.affected_paths, index, sender);
 }
 
 fn on_did_change_watched_files(
@@ -461,7 +311,6 @@ fn on_did_change_watched_files(
     index: &mut NoteIndex,
     sender: &Sender<Message>,
     extensions: &[String],
-    schema: Option<&FrontmatterSchema>,
 ) {
     let params: DidChangeWatchedFilesParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
@@ -483,7 +332,7 @@ fn on_did_change_watched_files(
                 match std::fs::read_to_string(&path) {
                     Ok(content) => {
                         let delta = index.index(parser::parse(&path, &content));
-                        handlers::publish_diagnostics(&delta.affected_paths, index, sender, schema);
+                        handlers::publish_diagnostics(&delta.affected_paths, index, sender);
                     }
                     Err(e) => {
                         warn!("cannot read {}: {e}", path.display());
@@ -491,16 +340,16 @@ fn on_did_change_watched_files(
                 }
             } else if event.typ == FileChangeType::DELETED {
                 let delta = index.remove(&path);
-                handlers::publish_diagnostics(&delta.affected_paths, index, sender, schema);
+                handlers::publish_diagnostics(&delta.affected_paths, index, sender);
             }
         } else {
-            // Non-note file (attachment): update by_filename only.
+            // Non-note file (attachment): update all_files only.
             if event.typ == FileChangeType::CREATED {
                 let delta = index.add_attachment(path);
-                handlers::publish_diagnostics(&delta.affected_paths, index, sender, schema);
+                handlers::publish_diagnostics(&delta.affected_paths, index, sender);
             } else if event.typ == FileChangeType::DELETED {
                 let delta = index.remove_attachment(&path);
-                handlers::publish_diagnostics(&delta.affected_paths, index, sender, schema);
+                handlers::publish_diagnostics(&delta.affected_paths, index, sender);
             }
             // Changed → no-op for attachments
         }
