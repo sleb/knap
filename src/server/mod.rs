@@ -22,7 +22,6 @@ use crate::parser;
 struct Config {
     index_roots: Vec<PathBuf>,
     extensions: Vec<String>,
-    attachments_dir: Option<PathBuf>,
 }
 
 /// Mirrors the shape of `initializationOptions` sent by the editor.
@@ -30,7 +29,6 @@ struct Config {
 #[serde(rename_all = "camelCase", default)]
 struct InitOptions {
     extensions: Option<Vec<String>>,
-    attachments_dir: Option<String>,
 }
 
 impl Config {
@@ -62,7 +60,6 @@ impl Config {
         Config {
             index_roots,
             extensions: opts.extensions.unwrap_or_else(|| vec!["md".to_string()]),
-            attachments_dir: opts.attachments_dir.map(PathBuf::from),
         }
     }
 }
@@ -167,37 +164,22 @@ fn register_file_watcher(
     let id = *next_id;
     *next_id += 1;
 
-    let mut watchers: Vec<FileSystemWatcher> = config
-        .extensions
+    let watchers: Vec<FileSystemWatcher> = config
+        .index_roots
         .iter()
-        .map(|ext| {
-            debug!("registering file watcher for extension: {ext}");
-            FileSystemWatcher {
-                glob_pattern: GlobPattern::String(format!("**/*.{ext}")),
-                kind: None,
-            }
-        })
-        .collect();
-
-    // If an attachments directory is configured, watch all files inside it.
-    if let Some(ref attachments_dir) = config.attachments_dir {
-        for root in &config.index_roots {
-            let base_url = url::Url::from_file_path(root.join(attachments_dir))
-                .expect("attachment dir path must be convertible to a URL");
-            let base_uri: Uri = base_url
-                .as_str()
-                .parse()
-                .expect("attachment dir URL must be a valid URI");
-            debug!("registering attachment watcher for: {base_url}");
-            watchers.push(FileSystemWatcher {
+        .filter_map(|root| {
+            let base_url = url::Url::from_file_path(root).ok()?;
+            let base_uri: Uri = base_url.as_str().parse().ok()?;
+            debug!("registering file watcher for root: {base_url}");
+            Some(FileSystemWatcher {
                 glob_pattern: GlobPattern::Relative(RelativePattern {
                     base_uri: OneOf::Right(base_uri),
                     pattern: "**/*".to_string(),
                 }),
                 kind: None,
-            });
-        }
-    }
+            })
+        })
+        .collect();
 
     let watcher_registration = Registration {
         id: "file-watcher".to_string(),
@@ -306,6 +288,14 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
     handlers::publish_diagnostics(&delta.affected_paths, index, sender);
 }
 
+fn should_skip_path(path: &std::path::Path) -> bool {
+    path.components().any(|c| {
+        let std::path::Component::Normal(name) = c else { return false };
+        let s = name.to_string_lossy();
+        s.starts_with('.') || matches!(s.as_ref(), "node_modules" | "target")
+    })
+}
+
 fn on_did_change_watched_files(
     notif: Notification,
     index: &mut NoteIndex,
@@ -321,6 +311,9 @@ fn on_did_change_watched_files(
     };
     for event in params.changes {
         let Some(path) = uri_to_path(&event.uri) else { continue; };
+        if should_skip_path(&path) {
+            continue;
+        }
         let is_note = path
             .extension()
             .and_then(|e| e.to_str())
