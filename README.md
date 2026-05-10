@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.9.0-blue)
+![Version](https://img.shields.io/badge/version-0.1.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -42,7 +42,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.9.0 — Standard Markdown link MVP. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.1.0 — Standard Markdown link MVP. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 
