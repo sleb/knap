@@ -257,6 +257,11 @@ impl NoteIndex {
         self.by_tag.keys().map(String::as_str)
     }
 
+    /// All non-note files registered in the workspace (images, PDFs, etc.).
+    pub fn all_attachment_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.all_files.iter().filter(|p| !self.by_path.contains_key(*p))
+    }
+
     /// All notes carrying the given tag (case-insensitive match).
     pub fn notes_by_tag(&self, tag: &str) -> Vec<&Note> {
         self.by_tag

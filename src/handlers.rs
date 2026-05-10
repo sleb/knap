@@ -136,28 +136,39 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
         return vec![];
     }
     let from_dir = path.parent().unwrap_or(Path::new(""));
-    index
-        .all_notes()
-        .filter(|n| n.path != path)
-        .map(|n| {
-            let rel = relative_path(from_dir, &n.path);
-            let title = n
-                .frontmatter
-                .as_ref()
-                .and_then(|fm| fm.title.as_deref())
-                .map(str::to_owned);
-            let label = title.clone().unwrap_or_else(|| rel.clone());
-            let detail = title.map(|_| rel.clone());
-            CompletionItem {
-                label,
-                kind: Some(CompletionItemKind::FILE),
-                filter_text: Some(rel.clone()),
-                insert_text: Some(rel),
-                detail,
-                ..Default::default()
-            }
-        })
-        .collect()
+    let notes = index.all_notes().filter(|n| n.path != path).map(|n| {
+        let rel = relative_path(from_dir, &n.path);
+        let title = n
+            .frontmatter
+            .as_ref()
+            .and_then(|fm| fm.title.as_deref())
+            .map(str::to_owned);
+        let label = title.clone().unwrap_or_else(|| rel.clone());
+        let detail = title.map(|_| rel.clone());
+        CompletionItem {
+            label,
+            kind: Some(CompletionItemKind::FILE),
+            filter_text: Some(rel.clone()),
+            insert_text: Some(rel),
+            detail,
+            ..Default::default()
+        }
+    });
+    let attachments = index.all_attachment_paths().map(|p| {
+        let rel = relative_path(from_dir, p);
+        let label = p
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| rel.clone());
+        CompletionItem {
+            label,
+            kind: Some(CompletionItemKind::FILE),
+            filter_text: Some(rel.clone()),
+            insert_text: Some(rel),
+            ..Default::default()
+        }
+    });
+    notes.chain(attachments).collect()
 }
 
 // ─── Go to Definition ─────────────────────────────────────────────────────────
@@ -428,6 +439,31 @@ mod tests {
         let item = items.iter().find(|i| i.insert_text.as_deref() == Some("b.md")).unwrap();
         assert_eq!(item.label, "My Note");
         assert_eq!(item.detail.as_deref(), Some("b.md"));
+    }
+
+    #[test]
+    fn completion_includes_attachments() {
+        let mut idx = NoteIndex::default();
+        let _ = idx.add_attachment(std::path::PathBuf::from("/vault/img.png"));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        assert!(items.iter().any(|i| i.insert_text.as_deref() == Some("img.png")));
+    }
+
+    #[test]
+    fn completion_attachment_label_is_filename() {
+        let mut idx = NoteIndex::default();
+        let _ = idx.add_attachment(std::path::PathBuf::from("/vault/sub/report.pdf"));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        let item = items
+            .iter()
+            .find(|i| i.insert_text.as_deref() == Some("sub/report.pdf"))
+            .unwrap();
+        assert_eq!(item.label, "report.pdf");
+        assert_eq!(item.filter_text.as_deref(), Some("sub/report.pdf"));
     }
 
     // ── handle_definition ─────────────────────────────────────────────────────

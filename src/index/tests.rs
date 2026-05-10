@@ -186,6 +186,22 @@ fn attachment_remove_breaks_links() {
     assert_eq!(idx.links_to(Path::new("/vault/logo.png")).len(), 0);
 }
 
+// ── all_attachment_paths ──────────────────────────────────────────────────────
+
+#[test]
+fn all_attachment_paths_excludes_notes() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/a.md", ""));
+    let _ = idx.add_attachment(pb("/vault/img.png"));
+    let _ = idx.add_attachment(pb("/vault/doc.pdf"));
+
+    let attachments: Vec<&PathBuf> = idx.all_attachment_paths().collect();
+    assert_eq!(attachments.len(), 2);
+    assert!(!attachments.contains(&&pb("/vault/a.md")));
+    assert!(attachments.contains(&&pb("/vault/img.png")));
+    assert!(attachments.contains(&&pb("/vault/doc.pdf")));
+}
+
 // ── tag index ─────────────────────────────────────────────────────────────────
 
 #[test]
