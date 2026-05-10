@@ -16,7 +16,7 @@ untested code for the next step to build on.
 | 1 — Broaden file watcher | Done   |                           |
 | 2 — Non-note completions | Done   |                           |
 | 3 — Rename handler       | Done   | TDD (tests written first) |
-| 4 — Integration tests    | Todo   |                           |
+| 4 — Integration tests    | Done   | TDD (tests written first) |
 
 ## Approach
 

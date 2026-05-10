@@ -40,17 +40,14 @@ struct Config {
     index_roots: Vec<PathBuf>,
     /// File extensions treated as notes. Default: ["md"]
     extensions: Vec<String>,
-    /// Optional attachments directory relative to each index root.
-    /// When set, a separate file watcher is registered for this directory.
-    attachments_dir: Option<PathBuf>,
 }
 ```
 
 `index_roots` is set directly from `params.workspace_folders` at init time.
-`attachments_dir` and `extensions` come from `initializationOptions`. If
-`initializationOptions` cannot be deserialized (e.g. a typo in the editor's LSP
-config), a `warn!()` is logged and defaults are used — the server still starts
-rather than rejecting the session.
+`extensions` comes from `initializationOptions`. If `initializationOptions`
+cannot be deserialized (e.g. a typo in the editor's LSP config), a `warn!()` is
+logged and defaults are used — the server still starts rather than rejecting the
+session.
 
 ---
 

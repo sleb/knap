@@ -171,9 +171,9 @@ unprocessed stubs in one place (an inbox) regardless of where the link appears.
 
 **US-31** — As a Zed user, I can add a `$schema` key to my knap
 `initialization_options` block in `settings.json` and immediately get
-autocompletion and inline validation for all recognized keys (`extensions`,
-`attachmentsDir`, `newNoteDir`), so I can configure the server without
-consulting external documentation and the editor flags unknown keys on the spot.
+autocompletion and inline validation for all recognized keys (`extensions`),
+so I can configure the server without consulting external documentation and the
+editor flags unknown keys on the spot.
 
 **US-19** — As a writer, I can select text in a note and apply a code action to
 extract it into a new note, replacing the selection with a standard Markdown link

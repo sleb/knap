@@ -70,10 +70,8 @@ struct at startup. Configuration is fixed for the lifetime of the session —
 
 ```
 Config {
-  index_roots: PathBuf[]          // workspace folders from the initialize request
-  extensions: string[]            // default: ["md"]
-  attachments_dir?: string        // relative path of attachments folder; when set, a
-                                  // separate file watcher is registered for it
+  index_roots: PathBuf[]   // workspace folders from the initialize request
+  extensions: string[]     // default: ["md"]
 }
 ```
 

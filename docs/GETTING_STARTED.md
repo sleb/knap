@@ -65,10 +65,7 @@ enables inline autocompletion and validation for all knap options:
   "lsp": {
     "knap": {
       "initialization_options": {
-        "$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/initialization_options.json",
-        "extensions": ["md"],
-        "attachmentsDir": "assets",
-        "newNoteDir": "0-Inbox"
+        "extensions": ["md", "mdx"]
       }
     }
   }
@@ -95,9 +92,7 @@ add an `initializationOptions` block to your VS Code `settings.json`:
 {
   "knap.serverPath": "/path/to/knap",
   "initialization_options": {
-    "extensions": ["md"],
-    "attachmentsDir": "assets",
-    "newNoteDir": "0-Inbox"
+    "extensions": ["md", "mdx"]
   }
 }
 ```
@@ -117,47 +112,17 @@ knap works with zero configuration for a standard single-folder Markdown
 workspace. The following options can be passed via `initializationOptions`
 when you need to customise behaviour:
 
-| Option              | Type             | Default  | Description                                                                                                                                                                                                                 |
-| ------------------- | ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `extensions`        | `string[]`       | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments.                                                                                                                                   |
-| `attachmentsDir`    | `string \| null` | `null`   | Path to your attachments folder, relative to the workspace root. When set, knap watches this directory for new and deleted files so attachment-link diagnostics stay live.                                                  |
-| `newNoteDir`        | `string \| null` | `null`   | Folder (relative to workspace root) where Quick Fix "Create note" actions create new files (e.g. `"0-Inbox"`). Defaults to the same directory as the current note.                                                          |
-| `frontmatterSchema` | `object \| null` | `null`   | JSON Schema-inspired definition of allowed frontmatter keys and values. Enables key and value completions in the frontmatter block and publishes warnings for unknown keys, invalid enum values, and missing required keys. |
+| Option       | Type       | Default  | Description                                                                               |
+| ------------ | ---------- | -------- | ----------------------------------------------------------------------------------------- |
+| `extensions` | `string[]` | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments. |
 
-**Example — multi-extension vault with an assets folder and inbox:**
+**Example — multi-extension vault:**
 
 ```json
 {
-  "extensions": ["md", "mdx"],
-  "attachmentsDir": "assets",
-  "newNoteDir": "0-Inbox"
+  "extensions": ["md", "mdx"]
 }
 ```
-
-**Example — frontmatter schema with required keys and enum values:**
-
-```json
-{
-  "frontmatterSchema": {
-    "properties": {
-      "status": { "enum": ["draft", "review", "published"] },
-      "author": {},
-      "tags": {}
-    },
-    "required": ["status"]
-  }
-}
-```
-
-With this schema, knap will:
-
-- Offer `draft`, `review`, `published` as completions after `status: `
-- Offer `status`, `author`, and `tags` as key completions on blank frontmatter lines
-- Warn on any frontmatter key not listed in `properties`
-- Warn when `status` has a value not in the enum
-- Warn when `status` is missing entirely
-
-**Tip:** add `"$schema": "https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/initialization_options.json"` to your `initialization_options` object in Zed's `settings.json` to get autocompletion and inline validation for all knap options.
 
 ---
 
@@ -211,8 +176,7 @@ restart needed.
 
 **Attachment links:** `[[image.png]]` resolves against all files in the
 workspace, not just note files. If `image.png` exists anywhere under the
-workspace root (or in `attachmentsDir` if configured), the link is considered
-resolved and no diagnostic is emitted.
+workspace root, the link is considered resolved and no diagnostic is emitted.
 
 ---
 
@@ -235,7 +199,7 @@ Terminal `mv` commands bypass the LSP and won't trigger link rewrites — reopen
 the affected files to refresh diagnostics.
 
 **Attachment links are still showing as broken after adding a file.** knap
-updates attachment diagnostics live only when `attachmentsDir` is configured.
-Without it, the index is built once at startup and doesn't track non-note file
-changes. Set `attachmentsDir` to the folder where you keep attachments and
-restart the server.
+watches the entire workspace for file changes, so diagnostics should clear
+automatically. If they don't, check that your editor is delivering
+`workspace/didChangeWatchedFiles` notifications — some editors require the
+workspace to be open as a folder (not a single file) for this to work.
