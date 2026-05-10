@@ -41,52 +41,32 @@ pub struct Frontmatter {
 /// A standard Markdown link or image found in the file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarkdownLink {
-    pub text: String,    // link text or image alt text
-    pub target: String,  // URL or relative path, raw (unresolved)
-    pub is_image: bool,  // true for `![alt](url)`
-    pub range: LspRange, // full `[text](url)` or `![alt](url)` span
+    pub text: String,                     // link text or image alt text
+    pub target: String,                   // relative path or URL, raw; empty for anchor-only links
+    pub anchor: Option<String>,           // text after `#`, trimmed; None when absent
+    pub is_image: bool,                   // true for `![alt](url)`
+    pub range: LspRange,                  // full `[text](url)` or `![alt](url)` span
+    pub target_range: LspRange,           // path inside `()`, excluding `#anchor`
+    pub anchor_range: Option<LspRange>,   // anchor text only (None when absent)
 }
 
 /// The parsed representation of a single note file.
 #[derive(Debug)]
 pub struct Note {
     pub path: PathBuf,
-    pub stem: String,
-    pub wiki_links: Vec<WikiLink>,
+    pub md_links: Vec<MarkdownLink>,
     pub content: String, // raw source text, retained for trigger checking in completion
     pub headings: Vec<Heading>,
     pub frontmatter: Option<Frontmatter>,
-    pub md_links: Vec<MarkdownLink>,
 }
 
 /// An ATX heading found in a note file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Heading {
-    pub text: String,       // raw heading text, e.g. "My Section"
-    pub level: u8,          // ATX heading level 1–6
-    pub range: LspRange,    // full heading line range (for navigation and DocumentSymbol)
+    pub text: String,        // raw heading text, e.g. "My Section"
+    pub level: u8,           // ATX heading level 1–6
+    pub range: LspRange,     // full heading line range (for navigation and DocumentSymbol)
     pub text_range: LspRange, // text-only range, excluding `## ` prefix (for rename)
-}
-
-impl Note {
-    /// Full filename including extension (e.g. `"my-note.md"`).
-    pub fn filename(&self) -> String {
-        self.path
-            .file_name()
-            .expect("note path must have a filename")
-            .to_string_lossy()
-            .into_owned()
-    }
-}
-
-/// A `[[wiki-link]]` found in the file.
-#[derive(Debug, Clone, PartialEq)]
-pub struct WikiLink {
-    pub stem: String,
-    pub anchor: Option<String>,       // text after `#`, before `|`, trimmed; None when absent or empty
-    pub range: LspRange,              // full [[...]] range, for Go to Definition
-    pub inner_range: LspRange,        // stem text only, for diagnostics and file rename
-    pub anchor_range: Option<LspRange>, // anchor text only (for heading rename and code action)
 }
 
 /// Maps byte offsets (from pulldown-cmark) to LSP line/character positions.
@@ -122,12 +102,6 @@ impl LineIndex {
 }
 
 pub fn parse(path: &Path, content: &str) -> Note {
-    let stem = path
-        .file_stem()
-        .expect("note path must have a filename")
-        .to_string_lossy()
-        .into_owned();
-
     let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
     let frontmatter = extract_frontmatter(content).map(|mut fm| {
         fm.tags = extract_tags(content, &line_index);
@@ -138,17 +112,8 @@ pub fn parse(path: &Path, content: &str) -> Note {
     });
     let body_offset = frontmatter_body_offset(content);
     let body = &content[body_offset..];
-    let (wiki_links, headings, md_links) = extract_body_elements(body, body_offset, &line_index);
-
-    Note {
-        path: path.to_path_buf(),
-        stem,
-        wiki_links,
-        content: content.to_string(),
-        headings,
-        frontmatter,
-        md_links,
-    }
+    let (md_links, headings) = extract_body_elements(body, body_offset, &line_index);
+    Note { path: path.to_path_buf(), md_links, content: content.to_string(), headings, frontmatter }
 }
 
 /// Return the block of text between the frontmatter delimiters (`---`…`---`),
@@ -383,12 +348,10 @@ fn extract_tags(content: &str, line_index: &LineIndex) -> Vec<Tag> {
 }
 
 /// Parse `content` (the body slice, post-frontmatter) in a single pulldown-cmark
-/// pass, collecting headings, standard Markdown links/images, and wiki-link
-/// exclusion zones. Then does a raw scan for `[[wiki-links]]` outside those zones.
+/// pass, collecting headings and standard Markdown links/images.
 ///
-/// pulldown-cmark fragments `[[note]]` into individual character `Text` events,
-/// so wiki-links can't be extracted from the event stream directly; the exclusion
-/// zones are instead used to constrain a raw byte scan.
+/// For each link/image event, `target_range` and `anchor_range` are derived by
+/// scanning the raw source bytes within the event's span.
 ///
 /// `offset` is the byte distance from the start of the full file to the start
 /// of `content`; it is added to every byte position before calling
@@ -397,33 +360,18 @@ fn extract_body_elements(
     content: &str,
     offset: usize,
     line_index: &LineIndex,
-) -> (Vec<WikiLink>, Vec<Heading>, Vec<MarkdownLink>) {
+) -> (Vec<MarkdownLink>, Vec<Heading>) {
     let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
-    let mut exclusions: Vec<Range<usize>> = Vec::new();
     let mut headings: Vec<Heading> = Vec::new();
     let mut md_links: Vec<MarkdownLink> = Vec::new();
 
-    let mut code_block_start: Option<usize> = None;
     // (level, heading_byte_start, accumulated_text, first_text_byte, last_text_end_byte)
     let mut current_heading: Option<(u8, usize, String, Option<usize>, usize)> = None;
-    // (target, range_start_in_body, text_buf, is_image)
+    // (dest_url, range_start_in_body, text_buf, is_image)
     let mut current_link: Option<(String, usize, String, bool)> = None;
 
     for (event, byte_range) in parser {
         match event {
-            // ── Exclusion zones (code blocks / inline code) ───────────────────
-            Event::Start(PdTag::CodeBlock(_)) => {
-                code_block_start = Some(byte_range.start);
-            }
-            Event::End(TagEnd::CodeBlock) => {
-                if let Some(start) = code_block_start.take() {
-                    exclusions.push(start..byte_range.end);
-                }
-            }
-            Event::Code(_) => {
-                exclusions.push(byte_range.clone());
-            }
-
             // ── Headings ──────────────────────────────────────────────────────
             Event::Start(PdTag::Heading { level, .. }) => {
                 current_heading = Some((
@@ -464,13 +412,67 @@ fn extract_body_elements(
                     Some((dest_url.to_string(), byte_range.start, String::new(), true));
             }
             Event::End(TagEnd::Link) | Event::End(TagEnd::Image) => {
-                if let Some((target, range_start, text, is_image)) = current_link.take() {
+                if let Some((_, range_start, text, is_image)) = current_link.take() {
+                    let link_slice = &content[range_start..byte_range.end];
+
+                    // Find the '(' that opens the URL: scan for "](" to locate
+                    // the boundary between link text and URL portion.
+                    let (target, anchor, target_range, anchor_range) =
+                        if let Some(bracket_pos) = link_slice.rfind("](") {
+                            let paren_pos = bracket_pos + 1; // index of '(' in link_slice
+                            let url_start = paren_pos + 1; // index right after '('
+                            // link_slice ends with ')' so the last char is ')'
+                            let url_end = link_slice.len() - 1;
+                            let url_content = &link_slice[url_start..url_end];
+
+                            let target_start_body = range_start + url_start;
+
+                            if let Some(hash_off) = url_content.find('#') {
+                                let target_text = url_content[..hash_off].to_string();
+                                let anchor_raw = &url_content[hash_off + 1..];
+                                let anchor_text = anchor_raw.trim().to_string();
+
+                                let target_end_body = target_start_body + hash_off;
+                                let tr = line_index.range(
+                                    (target_start_body + offset)..(target_end_body + offset),
+                                );
+
+                                let anchor_start_body = target_start_body + hash_off + 1;
+                                let anchor_end_body = target_start_body + url_content.len();
+                                let ar = if !anchor_text.is_empty() {
+                                    Some(line_index.range(
+                                        (anchor_start_body + offset)
+                                            ..(anchor_end_body + offset),
+                                    ))
+                                } else {
+                                    None
+                                };
+                                let anchor =
+                                    if !anchor_text.is_empty() { Some(anchor_text) } else { None };
+                                (target_text, anchor, tr, ar)
+                            } else {
+                                let target_end_body = target_start_body + url_content.len();
+                                let tr = line_index.range(
+                                    (target_start_body + offset)..(target_end_body + offset),
+                                );
+                                (url_content.to_string(), None, tr, None)
+                            }
+                        } else {
+                            // Fallback: no "](" found — shouldn't occur for valid Markdown
+                            let tr = line_index
+                                .range((range_start + offset)..(byte_range.end + offset));
+                            (String::new(), None, tr, None)
+                        };
+
                     md_links.push(MarkdownLink {
                         text: text.trim().to_string(),
                         target,
+                        anchor,
                         is_image,
                         range: line_index
                             .range((range_start + offset)..(byte_range.end + offset)),
+                        target_range,
+                        anchor_range,
                     });
                 }
             }
@@ -495,8 +497,7 @@ fn extract_body_elements(
         }
     }
 
-    let wiki_links = scan_wiki_links(content, offset, &exclusions, line_index);
-    (wiki_links, headings, md_links)
+    (md_links, headings)
 }
 
 fn heading_level_to_u8(level: HeadingLevel) -> u8 {
@@ -508,98 +509,4 @@ fn heading_level_to_u8(level: HeadingLevel) -> u8 {
         HeadingLevel::H5 => 5,
         HeadingLevel::H6 => 6,
     }
-}
-
-/// Scan `content` (the body slice, post-frontmatter) for `[[stem]]` patterns,
-/// skipping positions inside exclusion zones. `offset` is the byte distance
-/// from the start of the full file to the start of `content`; it is added to
-/// every byte position before calling `line_index.range()`.
-fn scan_wiki_links(
-    content: &str,
-    offset: usize,
-    exclusions: &[Range<usize>],
-    line_index: &LineIndex,
-) -> Vec<WikiLink> {
-    let mut links = Vec::new();
-    let mut search_from = 0;
-
-    while let Some(open_offset) = content[search_from..].find("[[") {
-        let open = search_from + open_offset;
-
-        // Skip if inside a code block or inline code span.
-        if exclusions.iter().any(|ex| ex.contains(&open)) {
-            search_from = open + 1;
-            continue;
-        }
-
-        let after_open = open + 2;
-
-        // Only look for `]]` up to the end of the current line.
-        let line_end = content[after_open..]
-            .find('\n')
-            .map(|n| after_open + n)
-            .unwrap_or(content.len());
-
-        let line_slice = &content[after_open..line_end];
-
-        if let Some(close_offset) = line_slice.find("]]") {
-            let inner = &line_slice[..close_offset];
-            let close = after_open + close_offset + 2; // byte offset after ]]
-
-            if !inner.trim().is_empty() {
-                // Strip alias suffix ([[note|display]]) to isolate the note+anchor part.
-                let pipe_part = inner.split('|').next().unwrap_or(inner);
-
-                // Split on `#` to capture the optional anchor.
-                // pipe_part starts at after_open in content (it's always the prefix of inner).
-                let (note_part, anchor, anchor_range) = match pipe_part.find('#') {
-                    Some(hash_pos) => {
-                        let stem_part = &pipe_part[..hash_pos];
-                        let anchor_raw = &pipe_part[hash_pos + 1..];
-                        let trimmed = anchor_raw.trim();
-                        if trimmed.is_empty() {
-                            (stem_part, None, None)
-                        } else {
-                            let leading_ws = anchor_raw.len() - anchor_raw.trim_start().len();
-                            let anchor_byte_start = after_open + hash_pos + 1 + leading_ws;
-                            let anchor_byte_end = anchor_byte_start + trimmed.len();
-                            (
-                                stem_part,
-                                Some(trimmed.to_string()),
-                                Some(line_index.range(
-                                    (anchor_byte_start + offset)..(anchor_byte_end + offset),
-                                )),
-                            )
-                        }
-                    }
-                    None => (pipe_part, None, None),
-                };
-
-                let stem = note_part.trim();
-
-                // Skip if only a `#section` or `|alias` with no note name.
-                if !stem.is_empty() {
-                    let leading = note_part.len() - note_part.trim_start().len();
-                    let inner_start = after_open + leading;
-                    let inner_end = inner_start + stem.len();
-
-                    links.push(WikiLink {
-                        stem: stem.to_string(),
-                        anchor,
-                        range: line_index.range((open + offset)..(close + offset)),
-                        inner_range: line_index
-                            .range((inner_start + offset)..(inner_end + offset)),
-                        anchor_range,
-                    });
-                }
-            }
-
-            search_from = close;
-        } else {
-            // No closing ]] on this line — advance past the opening [[.
-            search_from = after_open;
-        }
-    }
-
-    links
 }

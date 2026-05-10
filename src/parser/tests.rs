@@ -1,7 +1,10 @@
 use std::path::Path;
 
 use lsp_types::{Position, Range};
-use super::{extract_frontmatter, FrontmatterField, Frontmatter, Heading, LineIndex, MarkdownLink, parse, Tag, WikiLink};
+use super::{
+    extract_frontmatter, Frontmatter, FrontmatterField, Heading, LineIndex, MarkdownLink, parse,
+    Tag,
+};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -13,8 +16,8 @@ fn range(start: (u32, u32), end: (u32, u32)) -> Range {
     Range { start: pos(start.0, start.1), end: pos(end.0, end.1) }
 }
 
-fn links(content: &str) -> Vec<WikiLink> {
-    parse(Path::new("note.md"), content).wiki_links
+fn md_links(content: &str) -> Vec<MarkdownLink> {
+    parse(Path::new("note.md"), content).md_links
 }
 
 fn headings(content: &str) -> Vec<Heading> {
@@ -24,142 +27,119 @@ fn headings(content: &str) -> Vec<Heading> {
 // ── parse() ──────────────────────────────────────────────────────────────────
 
 #[test]
-fn stem_from_path() {
-    let note = parse(Path::new("/vault/my-note.md"), "");
-    assert_eq!(note.stem, "my-note");
-}
-
-#[test]
 fn content_stored_verbatim() {
-    let note = parse(Path::new("note.md"), "hello [[world]]");
-    assert_eq!(note.content, "hello [[world]]");
+    let note = parse(Path::new("note.md"), "hello world");
+    assert_eq!(note.content, "hello world");
 }
 
-// ── link extraction ───────────────────────────────────────────────────────────
+// ── Markdown links — basic extraction ────────────────────────────────────────
 
 #[test]
-fn basic_link() {
-    let result = links("[[my-note]]");
+fn md_link_basic() {
+    let result = md_links("[text](path.md)");
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].stem, "my-note");
+    assert_eq!(result[0].text, "text");
+    assert_eq!(result[0].target, "path.md");
+    assert_eq!(result[0].anchor, None);
+    assert!(!result[0].is_image);
+    // full range: [text](path.md) = 15 chars, cols 0–15
+    assert_eq!(result[0].range, range((0, 0), (0, 15)));
 }
 
 #[test]
-fn multiple_links() {
-    let result = links("See [[alpha]] and [[beta]] for details.");
-    assert_eq!(result.len(), 2);
-    assert_eq!(result[0].stem, "alpha");
-    assert_eq!(result[1].stem, "beta");
-}
-
-#[test]
-fn link_in_fenced_code_block() {
-    let content = "```\n[[hidden]]\n```";
-    assert!(links(content).is_empty());
-}
-
-#[test]
-fn link_in_inline_code() {
-    let content = "`[[hidden]]`";
-    assert!(links(content).is_empty());
-}
-
-#[test]
-fn aliased_link_extracts_stem() {
-    let result = links("[[note|display text]]");
+fn md_link_with_anchor() {
+    // "[text](note.md#section)"
+    //  0123456789012345678901234
+    //  target: "note.md" = cols 7–14
+    //  anchor: "section" = cols 15–22
+    let result = md_links("[text](note.md#section)");
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].stem, "note");
+    assert_eq!(result[0].target, "note.md");
+    assert_eq!(result[0].anchor, Some("section".to_string()));
+    assert_eq!(result[0].target_range, range((0, 7), (0, 14)));
+    assert_eq!(result[0].anchor_range, Some(range((0, 15), (0, 22))));
 }
 
 #[test]
-fn anchor_link_extracts_stem() {
-    let result = links("[[note#section]]");
+fn md_link_anchor_only() {
+    // "[text](#heading)" — empty target, anchor "heading"
+    //  0123456789012345
+    //  url starts at 7, '#' at 7, anchor starts at 8, ends at 15
+    let result = md_links("[text](#heading)");
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].stem, "note");
+    assert_eq!(result[0].target, "");
+    assert_eq!(result[0].anchor, Some("heading".to_string()));
+    // target_range: zero-width at col 7
+    assert_eq!(result[0].target_range, range((0, 7), (0, 7)));
+    // anchor_range: cols 8–15
+    assert_eq!(result[0].anchor_range, Some(range((0, 8), (0, 15))));
 }
 
 #[test]
-fn anchor_only_ignored() {
-    // [[#section]] has no note name — skip it.
-    assert!(links("[[#section]]").is_empty());
-}
-
-#[test]
-fn alias_only_ignored() {
-    // [[|alias]] has no note name — skip it.
-    assert!(links("[[|alias]]").is_empty());
-}
-
-#[test]
-fn empty_link_ignored() {
-    assert!(links("[[]]").is_empty());
-}
-
-#[test]
-fn unclosed_link_ignored() {
-    assert!(links("[[note without closing").is_empty());
-}
-
-#[test]
-fn whitespace_only_link_ignored() {
-    assert!(links("[[   ]]").is_empty());
-}
-
-#[test]
-fn stem_is_trimmed() {
-    // Obsidian allows minor whitespace padding — trim it.
-    let result = links("[[ my-note ]]");
+fn md_link_image() {
+    let result = md_links("![alt text](img.png)");
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].stem, "my-note");
-}
-
-// ── ranges ────────────────────────────────────────────────────────────────────
-
-#[test]
-fn link_ranges() {
-    // "[[note]]" starting at col 0
-    // outer: 0..8  → cols 0–8
-    // inner: 2..6  → cols 2–6
-    let result = links("[[note]]");
-    assert_eq!(result[0].range, range((0, 0), (0, 8)));
-    assert_eq!(result[0].inner_range, range((0, 2), (0, 6)));
+    assert_eq!(result[0].text, "alt text");
+    assert_eq!(result[0].target, "img.png");
+    assert_eq!(result[0].anchor, None);
+    assert!(result[0].is_image);
+    // full range: "![alt text](img.png)" = 20 chars
+    assert_eq!(result[0].range, range((0, 0), (0, 20)));
 }
 
 #[test]
-fn link_ranges_with_offset() {
-    // "See [[note]] here"
-    //      0123456789...
-    // [[ at col 4, ]] ends at col 12
-    let result = links("See [[note]] here");
-    assert_eq!(result[0].range, range((0, 4), (0, 12)));
-    assert_eq!(result[0].inner_range, range((0, 6), (0, 10)));
+fn md_link_external_url() {
+    let result = md_links("[text](https://example.com)");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].target, "https://example.com");
+    assert_eq!(result[0].anchor, None);
 }
 
 #[test]
-fn link_range_on_second_line() {
-    let result = links("first line\n[[note]]");
-    assert_eq!(result[0].range, range((1, 0), (1, 8)));
-    assert_eq!(result[0].inner_range, range((1, 2), (1, 6)));
+fn md_link_in_fenced_code_ignored() {
+    let content = "```\n[hidden](url)\n```\n";
+    assert!(md_links(content).is_empty());
+}
+
+// ── Markdown links — range assertions ────────────────────────────────────────
+
+#[test]
+fn md_link_range() {
+    // "[text](url)" — 11 bytes at column 0
+    let result = md_links("[text](url)");
+    assert_eq!(result[0].range, range((0, 0), (0, 11)));
 }
 
 #[test]
-fn aliased_link_ranges() {
-    // "[[note|display text]]"
-    //  0123456789...
-    // outer: 0..21, inner (stem "note"): 2..6
-    let result = links("[[note|display text]]");
-    assert_eq!(result[0].range, range((0, 0), (0, 21)));
-    assert_eq!(result[0].inner_range, range((0, 2), (0, 6)));
+fn md_link_target_range_no_anchor() {
+    // "[text](path.md)" — target "path.md" occupies cols 7–14
+    let result = md_links("[text](path.md)");
+    assert_eq!(result[0].target_range, range((0, 7), (0, 14)));
+    assert_eq!(result[0].anchor_range, None);
 }
 
 #[test]
-fn anchor_link_ranges() {
-    // "[[note#section]]"
-    //  0123456789...
-    // outer: 0..16, inner (stem "note"): 2..6
-    let result = links("[[note#section]]");
-    assert_eq!(result[0].range, range((0, 0), (0, 16)));
-    assert_eq!(result[0].inner_range, range((0, 2), (0, 6)));
+fn md_link_target_range_with_anchor() {
+    // "[text](path.md#section)" — target "path.md" occupies cols 7–14
+    let result = md_links("[text](path.md#section)");
+    assert_eq!(result[0].target_range, range((0, 7), (0, 14)));
+}
+
+#[test]
+fn md_link_anchor_range() {
+    // "[text](note.md#section)" — anchor "section" occupies cols 15–22
+    let result = md_links("[text](note.md#section)");
+    let ar = result[0].anchor_range.expect("expected anchor_range");
+    assert_eq!(ar, range((0, 15), (0, 22)));
+}
+
+#[test]
+fn md_link_after_offset() {
+    // Link on second line: "\n[text](url)"
+    // "[" is at body byte 1 which is line 1 col 0
+    let result = md_links("\n[text](url)");
+    assert_eq!(result[0].range.start.line, 1);
+    assert_eq!(result[0].range.start.character, 0);
 }
 
 // ── LineIndex ─────────────────────────────────────────────────────────────────
@@ -228,51 +208,6 @@ fn heading_text_range() {
     assert_eq!(result[0].text_range, range((0, 3), (0, 13)));
 }
 
-// ── wiki-link anchor capture ──────────────────────────────────────────────────
-
-#[test]
-fn wiki_link_anchor_captured() {
-    let result = links("[[note#Section]]");
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].stem, "note");
-    assert_eq!(result[0].anchor, Some("Section".to_string()));
-}
-
-#[test]
-fn wiki_link_anchor_range() {
-    // "[[note#Section]]"
-    //  0123456789012345
-    // "Section" occupies bytes 7–14 → chars (0,7)–(0,14)
-    let result = links("[[note#Section]]");
-    assert_eq!(result[0].anchor_range, Some(range((0, 7), (0, 14))));
-}
-
-#[test]
-fn wiki_link_no_anchor() {
-    let result = links("[[note]]");
-    assert_eq!(result[0].anchor, None);
-    assert_eq!(result[0].anchor_range, None);
-}
-
-#[test]
-fn wiki_link_alias_and_anchor() {
-    // Anchor comes before alias in the syntax: [[note#Section|alias]]
-    let result = links("[[note#Section|alias]]");
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].stem, "note");
-    assert_eq!(result[0].anchor, Some("Section".to_string()));
-}
-
-#[test]
-fn wiki_link_empty_anchor_treated_as_none() {
-    // [[note#]] — hash present but no text after it → anchor: None
-    let result = links("[[note#]]");
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].stem, "note");
-    assert_eq!(result[0].anchor, None);
-    assert_eq!(result[0].anchor_range, None);
-}
-
 // ── frontmatter ───────────────────────────────────────────────────────────────
 
 #[test]
@@ -327,16 +262,6 @@ fn frontmatter_block_scalar_ignored() {
 }
 
 #[test]
-fn frontmatter_wiki_links_not_scanned() {
-    // [[hidden]] lives inside the frontmatter block and must not be collected.
-    // [[real]] lives in the body and must be collected.
-    let content = "---\ntitle: foo\n[[hidden]]\n---\nBody [[real]].\n";
-    let note = parse(Path::new("note.md"), content);
-    assert_eq!(note.wiki_links.len(), 1);
-    assert_eq!(note.wiki_links[0].stem, "real");
-}
-
-#[test]
 fn frontmatter_headings_not_scanned() {
     // Without the body-offset fix, pulldown-cmark treats the closing `---` of
     // the frontmatter as a setext-H2 underline and emits a spurious heading.
@@ -345,55 +270,6 @@ fn frontmatter_headings_not_scanned() {
     let note = parse(Path::new("note.md"), content);
     assert_eq!(note.headings.len(), 1);
     assert_eq!(note.headings[0].text, "Real Heading");
-}
-
-// ── Markdown links ────────────────────────────────────────────────────────────
-
-fn md_links(content: &str) -> Vec<MarkdownLink> {
-    parse(Path::new("note.md"), content).md_links
-}
-
-#[test]
-fn md_link_basic() {
-    let result = md_links("[text](url)");
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].text, "text");
-    assert_eq!(result[0].target, "url");
-    assert!(!result[0].is_image);
-}
-
-#[test]
-fn md_link_image() {
-    let result = md_links("![alt text](img.png)");
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].text, "alt text");
-    assert_eq!(result[0].target, "img.png");
-    assert!(result[0].is_image);
-}
-
-#[test]
-fn md_link_range() {
-    // "[text](url)" — 11 bytes at column 0; range should span the full construct.
-    let result = md_links("[text](url)");
-    assert_eq!(result[0].range, range((0, 0), (0, 11)));
-}
-
-#[test]
-fn md_link_in_fenced_code_ignored() {
-    let content = "```\n[hidden](url)\n```\n";
-    assert!(md_links(content).is_empty());
-}
-
-#[test]
-fn wiki_link_range_after_frontmatter() {
-    // "---\ntitle: foo\n---\n[[note]]\n"
-    // frontmatter_body_offset = 4 ("---\n") + 10 ("title: foo") + 5 ("\n---\n") = 19
-    // "[[note]]" is at body byte 0..8, which maps to full-file line 3, cols 0–8.
-    let content = "---\ntitle: foo\n---\n[[note]]\n";
-    let note = parse(Path::new("note.md"), content);
-    assert_eq!(note.wiki_links.len(), 1);
-    assert_eq!(note.wiki_links[0].range, range((3, 0), (3, 8)));
-    assert_eq!(note.wiki_links[0].inner_range, range((3, 2), (3, 6)));
 }
 
 // ── tags ──────────────────────────────────────────────────────────────────────

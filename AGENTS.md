@@ -27,17 +27,17 @@ cargo run -- index <dir>           # print the note index built from a directory
 All design decisions live in `docs/`. Read the relevant doc before starting any
 task:
 
-| Doc                           | When to read                                                         |
-| ----------------------------- | -------------------------------------------------------------------- |
-| `docs/ARCHITECTURE.md`        | Touching any component boundary or adding a new component            |
-| `docs/ROADMAP.md`             | Scoping work — confirms what's in vs. out for the current release    |
-| `docs/RELEASING.md`           | Cutting a release — use the `/release` skill to walk through it      |
-| `docs/design/vX.Y/design.md`  | Implementing anything in the current release                         |
-| `docs/design/vX.Y/plan.md`    | Implementation order and testing checkpoints for the current release |
-| `docs/design/components/*.md` | Implementing a specific component (parser, index, handlers, etc.)    |
+| Doc                                   | When to read                                                         |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| `docs/ARCHITECTURE.md`                | Touching any component boundary or adding a new component            |
+| `docs/ROADMAP.md`                     | Scoping work — confirms what's in vs. out for the current release    |
+| `docs/RELEASING.md`                   | Cutting a release — use the `/release` skill to walk through it      |
+| `docs/design/releases/vX.Y/design.md` | Implementing anything in the current release                         |
+| `docs/design/releases/vX.Y/plan.md`   | Implementation order and testing checkpoints for the current release |
+| `docs/design/components/*.md`         | Implementing a specific component (parser, index, handlers, etc.)    |
 
-**Starting a new release cycle:** copy `docs/design/templates/design.md` and
-`docs/design/templates/plan.md` into `docs/design/vX.Y/`, fill in the release
+**Starting a new release cycle:** copy `docs/design/releases/templates/design.md` and
+`docs/design/releases/templates/plan.md` into `docs/design/releases/vX.Y/`, fill in the release
 name, stories, and steps, then work through the plan in order.
 
 **Docs must stay in sync with the code.** If you deviate from a design doc

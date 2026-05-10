@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.8.0-blue)
+![Version](https://img.shields.io/badge/version-0.1.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -18,25 +18,14 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 
 ## What it does
 
-- `[text](path)` completions, Go to Definition, and Find References
+- `[text](path/to/note.md)` completions — triggered by `(`, inserts the path
+  relative to the current file
+- Go to Definition — jumps to the linked note; navigates to the heading when an
+  anchor is present (`[text](note.md#heading)`)
+- Find References — all standard Markdown links pointing to a file
 - Broken link diagnostics — warnings for links to missing files or headings
-- Rename a file — all links pointing to it are updated automatically
-- `[text](note.md#heading)` Go to Definition navigates to the heading line
-- Broken anchor diagnostics — warning when a linked heading no longer exists
-- Rename a heading — all anchor links updated automatically
-- Attachment links (`![alt](image.png)`, `[doc](report.pdf)`) resolve without false warnings
-- Configurable file extensions (e.g. `.md`, `.mdx`) via `initializationOptions`
 - Incremental index — the workspace index stays live as files change
-- Document Symbols — jump to any heading within the current file
-- Workspace Symbols — search headings by name across all files
-- Hover on a link → preview of the target note (title + first 10 lines)
-- Frontmatter `title:` used as the display label in completions and hover
-- Frontmatter `tags:` completions from the workspace tag index
-- Go to Definition and Find References on a tag value → all files sharing that tag
-- Quick Fix on a broken link → create the missing file instantly
-- Quick Fix on a broken anchor → pick from available headings to fix it
-- Backlinks code lens — `↑ N backlinks` at the top of every note, click to open the references panel (VS Code; Zed pending an upcoming Zed release)
-- Frontmatter schema — define allowed keys and enum values via `initializationOptions`; get completions and warnings for unknown keys, invalid values, and missing required fields
+- Configurable file extensions (e.g. `.md`, `.mdx`) via `initializationOptions`
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 Dedicated extensions are available for [VS Code](https://github.com/sleb/vscode-knap) and [Zed](https://github.com/sleb/zed-knap).
@@ -53,7 +42,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.7.0 — Backlinks code lens. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.1.0 — Standard Markdown link MVP. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

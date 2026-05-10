@@ -14,24 +14,44 @@ fn pb(s: &str) -> PathBuf {
 // ── resolve ──────────────────────────────────────────────────────────────────
 
 #[test]
-fn resolve_found() {
+fn test_resolve_relative() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("foo.md", ""));
-    assert!(matches!(idx.resolve("foo"), ResolvedLink::Found(_)));
+    idx.seed(note("/vault/b.md", ""));
+    // Source at /vault/a.md links to "b.md" → resolves to /vault/b.md
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "b.md"),
+        ResolvedLink::Found(_)
+    ));
 }
 
 #[test]
-fn resolve_broken() {
+fn test_resolve_parent_dir() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/other/note.md", ""));
+    // Source at /vault/sub/a.md links to "../other/note.md"
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/sub/a.md"), "../other/note.md"),
+        ResolvedLink::Found(_)
+    ));
+}
+
+#[test]
+fn test_resolve_broken() {
     let idx = NoteIndex::default();
-    assert!(matches!(idx.resolve("missing"), ResolvedLink::Broken));
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "missing.md"),
+        ResolvedLink::Broken
+    ));
 }
 
 #[test]
-fn resolve_ambiguous() {
-    let mut idx = NoteIndex::default();
-    idx.seed(note("dir1/foo.md", ""));
-    idx.seed(note("dir2/foo.md", ""));
-    assert!(matches!(idx.resolve("foo"), ResolvedLink::Ambiguous(_)));
+fn test_resolve_url() {
+    let idx = NoteIndex::default();
+    // External URLs resolve Found without any filesystem check.
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "https://example.com"),
+        ResolvedLink::Found(_)
+    ));
 }
 
 // ── index / remove ───────────────────────────────────────────────────────────
@@ -39,53 +59,63 @@ fn resolve_ambiguous() {
 #[test]
 fn index_replaces_existing() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("a.md", "[[b]]"));
-    idx.seed(note("a.md", "[[c]]")); // replace
-    let n = idx.get_note(Path::new("a.md")).unwrap();
-    assert_eq!(n.wiki_links.len(), 1);
-    assert_eq!(n.wiki_links[0].stem, "c");
+    idx.seed(note("/vault/b.md", ""));
+    idx.seed(note("/vault/a.md", "[link](b.md)"));
+    idx.seed(note("/vault/a.md", "[link](c.md)")); // replace
+    let n = idx.get_note(Path::new("/vault/a.md")).unwrap();
+    assert_eq!(n.md_links.len(), 1);
+    assert_eq!(n.md_links[0].target, "c.md");
 }
 
 #[test]
-fn remove_clears_all_maps() {
+fn remove_clears_note() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("a.md", ""));
-    let _ = idx.remove(Path::new("a.md"));
-    assert!(idx.get_note(Path::new("a.md")).is_none());
-    assert!(matches!(idx.resolve("a"), ResolvedLink::Broken));
+    idx.seed(note("/vault/a.md", ""));
+    let _ = idx.remove(Path::new("/vault/a.md"));
+    assert!(idx.get_note(Path::new("/vault/a.md")).is_none());
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/other.md"), "a.md"),
+        ResolvedLink::Broken
+    ));
 }
 
 // ── links_to ─────────────────────────────────────────────────────────────────
 
 #[test]
-fn links_to_populated() {
+fn test_index_populates_links_to() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("b.md", ""));
-    idx.seed(note("a.md", "[[b]]"));
-    let links = idx.links_to(Path::new("b.md"));
+    idx.seed(note("/vault/b.md", ""));
+    idx.seed(note("/vault/a.md", "[link](b.md)"));
+    let links = idx.links_to(Path::new("/vault/b.md"));
     assert_eq!(links.len(), 1);
-    assert_eq!(links[0].source_path, pb("a.md"));
+    assert_eq!(links[0].source_path, pb("/vault/a.md"));
 }
 
 #[test]
-fn broken_link_heals_on_add() {
+fn test_recheck_incoming() {
+    // a.md links to b.md, but b.md doesn't exist yet
     let mut idx = NoteIndex::default();
-    idx.seed(note("a.md", "[[b]]")); // b.md doesn't exist yet
-    assert_eq!(idx.links_to(Path::new("b.md")).len(), 0);
+    idx.seed(note("/vault/a.md", "[link](b.md)"));
+    assert_eq!(idx.links_to(Path::new("/vault/b.md")).len(), 0);
 
-    idx.seed(note("b.md", ""));
-    let links = idx.links_to(Path::new("b.md"));
+    // Now add b.md — recheck_incoming should pick up a.md's link
+    idx.seed(note("/vault/b.md", ""));
+    let links = idx.links_to(Path::new("/vault/b.md"));
     assert_eq!(links.len(), 1);
-    assert_eq!(links[0].source_path, pb("a.md"));
+    assert_eq!(links[0].source_path, pb("/vault/a.md"));
 }
 
 #[test]
-fn link_breaks_on_remove() {
+fn test_remove_breaks_incoming() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("b.md", ""));
-    idx.seed(note("a.md", "[[b]]"));
-    let _ = idx.remove(Path::new("b.md"));
-    assert_eq!(idx.links_to(Path::new("b.md")).len(), 0);
+    idx.seed(note("/vault/b.md", ""));
+    idx.seed(note("/vault/a.md", "[link](b.md)"));
+
+    let delta = idx.remove(Path::new("/vault/b.md"));
+    // a.md linked to b.md and now has a broken link
+    assert!(delta.affected_paths.contains(Path::new("/vault/a.md")));
+    assert!(delta.affected_paths.contains(Path::new("/vault/b.md")));
+    assert_eq!(idx.links_to(Path::new("/vault/b.md")).len(), 0);
 }
 
 // ── IndexDelta ───────────────────────────────────────────────────────────────
@@ -93,86 +123,67 @@ fn link_breaks_on_remove() {
 #[test]
 fn delta_includes_affected() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("b.md", ""));
+    idx.seed(note("/vault/b.md", ""));
     // a.md links to b.md → indexing a.md should affect both a.md and b.md
-    let delta = idx.index(note("a.md", "[[b]]"));
-    assert!(delta.affected_paths.contains(Path::new("a.md")));
-    assert!(delta.affected_paths.contains(Path::new("b.md")));
+    let delta = idx.index(note("/vault/a.md", "[link](b.md)"));
+    assert!(delta.affected_paths.contains(Path::new("/vault/a.md")));
+    assert!(delta.affected_paths.contains(Path::new("/vault/b.md")));
 }
 
 #[test]
 fn remove_delta_includes_incoming() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("b.md", ""));
-    idx.seed(note("a.md", "[[b]]"));
-    let delta = idx.remove(Path::new("b.md"));
-    // a.md linked to b.md and now has a broken link
-    assert!(delta.affected_paths.contains(Path::new("a.md")));
-    assert!(delta.affected_paths.contains(Path::new("b.md")));
+    idx.seed(note("/vault/b.md", ""));
+    idx.seed(note("/vault/a.md", "[link](b.md)"));
+    let delta = idx.remove(Path::new("/vault/b.md"));
+    assert!(delta.affected_paths.contains(Path::new("/vault/a.md")));
+    assert!(delta.affected_paths.contains(Path::new("/vault/b.md")));
 }
 
+// ── attachments ───────────────────────────────────────────────────────────────
+
 #[test]
-fn ambiguous_becomes_found() {
+fn test_add_attachment_resolves() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("dir1/foo.md", ""));
-    idx.seed(note("dir2/foo.md", ""));
-    assert!(matches!(idx.resolve("foo"), ResolvedLink::Ambiguous(_)));
+    // Note with an image link
+    idx.seed(note("/vault/a.md", "![img](assets/image.png)"));
+    // Initially broken (image not in all_files)
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "assets/image.png"),
+        ResolvedLink::Broken
+    ));
 
-    let _ = idx.remove(Path::new("dir1/foo.md"));
-    assert!(matches!(idx.resolve("foo"), ResolvedLink::Found(_)));
+    // Register the attachment
+    let _ = idx.add_attachment(PathBuf::from("/vault/assets/image.png"));
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "assets/image.png"),
+        ResolvedLink::Found(_)
+    ));
 }
 
-// ── by_filename ───────────────────────────────────────────────────────────────
-
 #[test]
-fn by_filename_populated_for_note() {
-    // index(note) must also register the full filename so [[foo.md]] resolves.
+fn attachment_recheck_heals_link() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("foo.md", ""));
-    // "foo" resolves via by_stem; "foo.md" must resolve via by_filename.
-    assert!(matches!(idx.resolve("foo.md"), ResolvedLink::Found(_)));
+    // Note with a broken attachment link
+    idx.seed(note("/vault/a.md", "[img](logo.png)"));
+    assert_eq!(idx.links_to(Path::new("/vault/logo.png")).len(), 0);
+
+    // Add attachment — recheck_incoming should register the link
+    let delta = idx.add_attachment(PathBuf::from("/vault/logo.png"));
+    assert!(delta.affected_paths.contains(Path::new("/vault/a.md")));
+    assert_eq!(idx.links_to(Path::new("/vault/logo.png")).len(), 1);
 }
 
 #[test]
-fn by_filename_cleared_on_remove() {
+fn attachment_remove_breaks_links() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("foo.md", ""));
-    let _ = idx.remove(Path::new("foo.md"));
-    assert!(matches!(idx.resolve("foo.md"), ResolvedLink::Broken));
-}
+    let _ = idx.add_attachment(PathBuf::from("/vault/logo.png"));
+    idx.seed(note("/vault/a.md", "[img](logo.png)"));
+    assert_eq!(idx.links_to(Path::new("/vault/logo.png")).len(), 1);
 
-#[test]
-fn resolve_falls_through_to_filename() {
-    // A non-note attachment registered via add_attachment must be Found.
-    let mut idx = NoteIndex::default();
-    let _ = idx.add_attachment(PathBuf::from("/workspace/image.png"));
-    assert!(matches!(idx.resolve("image.png"), ResolvedLink::Found(_)));
-}
-
-#[test]
-fn resolve_prefers_stem_over_filename() {
-    // A note "foo.md" is in by_stem["foo"]. An attachment named "foo" (no
-    // extension) is in by_filename["foo"]. by_stem must win.
-    let mut idx = NoteIndex::default();
-    idx.seed(note("foo.md", ""));
-    let _ = idx.add_attachment(PathBuf::from("/workspace/foo")); // no extension
-    match idx.resolve("foo") {
-        ResolvedLink::Found(p) => assert!(p.to_string_lossy().ends_with("foo.md")),
-        other => panic!("expected Found(foo.md), got {other:?}"),
-    }
-}
-
-#[test]
-fn resolve_broken_in_both_maps() {
-    let idx = NoteIndex::default();
-    assert!(matches!(idx.resolve("nonexistent.png"), ResolvedLink::Broken));
-}
-
-#[test]
-fn non_note_file_registered() {
-    let mut idx = NoteIndex::default();
-    let _ = idx.add_attachment(PathBuf::from("/workspace/diagram.png"));
-    assert!(matches!(idx.resolve("diagram.png"), ResolvedLink::Found(_)));
+    let delta = idx.remove_attachment(Path::new("/vault/logo.png"));
+    assert!(delta.affected_paths.contains(Path::new("/vault/a.md")));
+    assert_eq!(idx.links_to(Path::new("/vault/logo.png")).len(), 0);
 }
 
 // ── tag index ─────────────────────────────────────────────────────────────────
@@ -180,7 +191,7 @@ fn non_note_file_registered() {
 #[test]
 fn index_by_tag_populated() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("a.md", "---\ntags: [rust, lsp]\n---\n"));
+    idx.seed(note("/vault/a.md", "---\ntags: [rust, lsp]\n---\n"));
     let tags: Vec<&str> = idx.all_tags().collect();
     assert!(tags.contains(&"rust"), "expected 'rust' in tags");
     assert!(tags.contains(&"lsp"), "expected 'lsp' in tags");
@@ -189,15 +200,15 @@ fn index_by_tag_populated() {
 #[test]
 fn index_by_tag_removed() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("a.md", "---\ntags: [rust]\n---\n"));
-    let _ = idx.remove(Path::new("a.md"));
+    idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+    let _ = idx.remove(Path::new("/vault/a.md"));
     assert!(idx.all_tags().next().is_none(), "expected no tags after removal");
 }
 
 #[test]
 fn notes_by_tag_case_insensitive() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("a.md", "---\ntags: [Rust]\n---\n"));
+    idx.seed(note("/vault/a.md", "---\ntags: [Rust]\n---\n"));
     let notes = idx.notes_by_tag("rust");
     assert_eq!(notes.len(), 1);
     let notes_upper = idx.notes_by_tag("RUST");
@@ -207,8 +218,8 @@ fn notes_by_tag_case_insensitive() {
 #[test]
 fn all_tags_distinct() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("a.md", "---\ntags: [rust, lsp]\n---\n"));
-    idx.seed(note("b.md", "---\ntags: [rust, tools]\n---\n"));
+    idx.seed(note("/vault/a.md", "---\ntags: [rust, lsp]\n---\n"));
+    idx.seed(note("/vault/b.md", "---\ntags: [rust, tools]\n---\n"));
     let mut tags: Vec<&str> = idx.all_tags().collect();
     tags.sort();
     assert_eq!(tags, vec!["lsp", "rust", "tools"]);
@@ -217,7 +228,7 @@ fn all_tags_distinct() {
 #[test]
 fn duplicate_tags_within_note_not_double_counted() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("a.md", "---\ntags: [rust, rust]\n---\n"));
+    idx.seed(note("/vault/a.md", "---\ntags: [rust, rust]\n---\n"));
     let notes = idx.notes_by_tag("rust");
     assert_eq!(notes.len(), 1, "duplicate tag should only produce one entry");
 }
@@ -225,8 +236,8 @@ fn duplicate_tags_within_note_not_double_counted() {
 #[test]
 fn index_replace_updates_tags() {
     let mut idx = NoteIndex::default();
-    idx.seed(note("a.md", "---\ntags: [old]\n---\n"));
-    idx.seed(note("a.md", "---\ntags: [new]\n---\n")); // replace
+    idx.seed(note("/vault/a.md", "---\ntags: [old]\n---\n"));
+    idx.seed(note("/vault/a.md", "---\ntags: [new]\n---\n")); // replace
     let tags: Vec<&str> = idx.all_tags().collect();
     assert!(!tags.contains(&"old"), "old tag should be removed");
     assert!(tags.contains(&"new"), "new tag should be present");
