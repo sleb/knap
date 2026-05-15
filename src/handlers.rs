@@ -6,8 +6,9 @@ use log::warn;
 use lsp_server::{Message, Notification};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
-    GotoDefinitionParams, GotoDefinitionResponse, Location, Position, PublishDiagnosticsParams,
-    Range, ReferenceParams, RenameFilesParams, TextEdit, WorkspaceEdit,
+    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
+    Location, Position, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams,
+    SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -300,6 +301,30 @@ pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) ->
     WorkspaceEdit { changes: Some(changes), ..Default::default() }
 }
 
+// ─── Document Symbols ─────────────────────────────────────────────────────────
+
+#[allow(deprecated)] // SymbolInformation::deprecated field is itself deprecated in lsp-types
+pub fn handle_document_symbols(
+    params: DocumentSymbolParams,
+    index: &NoteIndex,
+) -> Option<DocumentSymbolResponse> {
+    let path = uri_to_path(&params.text_document.uri)?;
+    let note = index.get_note(&path)?;
+    let symbols = note
+        .headings
+        .iter()
+        .map(|h| SymbolInformation {
+            name: h.text.clone(),
+            kind: SymbolKind::STRING,
+            location: Location { uri: path_to_uri(&path), range: h.range },
+            tags: None,
+            deprecated: None,
+            container_name: None,
+        })
+        .collect();
+    Some(DocumentSymbolResponse::Flat(symbols))
+}
+
 // ─── URI utilities ────────────────────────────────────────────────────────────
 
 /// Convert an LSP URI to an absolute filesystem path.
@@ -326,7 +351,10 @@ pub fn path_to_uri(path: &Path) -> lsp_types::Uri {
 mod tests {
     use std::path::Path;
 
-    use lsp_types::{CompletionParams, GotoDefinitionParams, Position, ReferenceParams};
+    use lsp_types::{
+        CompletionParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+        Position, ReferenceParams, SymbolKind,
+    };
 
     use super::*;
     use crate::index::NoteIndex;
@@ -687,5 +715,70 @@ mod tests {
         let edit = handle_will_rename_files(params, &idx);
         let changes = edit.changes.unwrap_or_default();
         assert!(changes.is_empty());
+    }
+
+    // ── handle_document_symbols ───────────────────────────────────────────────
+
+    fn make_document_symbol_params(path: &str) -> DocumentSymbolParams {
+        DocumentSymbolParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    }
+
+    fn unwrap_flat(resp: Option<DocumentSymbolResponse>) -> Vec<lsp_types::SymbolInformation> {
+        match resp.expect("expected Some response") {
+            DocumentSymbolResponse::Flat(syms) => syms,
+            DocumentSymbolResponse::Nested(_) => panic!("expected Flat, got Nested"),
+        }
+    }
+
+    #[test]
+    fn document_symbols_returns_all_headings() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# Heading One\n## Heading Two\n### Heading Three\n"));
+        let params = make_document_symbol_params("/vault/a.md");
+        let syms = unwrap_flat(handle_document_symbols(params, &idx));
+        assert_eq!(syms.len(), 3);
+        assert_eq!(syms[0].name, "Heading One");
+        assert_eq!(syms[1].name, "Heading Two");
+        assert_eq!(syms[2].name, "Heading Three");
+    }
+
+    #[test]
+    fn document_symbols_note_absent_returns_none() {
+        let idx = NoteIndex::default();
+        let params = make_document_symbol_params("/vault/a.md");
+        assert!(handle_document_symbols(params, &idx).is_none());
+    }
+
+    #[test]
+    fn document_symbols_no_headings_returns_empty() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "just prose, no headings"));
+        let params = make_document_symbol_params("/vault/a.md");
+        let syms = unwrap_flat(handle_document_symbols(params, &idx));
+        assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn document_symbols_kind_is_string() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# H1\n## H2\n"));
+        let params = make_document_symbol_params("/vault/a.md");
+        let syms = unwrap_flat(handle_document_symbols(params, &idx));
+        assert!(syms.iter().all(|s| s.kind == SymbolKind::STRING));
+    }
+
+    #[test]
+    fn document_symbols_range_matches_heading() {
+        let content = "# My Heading\n";
+        let heading_range = note("/vault/a.md", content).headings[0].range;
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_document_symbol_params("/vault/a.md");
+        let syms = unwrap_flat(handle_document_symbols(params, &idx));
+        assert_eq!(syms[0].location.range, heading_range);
     }
 }

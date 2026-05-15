@@ -9,11 +9,11 @@ use crossbeam_channel::Sender;
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidChangeWatchedFilesRegistrationOptions, DidOpenTextDocumentParams, FileChangeType,
-    FileOperationFilter, FileOperationPattern, FileOperationRegistrationOptions, FileSystemWatcher,
-    GlobPattern, GotoDefinitionParams, InitializeParams, InitializeResult, OneOf, ReferenceParams,
-    Registration, RegistrationParams, RelativePattern, RenameFilesParams, ServerCapabilities,
-    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    DidChangeWatchedFilesRegistrationOptions, DidOpenTextDocumentParams, DocumentSymbolParams,
+    FileChangeType, FileOperationFilter, FileOperationPattern, FileOperationRegistrationOptions,
+    FileSystemWatcher, GlobPattern, GotoDefinitionParams, InitializeParams, InitializeResult,
+    OneOf, ReferenceParams, Registration, RegistrationParams, RelativePattern, RenameFilesParams,
+    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
     WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities,
 };
 
@@ -108,6 +108,7 @@ pub fn run(connection: Connection) -> Result<()> {
         }),
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
+        document_symbol_provider: Some(OneOf::Left(true)),
         workspace: Some(WorkspaceServerCapabilities {
             file_operations: Some(WorkspaceFileOperationsServerCapabilities {
                 will_rename: Some(FileOperationRegistrationOptions {
@@ -250,6 +251,14 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, edit)))?;
+        }
+        "textDocument/documentSymbol" => {
+            let result = serde_json::from_value::<DocumentSymbolParams>(req.params)
+                .ok()
+                .and_then(|params| handlers::handle_document_symbols(params, index));
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, result)))?;
         }
         _ => {
             // Unknown methods return null (not an error) per LSP spec.
