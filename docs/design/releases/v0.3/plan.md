@@ -17,8 +17,8 @@ untested code for the next step to build on.
 | 2 — Workspace Symbols                  | Done   |                           |
 | 3 — Prepare Rename                     | Done   |                           |
 | 4 — Heading Rename (+ GFM slug update) | Done   | slug applied throughout   |
-| 5 — Anchor Completion                  | Todo   |                           |
-| 6 — Integration tests                  | Todo   |                           |
+| 5 — Anchor Completion                  | Done   |                           |
+| 6 — Integration tests                  | Done   |                           |
 
 ## Approach
 
