@@ -518,12 +518,7 @@ mod tests {
 
     use super::*;
     use crate::index::NoteIndex;
-    use crate::parser;
-
-    fn note(path: &str, content: &str) -> parser::Note {
-        parser::parse(Path::new(path), content)
-    }
-
+    use crate::test_helpers::note;
 
     fn file_uri(path: &str) -> lsp_types::Uri {
         path_to_uri(Path::new(path))

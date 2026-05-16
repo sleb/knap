@@ -356,8 +356,7 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
 fn should_skip_path(path: &std::path::Path) -> bool {
     path.components().any(|c| {
         let std::path::Component::Normal(name) = c else { return false };
-        let s = name.to_string_lossy();
-        s.starts_with('.') || matches!(s.as_ref(), "node_modules" | "target")
+        crate::index::should_skip_dir(&name.to_string_lossy())
     })
 }
 
