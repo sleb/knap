@@ -120,6 +120,23 @@ fn check_link_trigger(content: &str, pos: Position) -> bool {
     line[..cursor].ends_with("](")
 }
 
+/// If the cursor is immediately after a `#` inside a link destination
+/// (`](path#`), return the path segment between `](` and `#`.
+/// Returns `None` if the context doesn't match or the path is empty.
+fn check_anchor_trigger(content: &str, pos: Position) -> Option<String> {
+    let line = content.lines().nth(pos.line as usize).unwrap_or("");
+    let cursor = utf16_to_byte_offset(line, pos.character);
+    let before = &line[..cursor];
+    let open = before.rfind("](")?;
+    let after_open = &before[open + 2..];
+    let hash_pos = after_open.find('#')?;
+    let path = &after_open[..hash_pos];
+    if path.is_empty() {
+        return None;
+    }
+    Some(path.to_string())
+}
+
 /// Compute the relative path from `from_dir` to `to`, suitable as a Markdown
 /// link target. Both arguments must be absolute paths.
 fn relative_path(from_dir: &Path, to: &Path) -> String {
@@ -146,6 +163,33 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
     let Some(note) = index.get_note(&path) else {
         return vec![];
     };
+
+    // Anchor completion: `](path#` → list headings from target note.
+    if let Some(target_rel) = check_anchor_trigger(&note.content, pos) {
+        let ResolvedLink::Found(target_path) = index.resolve(&path, &target_rel) else {
+            return vec![];
+        };
+        let Some(target_note) = index.get_note(&target_path) else {
+            return vec![];
+        };
+        return target_note
+            .headings
+            .iter()
+            .map(|h| {
+                let s = slug(&h.text);
+                CompletionItem {
+                    label: h.text.clone(),
+                    kind: Some(CompletionItemKind::REFERENCE),
+                    filter_text: Some(h.text.clone()),
+                    insert_text: Some(s.clone()),
+                    detail: Some(format!("#{s}")),
+                    ..Default::default()
+                }
+            })
+            .collect();
+    }
+
+    // File path completion: `](` → list all notes and attachments.
     if !check_link_trigger(&note.content, pos) {
         return vec![];
     }
@@ -413,7 +457,7 @@ pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<Workspac
         if !link.target.is_empty() {
             continue;
         }
-        if link.anchor.as_deref().map(|a| slug(a)).as_deref() != Some(old_slug.as_str()) {
+        if link.anchor.as_deref().map(slug).as_deref() != Some(old_slug.as_str()) {
             continue;
         }
         let Some(anchor_range) = link.anchor_range else { continue };
@@ -425,7 +469,7 @@ pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<Workspac
 
     // c. Incoming links from other files that reference this heading by anchor.
     for located in index.links_to(&path) {
-        if located.md_link.anchor.as_deref().map(|a| slug(a)).as_deref()
+        if located.md_link.anchor.as_deref().map(slug).as_deref()
             != Some(old_slug.as_str())
         {
             continue;
@@ -1098,5 +1142,73 @@ mod tests {
         idx.seed(note("/vault/a.md", "# Old Heading\n\nsome prose\n"));
         let params = make_rename_heading_params("/vault/a.md", 2, 0, "New Heading");
         assert!(handle_rename(params, &idx).is_none());
+    }
+
+    // ── anchor completion (US-45) ─────────────────────────────────────────────
+
+    #[test]
+    fn anchor_completion_returns_headings() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "## My Section\n## Other\n"));
+        // "[link](b.md#" — cursor at character 12 (right after `#`)
+        idx.seed(note("/vault/a.md", "[link](b.md#"));
+        let params = make_completion_params("/vault/a.md", 0, 12);
+        let items = handle_completion(params, &idx);
+        assert!(!items.is_empty(), "should return heading completions");
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn anchor_completion_label_is_heading_text() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "## My Section\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md#"));
+        let params = make_completion_params("/vault/a.md", 0, 12);
+        let items = handle_completion(params, &idx);
+        assert_eq!(items[0].label, "My Section");
+    }
+
+    #[test]
+    fn anchor_completion_insert_is_slug() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "## My Section\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md#"));
+        let params = make_completion_params("/vault/a.md", 0, 12);
+        let items = handle_completion(params, &idx);
+        assert_eq!(items[0].insert_text.as_deref(), Some("my-section"));
+        assert_eq!(items[0].detail.as_deref(), Some("#my-section"));
+        assert_eq!(items[0].filter_text.as_deref(), Some("My Section"));
+    }
+
+    #[test]
+    fn anchor_completion_unknown_file_empty() {
+        let mut idx = NoteIndex::default();
+        // "[link](missing.md#" — cursor at character 18
+        idx.seed(note("/vault/a.md", "[link](missing.md#"));
+        let params = make_completion_params("/vault/a.md", 0, 18);
+        let items = handle_completion(params, &idx);
+        assert!(items.is_empty(), "unresolvable path should yield no completions");
+    }
+
+    #[test]
+    fn anchor_completion_no_headings_empty() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "no headings here"));
+        idx.seed(note("/vault/a.md", "[link](b.md#"));
+        let params = make_completion_params("/vault/a.md", 0, 12);
+        let items = handle_completion(params, &idx);
+        assert!(items.is_empty(), "file with no headings should yield no completions");
+    }
+
+    #[test]
+    fn anchor_completion_does_not_fire_on_plain_hash() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "## Section\n"));
+        // Hash in prose, not inside a link destination
+        idx.seed(note("/vault/a.md", "some text # not a trigger"));
+        // cursor at character 11, right after `#`
+        let params = make_completion_params("/vault/a.md", 0, 11);
+        let items = handle_completion(params, &idx);
+        assert!(items.is_empty(), "hash in prose should not trigger anchor completion");
     }
 }

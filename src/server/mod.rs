@@ -104,7 +104,7 @@ pub fn run(connection: Connection) -> Result<()> {
             TextDocumentSyncKind::FULL,
         )),
         completion_provider: Some(CompletionOptions {
-            trigger_characters: Some(vec!["(".to_string()]),
+            trigger_characters: Some(vec!["(".to_string(), "#".to_string()]),
             ..Default::default()
         }),
         definition_provider: Some(OneOf::Left(true)),
