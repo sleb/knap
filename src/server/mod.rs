@@ -13,7 +13,8 @@ use lsp_types::{
     FileChangeType, FileOperationFilter, FileOperationPattern, FileOperationRegistrationOptions,
     FileSystemWatcher, GlobPattern, GotoDefinitionParams, InitializeParams, InitializeResult,
     OneOf, ReferenceParams, Registration, RegistrationParams, RelativePattern, RenameFilesParams,
-    ServerCapabilities, ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    RenameOptions, RenameParams, ServerCapabilities, ServerInfo, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
     WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
 
@@ -110,6 +111,10 @@ pub fn run(connection: Connection) -> Result<()> {
         references_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
         workspace_symbol_provider: Some(OneOf::Left(true)),
+        rename_provider: Some(OneOf::Right(RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: Default::default(),
+        })),
         workspace: Some(WorkspaceServerCapabilities {
             file_operations: Some(WorkspaceFileOperationsServerCapabilities {
                 will_rename: Some(FileOperationRegistrationOptions {
@@ -266,6 +271,22 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
                 .ok()
                 .map(|params| handlers::handle_workspace_symbols(params, index))
                 .unwrap_or_default();
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, result)))?;
+        }
+        "textDocument/prepareRename" => {
+            let result = serde_json::from_value::<TextDocumentPositionParams>(req.params)
+                .ok()
+                .and_then(|params| handlers::handle_prepare_rename(params, index));
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, result)))?;
+        }
+        "textDocument/rename" => {
+            let result = serde_json::from_value::<RenameParams>(req.params)
+                .ok()
+                .and_then(|params| handlers::handle_rename(params, index));
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, result)))?;

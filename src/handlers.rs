@@ -7,8 +7,9 @@ use lsp_server::{Message, Notification};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
     DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
-    Location, Position, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams,
-    SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
+    Location, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
+    RenameFilesParams, RenameParams, SymbolInformation, SymbolKind, TextDocumentPositionParams,
+    TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -356,6 +357,28 @@ pub fn handle_workspace_symbols(
         .collect()
 }
 
+// ─── Heading Rename ───────────────────────────────────────────────────────────
+
+pub fn handle_prepare_rename(
+    params: TextDocumentPositionParams,
+    index: &NoteIndex,
+) -> Option<PrepareRenameResponse> {
+    let path = uri_to_path(&params.text_document.uri)?;
+    let note = index.get_note(&path)?;
+    let pos = params.position;
+    let heading = note.headings.iter().find(|h| {
+        h.range.start.line <= pos.line && pos.line <= h.range.end.line
+    })?;
+    Some(PrepareRenameResponse::RangeWithPlaceholder {
+        range: heading.text_range,
+        placeholder: heading.text.clone(),
+    })
+}
+
+pub fn handle_rename(_params: RenameParams, _index: &NoteIndex) -> Option<WorkspaceEdit> {
+    None // stub — replaced in Step 4
+}
+
 // ─── URI utilities ────────────────────────────────────────────────────────────
 
 /// Convert an LSP URI to an absolute filesystem path.
@@ -384,7 +407,8 @@ mod tests {
 
     use lsp_types::{
         CompletionParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
-        Position, ReferenceParams, SymbolKind, WorkspaceSymbolParams,
+        Position, PrepareRenameResponse, ReferenceParams, SymbolKind, TextDocumentPositionParams,
+        WorkspaceSymbolParams,
     };
 
     use super::*;
@@ -870,5 +894,55 @@ mod tests {
         let params = make_workspace_symbol_params("intro");
         let syms = handle_workspace_symbols(params, &idx);
         assert_eq!(syms.len(), 2);
+    }
+
+    // ── handle_prepare_rename ─────────────────────────────────────────────────
+
+    fn make_prepare_rename_params(path: &str, line: u32, character: u32) -> TextDocumentPositionParams {
+        TextDocumentPositionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            position: Position { line, character },
+        }
+    }
+
+    #[test]
+    fn prepare_rename_on_heading_returns_text_range_and_placeholder() {
+        let mut idx = NoteIndex::default();
+        let content = "# My Heading\n";
+        let text_range = note("/vault/a.md", content).headings[0].text_range;
+        idx.seed(note("/vault/a.md", content));
+        let params = make_prepare_rename_params("/vault/a.md", 0, 5);
+        let resp = handle_prepare_rename(params, &idx);
+        match resp.expect("expected Some") {
+            PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } => {
+                assert_eq!(range, text_range);
+                assert_eq!(placeholder, "My Heading");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn prepare_rename_off_heading_returns_none() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# Heading\n\nsome prose\n"));
+        // line 2 is "some prose", not a heading
+        let params = make_prepare_rename_params("/vault/a.md", 2, 0);
+        assert!(handle_prepare_rename(params, &idx).is_none());
+    }
+
+    #[test]
+    fn prepare_rename_note_absent_returns_none() {
+        let idx = NoteIndex::default();
+        let params = make_prepare_rename_params("/vault/missing.md", 0, 0);
+        assert!(handle_prepare_rename(params, &idx).is_none());
+    }
+
+    #[test]
+    fn prepare_rename_no_headings_returns_none() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "just prose\n"));
+        let params = make_prepare_rename_params("/vault/a.md", 0, 3);
+        assert!(handle_prepare_rename(params, &idx).is_none());
     }
 }

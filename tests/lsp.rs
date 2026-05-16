@@ -2,7 +2,7 @@ use std::thread;
 
 use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
-    CompletionResponse, DiagnosticSeverity, GotoDefinitionResponse, Location,
+    CompletionResponse, DiagnosticSeverity, GotoDefinitionResponse, Location, OneOf,
     PublishDiagnosticsParams, TextDocumentSyncCapability, TextDocumentSyncKind,
 };
 use serde_json::json;
@@ -141,8 +141,9 @@ fn send_request(client: &Connection, id: i32, method: &str, params: serde_json::
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-/// Server advertises v0.1 capabilities: sync=Full, completion trigger `(`,
-/// definition, references. Does not advertise v0.2+ capabilities.
+/// Server advertises core capabilities: sync=Full, completion trigger `(`,
+/// definition, references, rename (with prepareRename). Does not advertise
+/// hover, code_lens, or other unimplemented capabilities.
 #[test]
 fn lifecycle_capabilities() {
     let client = spawn_server();
@@ -180,10 +181,16 @@ fn lifecycle_capabilities() {
     assert!(caps.definition_provider.is_some(), "definition provider should be advertised");
     assert!(caps.references_provider.is_some(), "references provider should be advertised");
 
-    // v0.2+ capabilities must NOT be present
-    assert!(caps.hover_provider.is_none(), "hover should not be advertised in v0.1");
-    assert!(caps.rename_provider.is_none(), "rename should not be advertised in v0.1");
-    assert!(caps.code_lens_provider.is_none(), "code lens should not be advertised in v0.1");
+    // rename must be advertised with prepare support
+    let rename_opts = caps.rename_provider.as_ref().expect("rename provider should be advertised");
+    assert!(
+        matches!(rename_opts, OneOf::Right(lsp_types::RenameOptions { prepare_provider: Some(true), .. })),
+        "rename provider should have prepare_provider=true"
+    );
+
+    // unimplemented capabilities must NOT be present
+    assert!(caps.hover_provider.is_none(), "hover should not be advertised");
+    assert!(caps.code_lens_provider.is_none(), "code lens should not be advertised");
 
     client
         .sender
