@@ -2,14 +2,14 @@
 
 Covers the stories in the v0.3 release:
 
-| Story | Feature                                                                              |
-| ----- | ------------------------------------------------------------------------------------ |
-| US-06 | `[text](note.md#heading)` — Go to Definition navigates to the heading line           |
-| US-08 | Diagnostic when a heading anchor no longer exists in the target file                 |
-| US-11 | Document Symbols — jump to any heading within the current file                       |
-| US-12 | Workspace Symbols — search headings across all files                                 |
-| US-28 | Rename a heading → all `[text](note.md#old-heading)` links updated                   |
-| US-45 | Anchor completions — `[text](file.md#` offers headings; inserts GFM slug             |
+| Story | Feature                                                                    |
+| ----- | -------------------------------------------------------------------------- |
+| US-06 | `[text](note.md#heading)` — Go to Definition navigates to the heading line |
+| US-08 | Diagnostic when a heading anchor no longer exists in the target file       |
+| US-11 | Document Symbols — jump to any heading within the current file             |
+| US-12 | Workspace Symbols — search headings across all files                       |
+| US-28 | Rename a heading → all `[text](note.md#old-heading)` links updated         |
+| US-45 | Anchor completions — `[text](file.md#` offers headings; inserts GFM slug   |
 
 ---
 
@@ -189,9 +189,9 @@ Steps:
 3. Find the first heading where `heading.range.start.line == pos.line`. Return
    `None` if no heading is on the cursor line.
 4. Return `Some(PrepareRenameResponse::RangeWithPlaceholder {
-       range: heading.text_range,
-       placeholder: heading.text.clone(),
-   })`.
+    range: heading.text_range,
+    placeholder: heading.text.clone(),
+})`.
 
 The `RangeWithPlaceholder` form pre-fills the editor's rename input with the
 current heading text, so the writer edits it directly rather than typing from
@@ -220,9 +220,11 @@ Steps:
 4. Let `old_slug = slug(&heading.text)`. Build `HashMap<Uri, Vec<TextEdit>>`:
 
    **a. Heading text in the source file** (human-readable, not slugified):
+
    ```
    TextEdit { range: heading.text_range, new_text: new_name.clone() }
    ```
+
    keyed under `path_to_uri(&path)`.
 
    **b. Anchor-only self-links inside the same file:**
@@ -232,7 +234,7 @@ Steps:
      ```
      TextEdit { range: anchor_range, new_text: slug(new_name) }
      ```
-   keyed under `path_to_uri(&path)`.
+     keyed under `path_to_uri(&path)`.
 
    **c. Incoming links from other files:**
    For each `located` in `index.links_to(&path)`:
@@ -241,7 +243,7 @@ Steps:
      ```
      TextEdit { range: anchor_range, new_text: slug(new_name) }
      ```
-   keyed under `path_to_uri(&located.source_path)`.
+     keyed under `path_to_uri(&located.source_path)`.
 
 5. Return `Some(WorkspaceEdit { changes: Some(changes), ..Default::default() })`.
 
@@ -272,12 +274,12 @@ Looks backward from the cursor on the current line:
 1. Find the last `](` on the line up to the cursor.
 2. Look for `#` in the substring after `](`.
 3. If found, return the text between `](` and `#` — the partial file path the
-   user has already typed (may be empty if the user typed `](`  then `#`
+   user has already typed (may be empty if the user typed `](` then `#`
    immediately).
 4. Return `None` if no `](` or no `#` is found.
 
 The returned string is the resolved-path candidate. The text the user typed
-*after* the `#` (if any) is handled by the editor's own fuzzy-filter against
+_after_ the `#` (if any) is handled by the editor's own fuzzy-filter against
 `filter_text`.
 
 **Changes to `handle_completion`:**
@@ -367,39 +369,39 @@ Add four cases to `dispatch_request`:
 
 ### Unit tests (`src/handlers.rs`)
 
-| Test                                          | What it verifies                                                                  |
-| --------------------------------------------- | --------------------------------------------------------------------------------- |
-| `document_symbols_returns_all_headings`       | Note with H1, H2, H3 → three symbols in document order                           |
-| `document_symbols_note_absent_returns_none`   | URI not in index → `None`                                                         |
-| `document_symbols_no_headings_returns_empty`  | Note with no headings → `Some(Flat([]))`                                          |
-| `document_symbols_kind_is_string`             | Each symbol has `kind == SymbolKind::STRING`                                      |
-| `workspace_symbols_empty_query_returns_all`   | Empty query → every heading from every indexed note                               |
-| `workspace_symbols_query_filters`             | Query "intro" → only headings containing "intro" (case-insensitive)               |
-| `workspace_symbols_no_match_returns_empty`    | Query with no match → empty vec                                                   |
-| `workspace_symbols_container_is_filename`     | `container_name` equals the note's filename                                       |
-| `prepare_rename_on_heading_returns_range`     | Cursor on `## My Heading` → `RangeWithPlaceholder { range: text_range, placeholder: "My Heading" }` |
-| `prepare_rename_off_heading_returns_none`     | Cursor on a prose line → `None`                                                   |
-| `rename_heading_edits_text`                   | Heading `text_range` rewritten to `new_name` (human-readable)                     |
-| `rename_heading_updates_incoming_anchor`      | Incoming `[text](note.md#old-heading)` → anchor rewritten to `slug(new_name)`     |
-| `rename_heading_updates_self_anchor`          | Same-file `[text](#old-heading)` → anchor rewritten to `slug(new_name)`           |
-| `rename_heading_case_insensitive_match`       | Link anchor `OLD-HEADING` matches heading `Old Heading` → anchor updated          |
-| `rename_heading_non_matching_anchor_skipped`  | Link with a different anchor → not included in the edit                           |
-| `rename_heading_no_heading_at_cursor_none`    | Cursor not on a heading line → `None`                                             |
-| `anchor_completion_returns_headings`          | `](a.md#` context → one item per heading in a.md                                  |
-| `anchor_completion_label_is_heading_text`     | Item label = "My Section" (human-readable)                                        |
-| `anchor_completion_insert_is_slug`            | Item `insert_text` = "my-section" (GFM slug, no `#`)                             |
-| `anchor_completion_unknown_file_empty`        | Unresolvable path before `#` → empty list                                         |
-| `anchor_completion_no_headings_empty`         | Target file has no headings → empty list                                           |
-| `anchor_completion_does_not_fire_on_plain_hash` | `#` outside a `](` context → file completions still served (or empty)           |
+| Test                                            | What it verifies                                                                                    |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `document_symbols_returns_all_headings`         | Note with H1, H2, H3 → three symbols in document order                                              |
+| `document_symbols_note_absent_returns_none`     | URI not in index → `None`                                                                           |
+| `document_symbols_no_headings_returns_empty`    | Note with no headings → `Some(Flat([]))`                                                            |
+| `document_symbols_kind_is_string`               | Each symbol has `kind == SymbolKind::STRING`                                                        |
+| `workspace_symbols_empty_query_returns_all`     | Empty query → every heading from every indexed note                                                 |
+| `workspace_symbols_query_filters`               | Query "intro" → only headings containing "intro" (case-insensitive)                                 |
+| `workspace_symbols_no_match_returns_empty`      | Query with no match → empty vec                                                                     |
+| `workspace_symbols_container_is_filename`       | `container_name` equals the note's filename                                                         |
+| `prepare_rename_on_heading_returns_range`       | Cursor on `## My Heading` → `RangeWithPlaceholder { range: text_range, placeholder: "My Heading" }` |
+| `prepare_rename_off_heading_returns_none`       | Cursor on a prose line → `None`                                                                     |
+| `rename_heading_edits_text`                     | Heading `text_range` rewritten to `new_name` (human-readable)                                       |
+| `rename_heading_updates_incoming_anchor`        | Incoming `[text](note.md#old-heading)` → anchor rewritten to `slug(new_name)`                       |
+| `rename_heading_updates_self_anchor`            | Same-file `[text](#old-heading)` → anchor rewritten to `slug(new_name)`                             |
+| `rename_heading_case_insensitive_match`         | Link anchor `OLD-HEADING` matches heading `Old Heading` → anchor updated                            |
+| `rename_heading_non_matching_anchor_skipped`    | Link with a different anchor → not included in the edit                                             |
+| `rename_heading_no_heading_at_cursor_none`      | Cursor not on a heading line → `None`                                                               |
+| `anchor_completion_returns_headings`            | `](a.md#` context → one item per heading in a.md                                                    |
+| `anchor_completion_label_is_heading_text`       | Item label = "My Section" (human-readable)                                                          |
+| `anchor_completion_insert_is_slug`              | Item `insert_text` = "my-section" (GFM slug, no `#`)                                                |
+| `anchor_completion_unknown_file_empty`          | Unresolvable path before `#` → empty list                                                           |
+| `anchor_completion_no_headings_empty`           | Target file has no headings → empty list                                                            |
+| `anchor_completion_does_not_fire_on_plain_hash` | `#` outside a `](` context → file completions still served (or empty)                               |
 
 ### Integration tests (`tests/lsp.rs`)
 
-| Test                                          | What it verifies                                                                   |
-| --------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `test_document_symbols_lists_headings`        | `textDocument/documentSymbol` returns one entry per heading in the file            |
-| `test_workspace_symbols_query`                | `workspace/symbol` with a query string returns only matching heading names         |
-| `test_prepare_rename_on_heading`              | `textDocument/prepareRename` on a heading returns a non-null range response        |
-| `test_prepare_rename_off_heading`             | `textDocument/prepareRename` on prose returns null                                 |
-| `test_rename_heading_updates_anchor_links`    | `textDocument/rename` returns edits that rewrite anchors in other files            |
-| `test_rename_heading_updates_self_links`      | `textDocument/rename` returns edits for anchor-only self-links in the same file    |
-| `test_anchor_completion`                      | `](file.md#` triggers completion; items have heading-text labels and slug insert   |
+| Test                                       | What it verifies                                                                 |
+| ------------------------------------------ | -------------------------------------------------------------------------------- |
+| `test_document_symbols_lists_headings`     | `textDocument/documentSymbol` returns one entry per heading in the file          |
+| `test_workspace_symbols_query`             | `workspace/symbol` with a query string returns only matching heading names       |
+| `test_prepare_rename_on_heading`           | `textDocument/prepareRename` on a heading returns a non-null range response      |
+| `test_prepare_rename_off_heading`          | `textDocument/prepareRename` on prose returns null                               |
+| `test_rename_heading_updates_anchor_links` | `textDocument/rename` returns edits that rewrite anchors in other files          |
+| `test_rename_heading_updates_self_links`   | `textDocument/rename` returns edits for anchor-only self-links in the same file  |
+| `test_anchor_completion`                   | `](file.md#` triggers completion; items have heading-text labels and slug insert |
