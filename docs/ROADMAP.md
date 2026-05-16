@@ -62,9 +62,23 @@ GitHub, Obsidian, and VS Code Markdown Preview all use.
 | US-11 | Document Symbols — jump to any heading within the current file                  |
 | US-12 | Workspace Symbols — search headings across all files                            |
 | US-28 | Rename a heading → heading text and all `[text](note.md#old-slug)` links updated|
+| US-45 | Anchor completions — `[text](file.md#` → heading list; label = text, insert = slug |
 
 **LSP capabilities delivered:** `textDocument/documentSymbol`,
-`workspace/symbol`, `textDocument/rename`
+`workspace/symbol`, `textDocument/rename`, `textDocument/completion` (anchors)
+
+---
+
+## v0.3.1 — Smarter Path Completion
+
+**Goal:** Make typing relative paths feel effortless, even in deep vault structures.
+
+| Story | Feature                                                                               |
+| ----- | ------------------------------------------------------------------------------------- |
+| US-46 | Segment-by-segment directory completion — drill into folders, stub new files by name  |
+
+**LSP capabilities delivered:** `textDocument/completion` (directory traversal,
+re-trigger on `/`)
 
 ---
 

@@ -22,6 +22,19 @@ without remembering exact paths.
 files in my workspace (images, PDFs, etc.), so I can easily link to attachments
 without remembering their paths.
 
+**US-46** — As a writer, path completions inside `[text](` include directory
+entries alongside files. Selecting a directory inserts the partial path and
+re-triggers completion, so I can navigate deep folder structures one segment at
+a time without knowing the full path upfront. I can finish by typing a new
+filename to create a stub link (surfaced as a broken-link diagnostic until the
+file exists).
+
+**US-45** — As a writer, once I have typed a file path inside `[text](`, typing
+`#` triggers completions for all headings in the target file. Each item shows
+the heading as written (e.g. "My Section") and inserts the GFM slug form
+(e.g. `my-section`), so I can link to a specific section without manually
+computing the anchor.
+
 **US-02** — As a writer, I can `Go to Definition` on a `[text](path/to/note.md)`
 link to open the target file, so I can navigate my knowledge base from the
 keyboard.
