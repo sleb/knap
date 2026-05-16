@@ -29,6 +29,12 @@ a time without knowing the full path upfront. I can finish by typing a new
 filename to create a stub link (surfaced as a broken-link diagnostic until the
 file exists).
 
+**US-47** — As a writer, path completions inside `[text](` also show every file
+in the workspace — not just the immediate directory contents — so I can jump
+directly to any note or attachment by typing part of its path or title, without
+drilling through folders. Directory items appear first; global items appear below
+and can be filtered by typing any segment of their path.
+
 **US-45** — As a writer, once I have typed a file path inside `[text](`, typing
 `#` triggers completions for all headings in the target file. Each item shows
 the heading as written (e.g. "My Section") and inserts the GFM slug form
