@@ -55,13 +55,13 @@ Anchors follow the **GFM slug convention**: `## My Section` → `#my-section`
 (lowercase, spaces to hyphens, non-alphanumeric stripped). This is the format
 GitHub, Obsidian, and VS Code Markdown Preview all use.
 
-| Story | Feature                                                                          |
-| ----- | -------------------------------------------------------------------------------- |
-| US-06 | `[text](note.md#my-section)` — Go to Definition navigates to the heading line   |
-| US-08 | Diagnostic when a heading anchor (matched by GFM slug) no longer exists         |
-| US-11 | Document Symbols — jump to any heading within the current file                  |
-| US-12 | Workspace Symbols — search headings across all files                            |
-| US-28 | Rename a heading → heading text and all `[text](note.md#old-slug)` links updated|
+| Story | Feature                                                                            |
+| ----- | ---------------------------------------------------------------------------------- |
+| US-06 | `[text](note.md#my-section)` — Go to Definition navigates to the heading line      |
+| US-08 | Diagnostic when a heading anchor (matched by GFM slug) no longer exists            |
+| US-11 | Document Symbols — jump to any heading within the current file                     |
+| US-12 | Workspace Symbols — search headings across all files                               |
+| US-28 | Rename a heading → heading text and all `[text](note.md#old-slug)` links updated   |
 | US-45 | Anchor completions — `[text](file.md#` → heading list; label = text, insert = slug |
 
 **LSP capabilities delivered:** `textDocument/documentSymbol`,
@@ -69,13 +69,13 @@ GitHub, Obsidian, and VS Code Markdown Preview all use.
 
 ---
 
-## v0.3.1 — Smarter Path Completion
+## v0.3.1 — Smarter Path Completion _(released 2026-05-16)_
 
 **Goal:** Make typing relative paths feel effortless, even in deep vault structures.
 
-| Story | Feature                                                                               |
-| ----- | ------------------------------------------------------------------------------------- |
-| US-46 | Segment-by-segment directory completion — drill into folders, stub new files by name  |
+| Story | Feature                                                                              |
+| ----- | ------------------------------------------------------------------------------------ |
+| US-46 | Segment-by-segment directory completion — drill into folders, stub new files by name |
 
 **LSP capabilities delivered:** `textDocument/completion` (directory traversal,
 re-trigger on `/`)

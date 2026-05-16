@@ -1,11 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::index::{NoteIndex, ResolvedLink};
-use crate::parser;
-
-fn note(path: &str, content: &str) -> crate::parser::Note {
-    parser::parse(Path::new(path), content)
-}
+use crate::test_helpers::note;
 
 fn pb(s: &str) -> PathBuf {
     PathBuf::from(s)

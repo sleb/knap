@@ -357,7 +357,7 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
 /// Returns `true` for directory names that should not be crawled.
 /// Skips hidden directories (`.git`, `.obsidian`, …) and well-known
 /// build/dependency directories that are never part of a note vault.
-fn should_skip_dir(name: &str) -> bool {
+pub(crate) fn should_skip_dir(name: &str) -> bool {
     name.starts_with('.') || matches!(name, "node_modules" | "target")
 }
 

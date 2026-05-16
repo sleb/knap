@@ -5,6 +5,18 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.3.1] — 2026-05-16
+
+### Changed
+
+- Path completions now show only immediate children of the current directory
+  segment rather than every file in the vault. Subdirectories appear as folder
+  items (e.g. `notes/`) and selecting one re-triggers completion to show its
+  contents — drill down one level at a time without seeing hundreds of files at
+  once. (US-46)
+- Typing `/` inside a Markdown link path now triggers completion, so you can
+  navigate into subdirectories without manually invoking the picker.
+
 ## [0.3.0] — 2026-05-16
 
 ### Added

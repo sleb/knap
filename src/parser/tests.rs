@@ -465,3 +465,13 @@ fn fields_title_and_status_both_extracted() {
     assert!(keys.contains(&"title"), "expected title in fields");
     assert!(keys.contains(&"status"), "expected status in fields");
 }
+
+#[test]
+fn frontmatter_body_offset_eof_terminated() {
+    // No trailing newline after closing ---
+    let note = parse(Path::new("x.md"), "---\ntitle: T\n---");
+    assert_eq!(note.headings.len(), 0);
+    assert_eq!(note.md_links.len(), 0);
+    let fm = note.frontmatter.expect("frontmatter present");
+    assert_eq!(fm.title.as_deref(), Some("T"));
+}

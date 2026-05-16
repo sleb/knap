@@ -132,8 +132,17 @@ Once connected, knap provides the following in any Markdown file:
 
 ### Link completions
 
-Inside a Markdown link, type `(` to get a completion list of every note in your
-workspace. Completions are filtered as you continue typing the path.
+Inside a Markdown link, type `(` to open a completion list showing the immediate
+children of the current directory: sibling notes appear as file items, and
+subdirectories appear as folder items (e.g. `notes/`). Select a folder item and
+the picker re-opens showing that directory's contents — drill down one level at a
+time. Typing `/` re-triggers completion automatically.
+
+### Anchor completions
+
+After a file path inside a Markdown link, type `#` to open a heading picker for
+the target file (`[text](file.md#`). Each item shows the heading text and inserts
+the GFM slug form — no leading `#`. Example: `## My Section` inserts `my-section`.
 
 ### Go to Definition
 
@@ -143,12 +152,12 @@ target file.
 
 Supported link forms:
 
-| Syntax                      | Behaviour                                          |
-| --------------------------- | -------------------------------------------------- |
-| `[text](note.md)`           | Navigate to `note.md`                              |
-| `[text](note.md#Heading)`   | Navigate to `note.md` (heading nav coming in v0.3) |
-| `[text](../folder/note.md)` | Relative paths resolved from the current file      |
-| `![alt](image.png)`         | Navigate to `image.png` in the workspace           |
+| Syntax                       | Behaviour                                          |
+| ---------------------------- | -------------------------------------------------- |
+| `[text](note.md)`            | Navigate to `note.md`                              |
+| `[text](note.md#my-section)` | Navigate to the matching heading line in `note.md` |
+| `[text](../folder/note.md)`  | Relative paths resolved from the current file      |
+| `![alt](image.png)`          | Navigate to `image.png` in the workspace           |
 
 ### Find References
 
@@ -162,6 +171,23 @@ editor supports it). knap intercepts the rename via `workspace/willRenameFiles`
 and returns a workspace edit that rewrites every `[text](old-name.md)` link
 before the file moves.
 
+### Rename a heading
+
+Place your cursor on a heading line and trigger Rename Symbol (`F2` in VS Code /
+Zed, `grn` in Neovim). All `[text](note.md#old-slug)` anchor links pointing at
+that heading — including self-links within the same file — are rewritten to the
+new slug atomically.
+
+### Document Symbols
+
+Trigger the Outline / Symbols panel to see every heading in the current file as
+a flat list you can jump to directly.
+
+### Workspace Symbols
+
+Open Workspace Symbols (usually `Cmd+T` / `Ctrl+T`) and type part of a heading
+name to search headings across all indexed notes.
+
 ### Broken link diagnostics
 
 knap publishes warnings for:
@@ -169,6 +195,9 @@ knap publishes warnings for:
 - **Broken links** — `[text](target.md)` where the relative path doesn't
   resolve to an existing file in the workspace.
   Message: `Link target not found: 'target.md'`
+- **Broken anchors** — `[text](note.md#heading)` where the anchor doesn't match
+  any heading in the target file (compared via GFM slug).
+  Message: `Heading not found: '#heading'`
 
 Diagnostics update as files are opened, saved, created, and deleted — no
 restart needed.

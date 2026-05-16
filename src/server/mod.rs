@@ -104,7 +104,11 @@ pub fn run(connection: Connection) -> Result<()> {
             TextDocumentSyncKind::FULL,
         )),
         completion_provider: Some(CompletionOptions {
-            trigger_characters: Some(vec!["(".to_string(), "#".to_string()]),
+            trigger_characters: Some(vec![
+                "(".to_string(),
+                "#".to_string(),
+                "/".to_string(),
+            ]),
             ..Default::default()
         }),
         definition_provider: Some(OneOf::Left(true)),
@@ -340,13 +344,17 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
             return;
         }
     };
-    let content = match params.content_changes.into_iter().next() {
+    let mut iter = params.content_changes.into_iter();
+    let content = match iter.next() {
         Some(c) => c.text,
         None => {
             warn!("didChange: no content changes");
             return;
         }
     };
+    if iter.next().is_some() {
+        warn!("didChange: received >1 content changes; only the first is used (Full sync)");
+    }
     let Some(path) = uri_to_path(&params.text_document.uri) else { return; };
     let note = parser::parse(&path, &content);
     let delta = index.index(note);
@@ -356,8 +364,7 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
 fn should_skip_path(path: &std::path::Path) -> bool {
     path.components().any(|c| {
         let std::path::Component::Normal(name) = c else { return false };
-        let s = name.to_string_lossy();
-        s.starts_with('.') || matches!(s.as_ref(), "node_modules" | "target")
+        crate::index::should_skip_dir(&name.to_string_lossy())
     })
 }
 

@@ -130,6 +130,17 @@ fn frontmatter_block(content: &str) -> Option<&str> {
     }
 }
 
+fn strip_surrounding_quotes(s: &str) -> &str {
+    if s.len() >= 2
+        && ((s.starts_with('"') && s.ends_with('"'))
+            || (s.starts_with('\'') && s.ends_with('\'')))
+    {
+        &s[1..s.len() - 1]
+    } else {
+        s
+    }
+}
+
 /// Extract YAML frontmatter from the start of `content`.
 ///
 /// Returns `None` if no valid `---…---` block is found.
@@ -146,16 +157,7 @@ pub fn extract_frontmatter(content: &str) -> Option<Frontmatter> {
             if value.is_empty() || value.starts_with('|') || value.starts_with('>') {
                 // empty value or block scalar — treat as absent
             } else {
-                // Strip matching surrounding quotes.
-                let inner = if value.len() >= 2
-                    && ((value.starts_with('"') && value.ends_with('"'))
-                        || (value.starts_with('\'') && value.ends_with('\'')))
-                {
-                    &value[1..value.len() - 1]
-                } else {
-                    value
-                };
-                let inner = inner.trim();
+                let inner = strip_surrounding_quotes(value).trim();
                 if !inner.is_empty() {
                     title = Some(inner.to_string());
                 }
@@ -201,16 +203,7 @@ fn extract_frontmatter_fields(block: &str, block_start: usize, line_index: &Line
         {
             (None, None)
         } else {
-            // Strip matching surrounding quotes to get the canonical value.
-            let inner = if raw_value.len() >= 2
-                && ((raw_value.starts_with('"') && raw_value.ends_with('"'))
-                    || (raw_value.starts_with('\'') && raw_value.ends_with('\'')))
-            {
-                &raw_value[1..raw_value.len() - 1]
-            } else {
-                raw_value
-            };
-            let inner = inner.trim();
+            let inner = strip_surrounding_quotes(raw_value).trim();
             if inner.is_empty() {
                 (None, None)
             } else {

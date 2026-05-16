@@ -328,11 +328,16 @@ pub fn cmd_check() -> anyhow::Result<()> {
 /// Receive the next Response from `conn`, skipping server-initiated Requests
 /// (e.g. client/registerCapability) or Notifications that arrive on the channel.
 fn recv_response(conn: &lsp_server::Connection) -> anyhow::Result<lsp_server::Response> {
+    let mut skipped = 0u32;
     loop {
         match conn.receiver.recv()? {
             lsp_server::Message::Response(r) => return Ok(r),
-            lsp_server::Message::Request(_) => {}
-            lsp_server::Message::Notification(_) => {}
+            lsp_server::Message::Request(_) | lsp_server::Message::Notification(_) => {
+                skipped += 1;
+                if skipped > 32 {
+                    anyhow::bail!("recv_response: server sent >32 non-response messages");
+                }
+            }
         }
     }
 }

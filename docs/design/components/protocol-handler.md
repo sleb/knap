@@ -65,7 +65,7 @@ ServerCapabilities {
         TextDocumentSyncKind::FULL,
     )),
     completion_provider: Some(CompletionOptions {
-        trigger_characters: Some(vec!["(".to_string()]),
+        trigger_characters: Some(vec!["(".to_string(), "#".to_string(), "/".to_string()]),
         ..Default::default()
     }),
     definition_provider: Some(OneOf::Left(true)),
@@ -151,11 +151,15 @@ for msg in &connection.receiver {
 ```rust
 fn dispatch_request(req: Request, ...) {
     match req.method.as_str() {
-        Completion::METHOD         => handle_completion(req, ...),
-        GotoDefinition::METHOD     => handle_definition(req, ...),
-        References::METHOD         => handle_references(req, ...),
-        "workspace/willRenameFiles" => handle_will_rename_files(req, ...),
-        _                          => respond_with_null(req, ...),
+        Completion::METHOD              => handle_completion(req, ...),
+        GotoDefinition::METHOD          => handle_definition(req, ...),
+        References::METHOD              => handle_references(req, ...),
+        "workspace/willRenameFiles"     => handle_will_rename_files(req, ...),
+        "textDocument/documentSymbol"   => handle_document_symbols(req, ...),
+        "workspace/symbol"              => handle_workspace_symbols(req, ...),
+        "textDocument/prepareRename"    => handle_prepare_rename(req, ...),
+        "textDocument/rename"           => handle_rename(req, ...),
+        _                               => respond_with_null(req, ...),
     }
 }
 ```
