@@ -2,8 +2,9 @@ use std::thread;
 
 use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
-    CompletionResponse, CompletionTextEdit, DiagnosticSeverity, GotoDefinitionResponse, Location,
-    OneOf, PublishDiagnosticsParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    CompletionItemKind, CompletionResponse, CompletionTextEdit, DiagnosticSeverity,
+    GotoDefinitionResponse, Location, OneOf, PublishDiagnosticsParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind,
 };
 use serde_json::json;
 
@@ -908,6 +909,113 @@ fn test_anchor_completion() {
         Some("my-section"),
         "insert_text should be GFM slug"
     );
+
+    do_shutdown(&client, 3);
+}
+
+// ─── v0.3.1 Integration tests ────────────────────────────────────────────────
+
+/// `textDocument/completion` at `](` returns FOLDER items for subdirectories
+/// and FILE items for same-level siblings — not a flat list of all paths.
+#[test]
+fn test_dir_completion_initial() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // Workspace: vault/sub/b.md (in subdirectory) + vault/c.md (sibling of a.md)
+    did_open(&client, "file:///vault/sub/b.md", "# B\n");
+    did_open(&client, "file:///vault/c.md", "# C\n");
+    // a.md: cursor right after `(` at character 7
+    did_open(&client, "file:///vault/a.md", "[link](");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/completion",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 0, "character": 7 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: Option<CompletionResponse> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let items = match result.expect("expected completion result") {
+        CompletionResponse::Array(items) => items,
+        CompletionResponse::List(list) => list.items,
+    };
+
+    // FOLDER item for the sub/ directory must be present
+    let folder_item = items.iter().find(|i| i.kind == Some(CompletionItemKind::FOLDER));
+    assert!(folder_item.is_some(), "expected a FOLDER item for sub/");
+    let folder = folder_item.unwrap();
+    assert_eq!(folder.label, "sub/", "folder label should be 'sub/'");
+    let folder_new_text = match folder.text_edit.as_ref() {
+        Some(CompletionTextEdit::Edit(te)) => &te.new_text,
+        _ => panic!("folder item should have a text_edit"),
+    };
+    assert_eq!(folder_new_text, "sub/", "folder new_text should be 'sub/'");
+
+    // FILE item for the sibling c.md must be present
+    let c_item = items
+        .iter()
+        .find(|i| matches!(i.text_edit.as_ref(), Some(CompletionTextEdit::Edit(te)) if te.new_text == "c.md"));
+    assert!(c_item.is_some(), "expected a FILE item for c.md");
+    assert_eq!(c_item.unwrap().kind, Some(CompletionItemKind::FILE));
+
+    // The deep path sub/b.md must NOT appear as a direct item
+    let flat_item = items
+        .iter()
+        .find(|i| matches!(i.text_edit.as_ref(), Some(CompletionTextEdit::Edit(te)) if te.new_text == "sub/b.md"));
+    assert!(
+        flat_item.is_none(),
+        "sub/b.md should not appear as a flat item — only sub/ as a FOLDER"
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// Completion triggered with `/` after a subdir name (`](sub/`) returns children
+/// of that subdirectory; new_text replaces the entire typed segment.
+#[test]
+fn test_dir_completion_retrigger_slash() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/sub/b.md", "# B\n");
+    did_open(&client, "file:///vault/c.md", "# C\n");
+    // a.md: cursor right after `sub/` at character 11
+    did_open(&client, "file:///vault/a.md", "[link](sub/");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/completion",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 0, "character": 11 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: Option<CompletionResponse> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let items = match result.expect("expected completion result") {
+        CompletionResponse::Array(items) => items,
+        CompletionResponse::List(list) => list.items,
+    };
+
+    // sub/b.md should appear; new_text replaces the whole typed `sub/`
+    let b_item = items
+        .iter()
+        .find(|i| matches!(i.text_edit.as_ref(), Some(CompletionTextEdit::Edit(te)) if te.new_text == "sub/b.md"));
+    assert!(
+        b_item.is_some(),
+        "expected sub/b.md as a completion item when cursor is after 'sub/'; got: {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+    assert_eq!(b_item.unwrap().kind, Some(CompletionItemKind::FILE));
 
     do_shutdown(&client, 3);
 }
