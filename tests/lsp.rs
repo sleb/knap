@@ -2,7 +2,7 @@ use std::thread;
 
 use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
-    CompletionResponse, DiagnosticSeverity, GotoDefinitionResponse, Location,
+    CompletionResponse, DiagnosticSeverity, GotoDefinitionResponse, Location, OneOf,
     PublishDiagnosticsParams, TextDocumentSyncCapability, TextDocumentSyncKind,
 };
 use serde_json::json;
@@ -141,8 +141,9 @@ fn send_request(client: &Connection, id: i32, method: &str, params: serde_json::
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-/// Server advertises v0.1 capabilities: sync=Full, completion trigger `(`,
-/// definition, references. Does not advertise v0.2+ capabilities.
+/// Server advertises core capabilities: sync=Full, completion trigger `(`,
+/// definition, references, rename (with prepareRename). Does not advertise
+/// hover, code_lens, or other unimplemented capabilities.
 #[test]
 fn lifecycle_capabilities() {
     let client = spawn_server();
@@ -180,10 +181,16 @@ fn lifecycle_capabilities() {
     assert!(caps.definition_provider.is_some(), "definition provider should be advertised");
     assert!(caps.references_provider.is_some(), "references provider should be advertised");
 
-    // v0.2+ capabilities must NOT be present
-    assert!(caps.hover_provider.is_none(), "hover should not be advertised in v0.1");
-    assert!(caps.rename_provider.is_none(), "rename should not be advertised in v0.1");
-    assert!(caps.code_lens_provider.is_none(), "code lens should not be advertised in v0.1");
+    // rename must be advertised with prepare support
+    let rename_opts = caps.rename_provider.as_ref().expect("rename provider should be advertised");
+    assert!(
+        matches!(rename_opts, OneOf::Right(lsp_types::RenameOptions { prepare_provider: Some(true), .. })),
+        "rename provider should have prepare_provider=true"
+    );
+
+    // unimplemented capabilities must NOT be present
+    assert!(caps.hover_provider.is_none(), "hover should not be advertised");
+    assert!(caps.code_lens_provider.is_none(), "code lens should not be advertised");
 
     client
         .sender
@@ -620,6 +627,288 @@ fn test_completion_includes_attachment() {
 
     do_shutdown(&client, 3);
 }
+
+// ─── v0.3 Integration tests ───────────────────────────────────────────────────
+
+/// `textDocument/documentSymbol` returns one flat symbol per heading in document order.
+#[test]
+fn test_document_symbols_lists_headings() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "# Title\n\n## Section\n\n### Sub\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": "file:///vault/a.md" } }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let symbols = result.as_array().expect("expected array of symbols");
+
+    assert_eq!(symbols.len(), 3, "expected 3 heading symbols");
+    let names: Vec<&str> = symbols.iter().map(|s| s["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"Title"), "expected Title");
+    assert!(names.contains(&"Section"), "expected Section");
+    assert!(names.contains(&"Sub"), "expected Sub");
+
+    do_shutdown(&client, 3);
+}
+
+/// File with no headings returns an empty flat list, not null.
+#[test]
+fn test_document_symbols_empty_for_no_headings() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "Just prose, no headings.\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/documentSymbol",
+        json!({ "textDocument": { "uri": "file:///vault/a.md" } }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let symbols = result.as_array().expect("expected empty array, not null");
+    assert!(symbols.is_empty(), "expected no symbols for headingless file");
+
+    do_shutdown(&client, 3);
+}
+
+/// `workspace/symbol` with a query string returns only headings whose text
+/// contains the query (case-insensitive).
+#[test]
+fn test_workspace_symbols_query() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "# Introduction\n\n## Summary\n");
+    did_open(&client, "file:///vault/b.md", "# Conclusion\n");
+
+    send_request(&client, 2, "workspace/symbol", json!({ "query": "intro" }));
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let symbols = result.as_array().expect("expected array");
+
+    assert_eq!(symbols.len(), 1, "expected only Introduction");
+    assert_eq!(symbols[0]["name"].as_str().unwrap(), "Introduction");
+
+    do_shutdown(&client, 3);
+}
+
+/// `workspace/symbol` with an empty query returns every heading from all indexed notes.
+#[test]
+fn test_workspace_symbols_empty_query() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "# H1\n\n## H2\n");
+    did_open(&client, "file:///vault/b.md", "# H3\n");
+
+    send_request(&client, 2, "workspace/symbol", json!({ "query": "" }));
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let symbols = result.as_array().expect("expected array");
+
+    assert_eq!(symbols.len(), 3, "expected all 3 headings for empty query");
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/prepareRename` on a heading line returns a non-null
+/// RangeWithPlaceholder containing the heading text.
+#[test]
+fn test_prepare_rename_on_heading() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "## My Heading\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/prepareRename",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 0, "character": 5 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+
+    assert!(!result.is_null(), "expected non-null prepareRename for heading");
+    assert!(result.get("range").is_some(), "expected 'range' field");
+    assert_eq!(
+        result["placeholder"].as_str(),
+        Some("My Heading"),
+        "placeholder should be the heading text"
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/prepareRename` on a prose line returns null.
+#[test]
+fn test_prepare_rename_off_heading() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "## Heading\n\nSome prose here.\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/prepareRename",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 2, "character": 5 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+
+    assert!(result.is_null(), "expected null prepareRename for prose line");
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/rename` on a heading rewrites slug anchors in other files.
+#[test]
+fn test_rename_heading_updates_anchor_links() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/b.md", "## Old Heading\n");
+    did_open(&client, "file:///vault/a.md", "[link](b.md#old-heading)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/rename",
+        json!({
+            "textDocument": { "uri": "file:///vault/b.md" },
+            "position": { "line": 0, "character": 5 },
+            "newName": "New Heading"
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+
+    let b_edits = result["changes"]["file:///vault/b.md"]
+        .as_array()
+        .expect("expected edits for b.md");
+    assert_eq!(b_edits.len(), 1);
+    assert_eq!(b_edits[0]["newText"].as_str(), Some("New Heading"), "heading text should be updated");
+
+    let a_edits = result["changes"]["file:///vault/a.md"]
+        .as_array()
+        .expect("expected edits for a.md");
+    assert_eq!(a_edits.len(), 1);
+    assert_eq!(a_edits[0]["newText"].as_str(), Some("new-heading"), "anchor slug should be updated");
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/rename` on a heading rewrites anchor-only self-links within
+/// the same file.
+#[test]
+fn test_rename_heading_updates_self_links() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "## Old Heading\n\n[jump](#old-heading)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/rename",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 0, "character": 5 },
+            "newName": "New Heading"
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+
+    let a_edits = result["changes"]["file:///vault/a.md"]
+        .as_array()
+        .expect("expected edits for a.md");
+    assert_eq!(a_edits.len(), 2, "expected 2 edits: heading text + self-link anchor");
+
+    let new_texts: Vec<&str> =
+        a_edits.iter().map(|e| e["newText"].as_str().unwrap()).collect();
+    assert!(new_texts.contains(&"New Heading"), "expected heading text edit");
+    assert!(new_texts.contains(&"new-heading"), "expected slug edit for self-link");
+
+    do_shutdown(&client, 3);
+}
+
+/// `](file.md#` triggers anchor completion; items carry heading-text labels
+/// and GFM slug insert_text values.
+#[test]
+fn test_anchor_completion() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/b.md", "## My Section\n\n## Another Part\n");
+    // cursor is right after `#` — character 12 in "[link](b.md#"
+    did_open(&client, "file:///vault/a.md", "[link](b.md#");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/completion",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 0, "character": 12 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: Option<CompletionResponse> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let items = match result.expect("expected completion result") {
+        CompletionResponse::Array(items) => items,
+        CompletionResponse::List(list) => list.items,
+    };
+
+    assert_eq!(items.len(), 2, "expected 2 heading completions");
+    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(labels.contains(&"My Section"), "expected 'My Section' label");
+    assert!(labels.contains(&"Another Part"), "expected 'Another Part' label");
+
+    let my_section = items.iter().find(|i| i.label == "My Section").unwrap();
+    assert_eq!(
+        my_section.insert_text.as_deref(),
+        Some("my-section"),
+        "insert_text should be GFM slug"
+    );
+
+    do_shutdown(&client, 3);
+}
+
+// ─── v0.1 tests (kept below) ─────────────────────────────────────────────────
 
 /// Find-references at the top of b.md returns the location of the link in a.md.
 #[test]

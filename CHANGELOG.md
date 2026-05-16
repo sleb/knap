@@ -5,6 +5,37 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.3.0] — 2026-05-16
+
+### Added
+
+- Go to Definition on `[text](note.md#my-section)` navigates to the heading
+  line, not just the top of the file. Anchors are matched using the GFM slug
+  convention: `## My Section` → `#my-section`. (US-06)
+- Broken-anchor diagnostic: a warning is shown when the anchor in a
+  `[text](note.md#heading)` link does not match any heading in the target file
+  (compared via GFM slug). (US-08)
+- Document Symbols (`textDocument/documentSymbol`) lists every heading in the
+  current file so you can jump to any section from the outline panel. (US-11)
+- Workspace Symbols (`workspace/symbol`) lets you search headings across all
+  indexed notes. Results include the containing filename as the container name.
+  (US-12)
+- Rename a heading with your editor's Rename Symbol command (`F2`) and all
+  `[text](note.md#old-slug)` anchor links across the workspace — including
+  anchor-only self-links within the same file — are rewritten to the new GFM
+  slug atomically. (US-28)
+- Anchor completions: typing `#` after a file path inside a Markdown link
+  (`[text](file.md#`) triggers a heading picker for the target file. Each item
+  shows the heading text as written and inserts the GFM slug form — no leading
+  `#`. (US-45)
+
+### Changed
+
+- Anchor matching throughout (diagnostics, Go to Definition) now uses the GFM
+  slug algorithm rather than plain case-insensitive string comparison. Links
+  written as `#my-section` correctly match headings like `## My Section!` whose
+  slug is `my-section`.
+
 ## [0.2.0] — 2026-05-10
 
 ### Added

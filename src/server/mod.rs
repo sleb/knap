@@ -9,12 +9,13 @@ use crossbeam_channel::Sender;
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-    DidChangeWatchedFilesRegistrationOptions, DidOpenTextDocumentParams, FileChangeType,
-    FileOperationFilter, FileOperationPattern, FileOperationRegistrationOptions, FileSystemWatcher,
-    GlobPattern, GotoDefinitionParams, InitializeParams, InitializeResult, OneOf, ReferenceParams,
-    Registration, RegistrationParams, RelativePattern, RenameFilesParams, ServerCapabilities,
-    ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
-    WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities,
+    DidChangeWatchedFilesRegistrationOptions, DidOpenTextDocumentParams, DocumentSymbolParams,
+    FileChangeType, FileOperationFilter, FileOperationPattern, FileOperationRegistrationOptions,
+    FileSystemWatcher, GlobPattern, GotoDefinitionParams, InitializeParams, InitializeResult,
+    OneOf, ReferenceParams, Registration, RegistrationParams, RelativePattern, RenameFilesParams,
+    RenameOptions, RenameParams, ServerCapabilities, ServerInfo, TextDocumentPositionParams,
+    TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
+    WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
 
 use crate::handlers::{self, uri_to_path};
@@ -103,11 +104,17 @@ pub fn run(connection: Connection) -> Result<()> {
             TextDocumentSyncKind::FULL,
         )),
         completion_provider: Some(CompletionOptions {
-            trigger_characters: Some(vec!["(".to_string()]),
+            trigger_characters: Some(vec!["(".to_string(), "#".to_string()]),
             ..Default::default()
         }),
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
+        document_symbol_provider: Some(OneOf::Left(true)),
+        workspace_symbol_provider: Some(OneOf::Left(true)),
+        rename_provider: Some(OneOf::Right(RenameOptions {
+            prepare_provider: Some(true),
+            work_done_progress_options: Default::default(),
+        })),
         workspace: Some(WorkspaceServerCapabilities {
             file_operations: Some(WorkspaceFileOperationsServerCapabilities {
                 will_rename: Some(FileOperationRegistrationOptions {
@@ -250,6 +257,39 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) ->
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, edit)))?;
+        }
+        "textDocument/documentSymbol" => {
+            let result = serde_json::from_value::<DocumentSymbolParams>(req.params)
+                .ok()
+                .and_then(|params| handlers::handle_document_symbols(params, index));
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, result)))?;
+        }
+        "workspace/symbol" => {
+            let result = serde_json::from_value::<WorkspaceSymbolParams>(req.params)
+                .ok()
+                .map(|params| handlers::handle_workspace_symbols(params, index))
+                .unwrap_or_default();
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, result)))?;
+        }
+        "textDocument/prepareRename" => {
+            let result = serde_json::from_value::<TextDocumentPositionParams>(req.params)
+                .ok()
+                .and_then(|params| handlers::handle_prepare_rename(params, index));
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, result)))?;
+        }
+        "textDocument/rename" => {
+            let result = serde_json::from_value::<RenameParams>(req.params)
+                .ok()
+                .and_then(|params| handlers::handle_rename(params, index));
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, result)))?;
         }
         _ => {
             // Unknown methods return null (not an error) per LSP spec.

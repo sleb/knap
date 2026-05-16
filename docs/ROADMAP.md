@@ -47,20 +47,38 @@ changed). Both are handled atomically.
 
 ---
 
-## v0.3 — Heading Navigation & Anchors
+## v0.3 — Heading Navigation & Anchors _(released 2026-05-16)_
 
 **Goal:** Navigate within notes, not just between them.
 
-| Story | Feature                                                                    |
-| ----- | -------------------------------------------------------------------------- |
-| US-06 | `[text](note.md#heading)` — Go to Definition navigates to the heading line |
-| US-08 | Diagnostic when a heading anchor no longer exists in the target file       |
-| US-11 | Document Symbols — jump to any heading within the current file             |
-| US-12 | Workspace Symbols — search headings across all files                       |
-| US-28 | Rename a heading → all `[text](note.md#old-heading)` links updated         |
+Anchors follow the **GFM slug convention**: `## My Section` → `#my-section`
+(lowercase, spaces to hyphens, non-alphanumeric stripped). This is the format
+GitHub, Obsidian, and VS Code Markdown Preview all use.
+
+| Story | Feature                                                                          |
+| ----- | -------------------------------------------------------------------------------- |
+| US-06 | `[text](note.md#my-section)` — Go to Definition navigates to the heading line   |
+| US-08 | Diagnostic when a heading anchor (matched by GFM slug) no longer exists         |
+| US-11 | Document Symbols — jump to any heading within the current file                  |
+| US-12 | Workspace Symbols — search headings across all files                            |
+| US-28 | Rename a heading → heading text and all `[text](note.md#old-slug)` links updated|
+| US-45 | Anchor completions — `[text](file.md#` → heading list; label = text, insert = slug |
 
 **LSP capabilities delivered:** `textDocument/documentSymbol`,
-`workspace/symbol`, `textDocument/rename`
+`workspace/symbol`, `textDocument/rename`, `textDocument/completion` (anchors)
+
+---
+
+## v0.3.1 — Smarter Path Completion
+
+**Goal:** Make typing relative paths feel effortless, even in deep vault structures.
+
+| Story | Feature                                                                               |
+| ----- | ------------------------------------------------------------------------------------- |
+| US-46 | Segment-by-segment directory completion — drill into folders, stub new files by name  |
+
+**LSP capabilities delivered:** `textDocument/completion` (directory traversal,
+re-trigger on `/`)
 
 ---
 

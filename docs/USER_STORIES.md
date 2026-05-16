@@ -22,6 +22,19 @@ without remembering exact paths.
 files in my workspace (images, PDFs, etc.), so I can easily link to attachments
 without remembering their paths.
 
+**US-46** — As a writer, path completions inside `[text](` include directory
+entries alongside files. Selecting a directory inserts the partial path and
+re-triggers completion, so I can navigate deep folder structures one segment at
+a time without knowing the full path upfront. I can finish by typing a new
+filename to create a stub link (surfaced as a broken-link diagnostic until the
+file exists).
+
+**US-45** — As a writer, once I have typed a file path inside `[text](`, typing
+`#` triggers completions for all headings in the target file. Each item shows
+the heading as written (e.g. "My Section") and inserts the GFM slug form
+(e.g. `my-section`), so I can link to a specific section without manually
+computing the anchor.
+
 **US-02** — As a writer, I can `Go to Definition` on a `[text](path/to/note.md)`
 link to open the target file, so I can navigate my knowledge base from the
 keyboard.
@@ -38,12 +51,13 @@ what display text I use in a link, so my prose reads naturally without affecting
 navigation.
 
 **US-06** — As a writer, I can link to a heading within a file using
-`[text](note.md#heading)` syntax and navigate directly to that heading.
+`[text](note.md#my-heading)` syntax (GFM slug form — lowercase, spaces to
+hyphens, punctuation stripped) and navigate directly to that heading.
 
 **US-28** — As a writer, I can rename a heading and have all
 `[text](note.md#old-heading)` anchor links across my workspace updated
-automatically, so reorganising a note's structure doesn't silently break
-cross-file references.
+automatically to the new GFM slug, so reorganising a note's structure doesn't
+silently break cross-file references.
 
 ---
 
@@ -54,8 +68,8 @@ surfaced as diagnostics (warnings), so I can find dead links without manually
 checking.
 
 **US-08** — As a writer, I can see when a heading anchor in a
-`[text](note.md#heading)` link no longer exists, so heading renames don't
-silently break links.
+`[text](note.md#heading)` link no longer exists (matched against the GFM slug
+of each heading), so heading renames don't silently break links.
 
 **US-32** — As a writer, I see a warning when a file contains two or more
 headings with the same text, so I know that anchor links targeting that heading
