@@ -5,14 +5,14 @@ use crossbeam_channel::Sender;
 use log::warn;
 use lsp_server::{Message, Notification};
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
-    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
-    Location, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
-    RenameFilesParams, RenameParams, SymbolInformation, SymbolKind, TextDocumentPositionParams,
-    TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
+    CompletionItem, CompletionItemKind, CompletionParams, CompletionTextEdit, Diagnostic,
+    DiagnosticSeverity, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+    GotoDefinitionResponse, Location, Position, PrepareRenameResponse, PublishDiagnosticsParams,
+    Range, ReferenceParams, RenameFilesParams, RenameParams, SymbolInformation, SymbolKind,
+    TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
 };
 
-use crate::index::{NoteIndex, ResolvedLink};
+use crate::index::{self, NoteIndex, ResolvedLink};
 
 // ─── GFM slug ─────────────────────────────────────────────────────────────────
 
@@ -112,12 +112,25 @@ fn utf16_to_byte_offset(s: &str, utf16_offset: u32) -> usize {
     byte
 }
 
-/// Returns `true` if the text on the cursor's line immediately before the
-/// cursor ends with `](`, indicating the user is about to type a link path.
-fn check_link_trigger(content: &str, pos: Position) -> bool {
+fn byte_to_utf16_offset(s: &str, byte_offset: usize) -> u32 {
+    s[..byte_offset].chars().map(|c| c.len_utf16() as u32).sum()
+}
+
+/// Returns `Some(partial)` when the cursor is inside a Markdown link destination
+/// (there is a `](` before the cursor on the same line and no `#` between `](`
+/// and the cursor). `partial` is the text typed so far between `](` and the
+/// cursor — empty immediately after `](`, non-empty while typing a path.
+/// Returns `None` outside a link destination or inside an anchor context (`#`).
+fn check_dir_trigger(content: &str, pos: Position) -> Option<String> {
     let line = content.lines().nth(pos.line as usize).unwrap_or("");
     let cursor = utf16_to_byte_offset(line, pos.character);
-    line[..cursor].ends_with("](")
+    let before = &line[..cursor];
+    let open = before.rfind("](")?;
+    let after_open = &before[open + 2..];
+    if after_open.contains('#') {
+        return None;
+    }
+    Some(after_open.to_string())
 }
 
 /// If the cursor is immediately after a `#` inside a link destination
@@ -189,44 +202,95 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
             .collect();
     }
 
-    // File path completion: `](` → list all notes and attachments.
-    if !check_link_trigger(&note.content, pos) {
+    // Directory completion: `](` or `](partial/` → immediate children of base_dir.
+    let Some(partial) = check_dir_trigger(&note.content, pos) else {
         return vec![];
-    }
-    let from_dir = path.parent().expect("indexed path must have a parent");
-    let notes = index.all_notes().filter(|n| n.path != path).map(|n| {
-        let rel = relative_path(from_dir, &n.path);
-        let title = n
-            .frontmatter
-            .as_ref()
-            .and_then(|fm| fm.title.as_deref())
-            .map(str::to_owned);
-        let label = title.clone().unwrap_or_else(|| rel.clone());
-        let detail = title.map(|_| rel.clone());
-        CompletionItem {
-            label,
-            kind: Some(CompletionItemKind::FILE),
-            filter_text: Some(rel.clone()),
-            insert_text: Some(rel),
-            detail,
-            ..Default::default()
+    };
+
+    let note_dir = path.parent().expect("indexed path must have a parent");
+    let base_dir = if partial.ends_with('/') || partial.is_empty() {
+        index::normalize_path(&note_dir.join(&*partial))
+    } else {
+        let p = std::path::Path::new(&partial);
+        index::normalize_path(&note_dir.join(p.parent().unwrap_or(std::path::Path::new(""))))
+    };
+
+    // Collect owned copies so we can borrow index freely afterwards.
+    let note_paths: Vec<PathBuf> = index.all_notes().map(|n| n.path.clone()).collect();
+    let attach_paths: Vec<PathBuf> = index.all_attachment_paths().cloned().collect();
+
+    let mut dirs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut files: Vec<PathBuf> = vec![];
+
+    for file_path in note_paths.iter().chain(attach_paths.iter()) {
+        if file_path.as_path() == path.as_path() {
+            continue;
         }
-    });
-    let attachments = index.all_attachment_paths().map(|p| {
-        let rel = relative_path(from_dir, p);
-        let label = p
+        let rel = relative_path(&base_dir, file_path);
+        let first = rel.split('/').next().unwrap_or("");
+        if first == rel && !rel.is_empty() {
+            files.push(file_path.clone());
+        } else if !first.is_empty() {
+            dirs.insert(first.to_string());
+        }
+    }
+
+    // Compute the TextEdit range: from right after `](` to the cursor.
+    let line_text = note.content.lines().nth(pos.line as usize).unwrap_or("");
+    let cursor_byte = utf16_to_byte_offset(line_text, pos.character);
+    let open_byte = line_text[..cursor_byte]
+        .rfind("](")
+        .expect("check_dir_trigger guarantees ](");
+    let start_char = byte_to_utf16_offset(line_text, open_byte + 2);
+    let replace_range = Range {
+        start: Position { line: pos.line, character: start_char },
+        end: pos,
+    };
+
+    let mut items: Vec<CompletionItem> = Vec::new();
+
+    for dir_name in &dirs {
+        let abs_dir = index::normalize_path(&base_dir.join(dir_name));
+        let full_rel = relative_path(note_dir, &abs_dir) + "/";
+        items.push(CompletionItem {
+            label: format!("{dir_name}/"),
+            kind: Some(CompletionItemKind::FOLDER),
+            filter_text: Some(dir_name.clone()),
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: replace_range,
+                new_text: full_rel,
+            })),
+            ..Default::default()
+        });
+    }
+
+    for file_path in files {
+        let full_rel = relative_path(note_dir, &file_path);
+        let file_name = file_path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| rel.clone());
-        CompletionItem {
+            .unwrap_or_else(|| full_rel.clone());
+        let (label, detail) = match index.get_note(&file_path) {
+            Some(n) => {
+                let title = n.frontmatter.as_ref().and_then(|fm| fm.title.clone());
+                (title.clone().unwrap_or_else(|| file_name.clone()), title.map(|_| file_name.clone()))
+            }
+            None => (file_name.clone(), None),
+        };
+        items.push(CompletionItem {
             label,
             kind: Some(CompletionItemKind::FILE),
-            filter_text: Some(rel.clone()),
-            insert_text: Some(rel),
+            filter_text: Some(file_name),
+            detail,
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: replace_range,
+                new_text: full_rel,
+            })),
             ..Default::default()
-        }
-    });
-    notes.chain(attachments).collect()
+        });
+    }
+
+    items
 }
 
 // ─── Go to Definition ─────────────────────────────────────────────────────────
@@ -511,9 +575,10 @@ mod tests {
     use std::path::Path;
 
     use lsp_types::{
-        CompletionParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
-        Position, PrepareRenameResponse, ReferenceParams, RenameParams, SymbolKind,
-        TextDocumentPositionParams, WorkspaceSymbolParams,
+        CompletionItemKind, CompletionParams, CompletionTextEdit, DocumentSymbolParams,
+        DocumentSymbolResponse, GotoDefinitionParams, Position, PrepareRenameResponse,
+        ReferenceParams, RenameParams, SymbolKind, TextDocumentPositionParams,
+        WorkspaceSymbolParams,
     };
 
     use super::*;
@@ -647,6 +712,13 @@ mod tests {
         assert!(items.is_empty());
     }
 
+    fn text_edit_new_text(item: &lsp_types::CompletionItem) -> Option<&str> {
+        match item.text_edit.as_ref()? {
+            CompletionTextEdit::Edit(te) => Some(&te.new_text),
+            _ => None,
+        }
+    }
+
     #[test]
     fn completion_trigger_returns_notes() {
         let mut idx = NoteIndex::default();
@@ -656,7 +728,8 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx);
         assert!(!items.is_empty());
-        assert!(items.iter().any(|i| i.insert_text.as_deref() == Some("b.md")));
+        // b.md is a sibling — appears as a FILE item via text_edit
+        assert!(items.iter().any(|i| text_edit_new_text(i) == Some("b.md")));
     }
 
     #[test]
@@ -666,7 +739,11 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx);
-        assert!(items.iter().any(|i| i.insert_text.as_deref() == Some("sub/b.md")));
+        // b.md is one level deeper — only the directory item appears, not the file
+        assert!(items.iter().any(|i| {
+            i.kind == Some(CompletionItemKind::FOLDER) && i.label == "sub/"
+        }));
+        assert!(!items.iter().any(|i| text_edit_new_text(i) == Some("sub/b.md")));
     }
 
     #[test]
@@ -676,7 +753,8 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx);
-        let item = items.iter().find(|i| i.insert_text.as_deref() == Some("b.md")).unwrap();
+        // b.md is a sibling — appears with title as label, filename as filter_text
+        let item = items.iter().find(|i| text_edit_new_text(i) == Some("b.md")).unwrap();
         assert_eq!(item.label, "My Note");
         assert_eq!(item.detail.as_deref(), Some("b.md"));
     }
@@ -688,22 +766,24 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx);
-        assert!(items.iter().any(|i| i.insert_text.as_deref() == Some("img.png")));
+        // img.png is a sibling attachment — appears as a FILE item
+        assert!(items.iter().any(|i| text_edit_new_text(i) == Some("img.png")));
     }
 
     #[test]
     fn completion_attachment_label_is_filename() {
         let mut idx = NoteIndex::default();
-        let _ = idx.add_attachment(std::path::PathBuf::from("/vault/sub/report.pdf"));
+        // Attachment is a sibling — label is the filename
+        let _ = idx.add_attachment(std::path::PathBuf::from("/vault/report.pdf"));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx);
         let item = items
             .iter()
-            .find(|i| i.insert_text.as_deref() == Some("sub/report.pdf"))
+            .find(|i| text_edit_new_text(i) == Some("report.pdf"))
             .unwrap();
         assert_eq!(item.label, "report.pdf");
-        assert_eq!(item.filter_text.as_deref(), Some("sub/report.pdf"));
+        assert_eq!(item.filter_text.as_deref(), Some("report.pdf"));
     }
 
     // ── handle_definition ─────────────────────────────────────────────────────
@@ -1205,5 +1285,163 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 0, 11);
         let items = handle_completion(params, &idx);
         assert!(items.is_empty(), "hash in prose should not trigger anchor completion");
+    }
+
+    // ── check_dir_trigger ─────────────────────────────────────────────────────
+
+    #[test]
+    fn check_dir_trigger_empty_after_open() {
+        // cursor immediately after `](`
+        let result = check_dir_trigger("[x](", Position { line: 0, character: 4 });
+        assert_eq!(result, Some(String::new()));
+    }
+
+    #[test]
+    fn check_dir_trigger_partial_path() {
+        // cursor after the trailing `/`
+        let result = check_dir_trigger("[x](subdir/", Position { line: 0, character: 11 });
+        assert_eq!(result, Some("subdir/".to_string()));
+    }
+
+    #[test]
+    fn check_dir_trigger_none_outside_link() {
+        // `/` typed on a bare text line — no `](` before it
+        let result = check_dir_trigger("some text /", Position { line: 0, character: 11 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn check_dir_trigger_none_in_anchor_context() {
+        // `#` after path puts us in anchor territory; dir trigger must yield None
+        let result = check_dir_trigger("[x](path#", Position { line: 0, character: 9 });
+        assert!(result.is_none());
+    }
+
+    // ── dir_completion_* ──────────────────────────────────────────────────────
+
+    #[test]
+    fn dir_completion_initial_shows_siblings() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        assert!(
+            items.iter().any(|i| {
+                i.kind == Some(CompletionItemKind::FILE) && text_edit_new_text(i) == Some("b.md")
+            }),
+            "sibling note should appear as FILE item"
+        );
+    }
+
+    #[test]
+    fn dir_completion_initial_shows_subdir() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/subdir/c.md", ""));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        assert!(
+            items.iter().any(|i| {
+                i.kind == Some(CompletionItemKind::FOLDER) && i.label == "subdir/"
+            }),
+            "subdirectory should appear as FOLDER item"
+        );
+    }
+
+    #[test]
+    fn dir_completion_initial_excludes_current() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        assert!(items.is_empty(), "current note must not appear in its own completions");
+    }
+
+    #[test]
+    fn dir_completion_parent_dir_option() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/sub/a.md", "[link]("));
+        let params = make_completion_params("/vault/sub/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        assert!(
+            items.iter().any(|i| {
+                i.kind == Some(CompletionItemKind::FOLDER)
+                    && text_edit_new_text(i) == Some("../")
+            }),
+            "should offer `../` folder item when files exist above"
+        );
+    }
+
+    #[test]
+    fn dir_completion_subdir_shows_children() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/subdir/b.md", ""));
+        // content has the partial path already typed
+        idx.seed(note("/vault/a.md", "[link](subdir/"));
+        let params = make_completion_params("/vault/a.md", 0, 14);
+        let items = handle_completion(params, &idx);
+        assert!(
+            items.iter().any(|i| {
+                i.kind == Some(CompletionItemKind::FILE)
+                    && text_edit_new_text(i) == Some("subdir/b.md")
+            }),
+            "drilling into subdir/ should show its children"
+        );
+        assert!(!items.iter().any(|i| i.kind == Some(CompletionItemKind::FOLDER)));
+    }
+
+    #[test]
+    fn dir_completion_text_edit_replaces_partial() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/subdir/b.md", ""));
+        idx.seed(note("/vault/a.md", "[link](subdir/"));
+        let params = make_completion_params("/vault/a.md", 0, 14);
+        let items = handle_completion(params, &idx);
+        let item = items
+            .iter()
+            .find(|i| text_edit_new_text(i) == Some("subdir/b.md"))
+            .expect("expected subdir/b.md item");
+        let edit = match item.text_edit.as_ref().unwrap() {
+            CompletionTextEdit::Edit(te) => te,
+            _ => panic!("expected Edit variant"),
+        };
+        // range starts right after `](` (character 7) and ends at cursor (14)
+        assert_eq!(edit.range.start.character, 7, "range should start right after ](");
+        assert_eq!(edit.range.end.character, 14, "range should end at cursor");
+        assert_eq!(edit.new_text, "subdir/b.md");
+    }
+
+    #[test]
+    fn dir_completion_title_as_label() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntitle: My Note\n---\n"));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        let item = items
+            .iter()
+            .find(|i| text_edit_new_text(i) == Some("b.md"))
+            .expect("expected b.md item");
+        assert_eq!(item.label, "My Note");
+        assert_eq!(item.filter_text.as_deref(), Some("b.md"));
+        assert_eq!(item.detail.as_deref(), Some("b.md"));
+    }
+
+    #[test]
+    fn dir_completion_attachment_filename_label() {
+        let mut idx = NoteIndex::default();
+        let _ = idx.add_attachment(std::path::PathBuf::from("/vault/img.png"));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx);
+        let item = items
+            .iter()
+            .find(|i| text_edit_new_text(i) == Some("img.png"))
+            .expect("expected img.png item");
+        assert_eq!(item.label, "img.png");
+        assert_eq!(item.filter_text.as_deref(), Some("img.png"));
+        assert!(item.detail.is_none());
     }
 }

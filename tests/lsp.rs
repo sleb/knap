@@ -2,8 +2,8 @@ use std::thread;
 
 use lsp_server::{Connection, Message, Notification, Request};
 use lsp_types::{
-    CompletionResponse, DiagnosticSeverity, GotoDefinitionResponse, Location, OneOf,
-    PublishDiagnosticsParams, TextDocumentSyncCapability, TextDocumentSyncKind,
+    CompletionResponse, CompletionTextEdit, DiagnosticSeverity, GotoDefinitionResponse, Location,
+    OneOf, PublishDiagnosticsParams, TextDocumentSyncCapability, TextDocumentSyncKind,
 };
 use serde_json::json;
 
@@ -366,8 +366,12 @@ fn completion_returns_relative_paths() {
     };
 
     assert!(!items.is_empty(), "expected at least one completion item");
-    let b_item = items.iter().find(|i| i.insert_text.as_deref() == Some("b.md"));
-    assert!(b_item.is_some(), "expected an item with insert_text = \"b.md\"");
+    // b.md is a sibling of a.md — appears as a FILE item with text_edit new_text "b.md"
+    let b_item = items.iter().find(|i| match i.text_edit.as_ref() {
+        Some(CompletionTextEdit::Edit(te)) => te.new_text == "b.md",
+        _ => false,
+    });
+    assert!(b_item.is_some(), "expected an item with text_edit new_text = \"b.md\"");
 
     do_shutdown(&client, 3);
 }
