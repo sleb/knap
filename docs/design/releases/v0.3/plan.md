@@ -17,7 +17,8 @@ untested code for the next step to build on.
 | 2 — Workspace Symbols                  | Done   |                           |
 | 3 — Prepare Rename                     | Done   |                           |
 | 4 — Heading Rename (+ GFM slug update) | Done   | slug applied throughout   |
-| 5 — Integration tests                  | Todo   |                           |
+| 5 — Anchor Completion                  | Todo   |                           |
+| 6 — Integration tests                  | Todo   |                           |
 
 ## Approach
 
@@ -228,7 +229,61 @@ across the workspace.
 
 ---
 
-## Step 5 — Integration tests
+## Step 5 — Anchor Completion
+
+Extend `handle_completion` to serve heading suggestions when the cursor is inside
+a link destination after `#`, delivering US-45. The `#` is added as a second
+completion trigger character alongside `(`.
+
+**Deliverables:**
+
+- Add `fn check_anchor_trigger(content: &str, pos: Position) -> Option<String>`
+  to `src/handlers.rs`:
+  - Scan the current line up to cursor, find the last `](`
+  - In the substring after `](`, find the last `#`
+  - Return `Some(path)` where `path` is the text between `](` and `#`; `None`
+    if neither `](` nor `#` is found in that order
+
+- Update `handle_completion` in `src/handlers.rs`:
+  - Call `check_anchor_trigger` before `check_link_trigger`
+  - If anchor context: resolve `typed_path` via `index.resolve(&current_path, &typed_path)`;
+    return `vec![]` if unresolved; otherwise look up the target note and map its
+    headings to `CompletionItem`:
+    - `label`: `heading.text` (e.g. `"My Section"`)
+    - `filter_text`: `Some(heading.text.clone())`
+    - `insert_text`: `Some(slug(&heading.text))` (e.g. `"my-section"`, no leading `#`)
+    - `kind`: `Some(CompletionItemKind::REFERENCE)`
+    - `detail`: `Some(format!("#{}", slug(&heading.text)))`
+  - If file context (existing path): existing file-completion logic unchanged
+
+- Update `completion_provider` in `src/server/mod.rs`:
+  ```rust
+  CompletionOptions {
+      trigger_characters: Some(vec!["(".to_string(), "#".to_string()]),
+      ..Default::default()
+  }
+  ```
+
+**Unit tests:**
+
+| Test                                          | What it verifies                                                             |
+| --------------------------------------------- | ---------------------------------------------------------------------------- |
+| `anchor_completion_returns_headings`          | `](a.md#` context → one item per heading in a.md                            |
+| `anchor_completion_label_is_heading_text`     | Item label equals the heading text as written ("My Section")                 |
+| `anchor_completion_insert_is_slug`            | `insert_text` = GFM slug with no leading `#` ("my-section")                 |
+| `anchor_completion_unknown_file_empty`        | Path before `#` does not resolve → empty list                                |
+| `anchor_completion_no_headings_empty`         | Target file has no headings → empty list                                     |
+| `anchor_completion_does_not_fire_on_plain_hash` | `#` not preceded by `](path` → no anchor items (falls through to file completion check) |
+
+> **Manual checkpoint:** In a note with `[link](b.md`, position cursor after
+> `(` and type `b.md#`. Heading suggestions from `b.md` should appear
+> immediately. Confirm the label shows the heading text (e.g. "My Section") and
+> selecting it inserts `my-section` (slug, no `#`). Confirm that typing `#` at
+> the start of a line (to write a new heading) does not trigger the picker.
+
+---
+
+## Step 6 — Integration tests
 
 End-to-end tests over the full LSP message loop. Always the last step.
 
@@ -247,6 +302,7 @@ End-to-end tests over the full LSP message loop. Always the last step.
 | `test_prepare_rename_off_heading`             | `textDocument/prepareRename` on prose returns null                                    |
 | `test_rename_heading_updates_anchor_links`    | `textDocument/rename` rewrites slug anchors in other files to `slug(new_name)`        |
 | `test_rename_heading_updates_self_links`      | `textDocument/rename` rewrites anchor-only self-links to `slug(new_name)`             |
+| `test_anchor_completion`                      | `](file.md#` triggers completion; items carry heading-text labels and slug inserts    |
 
 > **Manual checkpoint (full session):** Open a vault in an editor. (1) Navigate
 > to a note with headings and open the Outline panel — confirm all headings
@@ -255,17 +311,19 @@ End-to-end tests over the full LSP message loop. Always the last step.
 > line. (3) Click a `[text](note.md#heading)` link and trigger Go to Definition
 > — confirm it jumps to the heading line. (4) Rename a heading that is
 > referenced by links in two other files and by a self-link — confirm all three
-> are updated atomically with no broken-link diagnostics. Confirm all v0.1 and
-> v0.2 capabilities are unaffected.
+> are updated atomically with no broken-link diagnostics. (5) In a note, type
+> `[link](b.md#` and confirm heading completions appear; select one and confirm
+> the slug is inserted. Confirm all v0.1 and v0.2 capabilities are unaffected.
 
 ---
 
 ## Done — v0.3 complete
 
-| Story | Feature                                          | Delivered in step |
-| ----- | ------------------------------------------------ | ----------------- |
-| US-06 | Go to Definition navigates to heading anchor     | Already done      |
-| US-08 | Diagnostic for missing heading anchor            | Already done      |
-| US-11 | Document Symbols — headings in current file      | Step 1            |
-| US-12 | Workspace Symbols — search headings across files | Step 2            |
-| US-28 | Rename heading → all anchor links updated        | Steps 3 + 4       |
+| Story | Feature                                                  | Delivered in step |
+| ----- | -------------------------------------------------------- | ----------------- |
+| US-06 | Go to Definition navigates to heading anchor             | Already done      |
+| US-08 | Diagnostic for missing heading anchor                    | Already done      |
+| US-11 | Document Symbols — headings in current file              | Step 1            |
+| US-12 | Workspace Symbols — search headings across files         | Step 2            |
+| US-28 | Rename heading → all anchor links updated                | Steps 3 + 4       |
+| US-45 | Anchor completions — heading picker inserts GFM slug     | Step 5            |

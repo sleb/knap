@@ -2,13 +2,14 @@
 
 Covers the stories in the v0.3 release:
 
-| Story | Feature                                                                    |
-| ----- | -------------------------------------------------------------------------- |
-| US-06 | `[text](note.md#heading)` — Go to Definition navigates to the heading line |
-| US-08 | Diagnostic when a heading anchor no longer exists in the target file       |
-| US-11 | Document Symbols — jump to any heading within the current file             |
-| US-12 | Workspace Symbols — search headings across all files                       |
-| US-28 | Rename a heading → all `[text](note.md#old-heading)` links updated         |
+| Story | Feature                                                                              |
+| ----- | ------------------------------------------------------------------------------------ |
+| US-06 | `[text](note.md#heading)` — Go to Definition navigates to the heading line           |
+| US-08 | Diagnostic when a heading anchor no longer exists in the target file                 |
+| US-11 | Document Symbols — jump to any heading within the current file                       |
+| US-12 | Workspace Symbols — search headings across all files                                 |
+| US-28 | Rename a heading → all `[text](note.md#old-heading)` links updated                   |
+| US-45 | Anchor completions — `[text](file.md#` offers headings; inserts GFM slug             |
 
 ---
 
@@ -16,8 +17,10 @@ Covers the stories in the v0.3 release:
 
 Navigate within notes, not just between them. A writer can jump to any heading
 inside a file via Document Symbols, search headings across the whole workspace
-via Workspace Symbols, and rename a heading confident that every
-`[text](note.md#old-heading)` anchor in the vault is updated atomically.
+via Workspace Symbols, rename a heading confident that every
+`[text](note.md#old-heading)` anchor in the vault is updated atomically, and
+complete anchor links by picking from a heading list that inserts the correct
+GFM slug automatically.
 
 ---
 
@@ -72,9 +75,9 @@ case-insensitively, which only works for single-word headings.
   any heading in the target file.
   Change: same slug-matching update as US-06.
 
-The v0.3 work is the three new handlers (Document Symbols, Workspace Symbols,
-heading Rename), the slug helper, the two anchor-matcher updates, and the
-protocol-handler changes to advertise them.
+The v0.3 work is four new capabilities (Document Symbols, Workspace Symbols,
+heading Rename, anchor completion), the slug helper, the two anchor-matcher
+updates, and the protocol-handler changes to advertise them.
 
 ---
 
@@ -252,13 +255,64 @@ link parsed with a `#` has an `anchor_range`, so this guard is just defensive.
 
 ---
 
+### `handle_completion` — anchor extension (US-45)
+
+The existing `handle_completion` already handles file-path completions triggered
+by `](`. This extends it to also handle anchor completions triggered by `#`
+inside a link destination.
+
+**New helper — `check_anchor_trigger`:**
+
+```rust
+fn check_anchor_trigger(content: &str, pos: Position) -> Option<String>
+```
+
+Looks backward from the cursor on the current line:
+
+1. Find the last `](` on the line up to the cursor.
+2. Look for `#` in the substring after `](`.
+3. If found, return the text between `](` and `#` — the partial file path the
+   user has already typed (may be empty if the user typed `](`  then `#`
+   immediately).
+4. Return `None` if no `](` or no `#` is found.
+
+The returned string is the resolved-path candidate. The text the user typed
+*after* the `#` (if any) is handled by the editor's own fuzzy-filter against
+`filter_text`.
+
+**Changes to `handle_completion`:**
+
+Check `check_anchor_trigger` before `check_link_trigger`. When it returns
+`Some(typed_path)`:
+
+1. Resolve `typed_path` relative to the current note using `index.resolve`.
+   Return an empty list if the path does not resolve to an indexed note (the
+   target file may not exist yet).
+2. Look up the note with `index.get_note(&target_path)`.
+3. Map each heading to a `CompletionItem`:
+   - `label`: `heading.text` — "My Section" (what the picker shows)
+   - `filter_text`: `Some(heading.text.clone())` — editor filters by heading text
+   - `insert_text`: `Some(slug(&heading.text))` — "my-section" (what gets written)
+   - `kind`: `Some(CompletionItemKind::REFERENCE)`
+   - `detail`: `Some(format!("#{}", slug(&heading.text)))` — shows `#my-section`
+4. Return the list. Empty list when the target has no headings.
+
+The `insert_text` does not include the `#` because the trigger character `#` is
+already in the document at the moment the completion fires.
+
+---
+
 ## Protocol Handler Changes
 
 ### Capabilities
 
-Add three entries to `ServerCapabilities` in `initialize`:
+Update `ServerCapabilities` in `initialize`:
 
 ```rust
+completion_provider: Some(CompletionOptions {
+    trigger_characters: Some(vec!["(".to_string(), "#".to_string()]),
+    ..Default::default()
+}),
 document_symbol_provider: Some(OneOf::Left(true)),
 workspace_symbol_provider: Some(OneOf::Left(true)),
 rename_provider: Some(OneOf::Right(RenameOptions {
@@ -266,6 +320,10 @@ rename_provider: Some(OneOf::Right(RenameOptions {
     work_done_progress_options: Default::default(),
 })),
 ```
+
+Adding `"#"` to `trigger_characters` makes editors send a completion request
+immediately when the user types `#` inside a link destination, so heading
+suggestions appear without requiring an explicit Ctrl+Space.
 
 `prepare_provider: Some(true)` tells editors to call `textDocument/prepareRename`
 before `textDocument/rename`, which lets the server veto renames attempted on
@@ -327,6 +385,12 @@ Add four cases to `dispatch_request`:
 | `rename_heading_case_insensitive_match`       | Link anchor `OLD-HEADING` matches heading `Old Heading` → anchor updated          |
 | `rename_heading_non_matching_anchor_skipped`  | Link with a different anchor → not included in the edit                           |
 | `rename_heading_no_heading_at_cursor_none`    | Cursor not on a heading line → `None`                                             |
+| `anchor_completion_returns_headings`          | `](a.md#` context → one item per heading in a.md                                  |
+| `anchor_completion_label_is_heading_text`     | Item label = "My Section" (human-readable)                                        |
+| `anchor_completion_insert_is_slug`            | Item `insert_text` = "my-section" (GFM slug, no `#`)                             |
+| `anchor_completion_unknown_file_empty`        | Unresolvable path before `#` → empty list                                         |
+| `anchor_completion_no_headings_empty`         | Target file has no headings → empty list                                           |
+| `anchor_completion_does_not_fire_on_plain_hash` | `#` outside a `](` context → file completions still served (or empty)           |
 
 ### Integration tests (`tests/lsp.rs`)
 
@@ -338,3 +402,4 @@ Add four cases to `dispatch_request`:
 | `test_prepare_rename_off_heading`             | `textDocument/prepareRename` on prose returns null                                 |
 | `test_rename_heading_updates_anchor_links`    | `textDocument/rename` returns edits that rewrite anchors in other files            |
 | `test_rename_heading_updates_self_links`      | `textDocument/rename` returns edits for anchor-only self-links in the same file    |
+| `test_anchor_completion`                      | `](file.md#` triggers completion; items have heading-text labels and slug insert   |
