@@ -8,7 +8,7 @@ use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, Diagnostic, DiagnosticSeverity,
     DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
     Location, Position, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams,
-    SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit,
+    SymbolInformation, SymbolKind, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
 };
 
 use crate::index::{NoteIndex, ResolvedLink};
@@ -325,6 +325,37 @@ pub fn handle_document_symbols(
     Some(DocumentSymbolResponse::Flat(symbols))
 }
 
+// ─── Workspace Symbols ────────────────────────────────────────────────────────
+
+#[allow(deprecated)]
+pub fn handle_workspace_symbols(
+    params: WorkspaceSymbolParams,
+    index: &NoteIndex,
+) -> Vec<SymbolInformation> {
+    let query = params.query.to_lowercase();
+    index
+        .all_notes()
+        .flat_map(|note| {
+            note.headings.iter().filter_map(|h| {
+                if query.is_empty() || h.text.to_lowercase().contains(&query) {
+                    Some(SymbolInformation {
+                        name: h.text.clone(),
+                        kind: SymbolKind::STRING,
+                        location: Location { uri: path_to_uri(&note.path), range: h.range },
+                        container_name: Some(
+                            note.path.file_name().unwrap_or_default().to_string_lossy().into_owned()
+                        ),
+                        tags: None,
+                        deprecated: None,
+                    })
+                } else {
+                    None
+                }
+            })
+        })
+        .collect()
+}
+
 // ─── URI utilities ────────────────────────────────────────────────────────────
 
 /// Convert an LSP URI to an absolute filesystem path.
@@ -353,7 +384,7 @@ mod tests {
 
     use lsp_types::{
         CompletionParams, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
-        Position, ReferenceParams, SymbolKind,
+        Position, ReferenceParams, SymbolKind, WorkspaceSymbolParams,
     };
 
     use super::*;
@@ -780,5 +811,64 @@ mod tests {
         let params = make_document_symbol_params("/vault/a.md");
         let syms = unwrap_flat(handle_document_symbols(params, &idx));
         assert_eq!(syms[0].location.range, heading_range);
+    }
+
+    // ── handle_workspace_symbols ──────────────────────────────────────────────
+
+    fn make_workspace_symbol_params(query: &str) -> WorkspaceSymbolParams {
+        WorkspaceSymbolParams {
+            query: query.to_string(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    }
+
+    #[test]
+    fn workspace_symbols_empty_query_returns_all() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# Alpha\n## Beta\n"));
+        idx.seed(note("/vault/b.md", "# Gamma\n"));
+        let params = make_workspace_symbol_params("");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert_eq!(syms.len(), 3);
+    }
+
+    #[test]
+    fn workspace_symbols_query_filters() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# Introduction\n## Details\n"));
+        let params = make_workspace_symbol_params("intro");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert_eq!(syms.len(), 1);
+        assert_eq!(syms[0].name, "Introduction");
+    }
+
+    #[test]
+    fn workspace_symbols_no_match_returns_empty() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# Heading\n"));
+        let params = make_workspace_symbol_params("zzz");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert!(syms.is_empty());
+    }
+
+    #[test]
+    fn workspace_symbols_container_is_filename() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/notes/my-note.md", "# Section\n"));
+        let params = make_workspace_symbol_params("section");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert_eq!(syms.len(), 1);
+        assert_eq!(syms[0].container_name.as_deref(), Some("my-note.md"));
+    }
+
+    #[test]
+    fn workspace_symbols_multiple_notes() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# Introduction\n"));
+        idx.seed(note("/vault/b.md", "# Introduction\n"));
+        let params = make_workspace_symbol_params("intro");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert_eq!(syms.len(), 2);
     }
 }
