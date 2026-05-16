@@ -11,13 +11,13 @@ untested code for the next step to build on.
 
 ## Status
 
-| Step                       | Status | Notes |
-| -------------------------- | ------ | ----- |
-| 1 — Document Symbols       | Todo   |       |
-| 2 — Workspace Symbols      | Todo   |       |
-| 3 — Prepare Rename         | Todo   |       |
-| 4 — Heading Rename         | Todo   |       |
-| 5 — Integration tests      | Todo   |       |
+| Step                                   | Status | Notes                     |
+| -------------------------------------- | ------ | ------------------------- |
+| 1 — Document Symbols                   | Done   |                           |
+| 2 — Workspace Symbols                  | Done   |                           |
+| 3 — Prepare Rename                     | Done   |                           |
+| 4 — Heading Rename (+ GFM slug update) | Done   | slug applied throughout   |
+| 5 — Integration tests                  | Todo   |                           |
 
 ## Approach
 
@@ -162,53 +162,69 @@ Step 4 fills in the real logic.
 
 ---
 
-## Step 4 — Heading Rename
+## Step 4 — Heading Rename (with GFM slug anchors)
 
 Replace the stub `handle_rename` with the real implementation, completing US-28.
-For the heading under the cursor, this builds a `WorkspaceEdit` that rewrites
-(a) the heading text in the source file, (b) anchor-only self-links within the
-same file, and (c) all incoming `[text](note.md#old-anchor)` links across the
-workspace.
+Also updates the anchor-matching logic in `compute_diagnostics` and
+`handle_definition` to use GFM slugification (enabling multi-word headings to
+work correctly throughout the server).
+
+For the heading under the cursor, `handle_rename` builds a `WorkspaceEdit` that
+rewrites (a) the heading text in the source file, (b) anchor-only self-links
+within the same file, and (c) all incoming `[text](note.md#old-slug)` links
+across the workspace.
 
 **Deliverables:**
+
+- Add `fn slug(text: &str) -> String` helper to `src/handlers.rs`:
+  - Keep alphanumeric, space, and hyphen characters; strip everything else
+  - Lowercase the result
+  - Replace spaces with hyphens
+  - Example: `slug("My Section") == "my-section"`
+
+- Update anchor matching in `compute_diagnostics`: change
+  `h.text.to_lowercase() == anchor.to_lowercase()`
+  → `slug(&h.text) == slug(anchor)`
+
+- Update anchor matching in `handle_definition`: same change
 
 - Replace the stub `handle_rename` in `src/handlers.rs` with the full implementation:
   - Resolve path, cursor `pos`, and `new_name` from `params`
   - Look up `note`; find heading where `heading.range.start.line == pos.line`;
     return `None` if absent
-  - Let `old_lower = heading.text.to_lowercase()`
+  - Let `old_slug = slug(&heading.text)`
   - **Heading text:** push `TextEdit { range: heading.text_range, new_text: new_name.clone() }`
-    under the source file's URI in the changes map
+    under the source file's URI — heading displays the human-readable name
   - **Self-links:** for each `link` in `note.md_links` where `link.target.is_empty()`:
-    if `link.anchor.as_deref().map(|a| a.to_lowercase()) == Some(old_lower.as_str())`
+    if `link.anchor.as_deref().map(slug) == Some(old_slug.clone())`
     and `link.anchor_range` is `Some(anchor_range)`, push
-    `TextEdit { range: anchor_range, new_text: new_name.clone() }` under the
+    `TextEdit { range: anchor_range, new_text: slug(new_name) }` under the
     source file's URI
   - **Incoming links:** for each `located` in `index.links_to(&path)`:
-    if the anchor lower-matches `old_lower` and `anchor_range` is `Some`, push
-    a `TextEdit` under `located.source_path`'s URI
+    if `slug(anchor) == old_slug` and `anchor_range` is `Some`, push
+    `TextEdit { range: anchor_range, new_text: slug(new_name) }` under
+    `located.source_path`'s URI
   - Return `Some(WorkspaceEdit { changes: Some(changes), ..Default::default() })`
 
-**Unit tests:**
+**Unit tests** (use multi-word headings and slug anchors):
 
-| Test                                         | What it verifies                                                              |
-| -------------------------------------------- | ----------------------------------------------------------------------------- |
-| `rename_heading_edits_text`                  | Heading `text_range` in the source file is rewritten to `new_name`            |
-| `rename_heading_updates_incoming_anchor`     | Incoming `[text](note.md#Old Heading)` anchor range rewritten to new name     |
-| `rename_heading_updates_self_anchor`         | Same-file `[text](#Old Heading)` anchor range rewritten to new name           |
-| `rename_heading_case_insensitive_match`      | Link anchor `old heading` matches heading `Old Heading` — both updated        |
-| `rename_heading_non_matching_anchor_skipped` | Link with a different anchor is absent from the edit                          |
-| `rename_heading_no_heading_at_cursor_none`   | Cursor on a prose line → `None`                                               |
-| `rename_heading_absent_note_returns_none`    | URI not in index → `None`                                                     |
+| Test                                         | What it verifies                                                                    |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `rename_heading_edits_text`                  | `text_range` rewritten to `new_name`; anchor-bearing links updated to `slug(new_name)` |
+| `rename_heading_updates_incoming_anchor`     | `[text](note.md#old-heading)` anchor range rewritten to `slug(new_name)`           |
+| `rename_heading_updates_self_anchor`         | Same-file `[text](#old-heading)` anchor range rewritten to `slug(new_name)`        |
+| `rename_heading_case_insensitive_match`      | Link anchor `OLD-HEADING` matches heading `Old Heading` — anchor updated           |
+| `rename_heading_non_matching_anchor_skipped` | Link with a different anchor is absent from the edit                               |
+| `rename_heading_no_heading_at_cursor_none`   | Cursor on a prose line → `None`                                                    |
 
 > **Manual checkpoint:** Open two notes in an editor. In note B, add two
-> headings: `## Introduction` and `## Details`. In note A, add
-> `[see intro](b.md#Introduction)`. In note B also add
-> `[jump](#Introduction)` (a self-link). Rename the `Introduction` heading in
-> note B (via `F2`). Confirm: the heading text in B changes, the anchor in A
-> updates, and the self-link anchor in B updates — all in one operation with no
-> broken-link diagnostics afterwards. Verify that `## Details` links in A
-> are not touched.
+> headings: `## Old Heading` and `## Details`. In note A, add
+> `[see it](b.md#old-heading)`. In note B also add `[jump](#old-heading)`
+> (a self-link). Rename the `Old Heading` heading via `F2` to `New Heading`.
+> Confirm: the heading text in B changes to `New Heading`, the anchor in A
+> updates to `#new-heading`, and the self-link in B updates to `#new-heading`
+> — all in one atomic operation with no broken-link diagnostics afterwards.
+> Verify that `## Details` links are not touched.
 
 ---
 
@@ -221,16 +237,16 @@ End-to-end tests over the full LSP message loop. Always the last step.
 - `tests/lsp.rs` additions — all integration tests listed below
 - `cargo test` passes, `cargo clippy -- -D warnings` clean
 
-| Test                                         | What it verifies                                                           |
-| -------------------------------------------- | -------------------------------------------------------------------------- |
-| `test_document_symbols_lists_headings`       | `textDocument/documentSymbol` returns one symbol per heading in the file   |
-| `test_document_symbols_empty_for_no_headings`| File with no headings returns an empty flat list, not null                 |
-| `test_workspace_symbols_query`               | `workspace/symbol` with a query string returns only matching headings      |
-| `test_workspace_symbols_empty_query`         | Empty query returns headings from all indexed notes                        |
-| `test_prepare_rename_on_heading`             | `textDocument/prepareRename` on a heading returns a non-null range response|
-| `test_prepare_rename_off_heading`            | `textDocument/prepareRename` on prose returns null                         |
-| `test_rename_heading_updates_anchor_links`   | `textDocument/rename` rewrites anchors in other files                      |
-| `test_rename_heading_updates_self_links`     | `textDocument/rename` rewrites anchor-only self-links in the same file     |
+| Test                                          | What it verifies                                                                      |
+| --------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `test_document_symbols_lists_headings`        | `textDocument/documentSymbol` returns one symbol per heading in the file              |
+| `test_document_symbols_empty_for_no_headings` | File with no headings returns an empty flat list, not null                            |
+| `test_workspace_symbols_query`                | `workspace/symbol` with a query string returns only matching headings                 |
+| `test_workspace_symbols_empty_query`          | Empty query returns headings from all indexed notes                                   |
+| `test_prepare_rename_on_heading`              | `textDocument/prepareRename` on a heading returns a non-null range response           |
+| `test_prepare_rename_off_heading`             | `textDocument/prepareRename` on prose returns null                                    |
+| `test_rename_heading_updates_anchor_links`    | `textDocument/rename` rewrites slug anchors in other files to `slug(new_name)`        |
+| `test_rename_heading_updates_self_links`      | `textDocument/rename` rewrites anchor-only self-links to `slug(new_name)`             |
 
 > **Manual checkpoint (full session):** Open a vault in an editor. (1) Navigate
 > to a note with headings and open the Outline panel — confirm all headings

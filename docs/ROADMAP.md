@@ -51,13 +51,17 @@ changed). Both are handled atomically.
 
 **Goal:** Navigate within notes, not just between them.
 
-| Story | Feature                                                                    |
-| ----- | -------------------------------------------------------------------------- |
-| US-06 | `[text](note.md#heading)` — Go to Definition navigates to the heading line |
-| US-08 | Diagnostic when a heading anchor no longer exists in the target file       |
-| US-11 | Document Symbols — jump to any heading within the current file             |
-| US-12 | Workspace Symbols — search headings across all files                       |
-| US-28 | Rename a heading → all `[text](note.md#old-heading)` links updated         |
+Anchors follow the **GFM slug convention**: `## My Section` → `#my-section`
+(lowercase, spaces to hyphens, non-alphanumeric stripped). This is the format
+GitHub, Obsidian, and VS Code Markdown Preview all use.
+
+| Story | Feature                                                                          |
+| ----- | -------------------------------------------------------------------------------- |
+| US-06 | `[text](note.md#my-section)` — Go to Definition navigates to the heading line   |
+| US-08 | Diagnostic when a heading anchor (matched by GFM slug) no longer exists         |
+| US-11 | Document Symbols — jump to any heading within the current file                  |
+| US-12 | Workspace Symbols — search headings across all files                            |
+| US-28 | Rename a heading → heading text and all `[text](note.md#old-slug)` links updated|
 
 **LSP capabilities delivered:** `textDocument/documentSymbol`,
 `workspace/symbol`, `textDocument/rename`

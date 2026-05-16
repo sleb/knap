@@ -21,22 +21,60 @@ via Workspace Symbols, and rename a heading confident that every
 
 ---
 
+## Anchor Format: GFM Slugification
+
+Markdown link destinations cannot contain unescaped spaces per the CommonMark
+spec; parsers silently reject `[link](note.md#My Section)`. Editors and
+renderers (GitHub, Obsidian, VS Code Markdown Preview) all follow the
+**GitHub Flavored Markdown** anchor-generation algorithm:
+
+1. Lowercase the heading text
+2. Remove all characters that are not alphanumeric, space, or hyphen
+3. Replace spaces with hyphens
+
+Examples: `## My Section` → `#my-section`, `## Hello, World!` → `#hello-world`.
+
+knap follows the same convention:
+
+- **Anchor matching** (diagnostics, Go to Definition): `slug(heading.text) == slug(anchor)`
+- **Anchor generation** (rename): the new anchor written into links = `slug(new_name)`
+- **Prepare rename placeholder**: shows the human-readable heading text, not the slug
+
+The `slug()` helper lives in `src/handlers.rs`:
+
+```rust
+fn slug(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-')
+        .collect::<String>()
+        .to_lowercase()
+        .replace(' ', "-")
+}
+```
+
+---
+
 ## What Is Already Implemented
 
 US-06 and US-08 were implemented as part of the heading infrastructure landed
-in v0.1 and are formally claimed here:
+in v0.1 and formally claimed here. **Both require a one-line slug-matching
+update as part of v0.3** — the original implementation compared raw text
+case-insensitively, which only works for single-word headings.
 
-- **US-06 (Go to Definition with anchor):** `handle_definition` already checks
+- **US-06 (Go to Definition with anchor):** `handle_definition` checks
   `link.anchor`, looks up the target note's headings, and returns
-  `Location { uri, range: heading.range }`. No changes needed.
+  `Location { uri, range: heading.range }`.
+  Change: `h.text.to_lowercase() == anchor.to_lowercase()`
+  → `slug(&h.text) == slug(anchor)`.
 
-- **US-08 (anchor diagnostic):** `compute_diagnostics` already emits a `WARNING`
+- **US-08 (anchor diagnostic):** `compute_diagnostics` emits a `WARNING`
   at `link.anchor_range` when a `Found` link has an anchor that doesn't match
-  any heading in the target file. No changes needed.
+  any heading in the target file.
+  Change: same slug-matching update as US-06.
 
-The v0.3 work is exclusively the three new handlers — Document Symbols,
-Workspace Symbols, and heading Rename — plus the protocol-handler changes to
-advertise them.
+The v0.3 work is the three new handlers (Document Symbols, Workspace Symbols,
+heading Rename), the slug helper, the two anchor-matcher updates, and the
+protocol-handler changes to advertise them.
 
 ---
 
@@ -176,10 +214,9 @@ Steps:
 2. Look up `note` with `index.get_note(&path)`. Return `None` if absent.
 3. Find the heading where `heading.range.start.line == pos.line`. Return `None`
    if the cursor is not on a heading line.
-4. Let `old_text = heading.text.to_lowercase()`. Build
-   `HashMap<Uri, Vec<TextEdit>>`:
+4. Let `old_slug = slug(&heading.text)`. Build `HashMap<Uri, Vec<TextEdit>>`:
 
-   **a. Heading text in the source file:**
+   **a. Heading text in the source file** (human-readable, not slugified):
    ```
    TextEdit { range: heading.text_range, new_text: new_name.clone() }
    ```
@@ -187,27 +224,28 @@ Steps:
 
    **b. Anchor-only self-links inside the same file:**
    For each `link` in `note.md_links` where `link.target.is_empty()`:
-   - If `link.anchor.as_deref().map(|a| a.to_lowercase()) == Some(old_text.as_str())`
+   - If `link.anchor.as_deref().map(|a| slug(a)) == Some(old_slug.clone())`
    - And `link.anchor_range` is `Some(anchor_range)`:
      ```
-     TextEdit { range: anchor_range, new_text: new_name.clone() }
+     TextEdit { range: anchor_range, new_text: slug(new_name) }
      ```
-   keyed under `path_to_uri(&path)` (same file, different ranges from step a).
+   keyed under `path_to_uri(&path)`.
 
    **c. Incoming links from other files:**
    For each `located` in `index.links_to(&path)`:
-   - If `located.md_link.anchor.as_deref().map(|a| a.to_lowercase()) == Some(old_text.as_str())`
+   - If `located.md_link.anchor.as_deref().map(|a| slug(a)) == Some(old_slug.clone())`
    - And `located.md_link.anchor_range` is `Some(anchor_range)`:
      ```
-     TextEdit { range: anchor_range, new_text: new_name.clone() }
+     TextEdit { range: anchor_range, new_text: slug(new_name) }
      ```
    keyed under `path_to_uri(&located.source_path)`.
 
 5. Return `Some(WorkspaceEdit { changes: Some(changes), ..Default::default() })`.
 
-**Anchor matching is case-insensitive**, consistent with how `compute_diagnostics`
-and `handle_definition` match anchors to headings. A link `[text](note.md#My Section)`
-and a heading `## my section` are considered the same anchor.
+**Heading text vs. anchor text:** the heading line in the source file is
+rewritten to `new_name` (e.g. `"New Section"`), while every anchor in a link
+is rewritten to `slug(new_name)` (e.g. `"new-section"`). These are always
+different values.
 
 **Only links with a recorded `anchor_range` are updated.** In practice every
 link parsed with a `#` has an `anchor_range`, so this guard is just defensive.
@@ -283,10 +321,10 @@ Add four cases to `dispatch_request`:
 | `workspace_symbols_container_is_filename`     | `container_name` equals the note's filename                                       |
 | `prepare_rename_on_heading_returns_range`     | Cursor on `## My Heading` → `RangeWithPlaceholder { range: text_range, placeholder: "My Heading" }` |
 | `prepare_rename_off_heading_returns_none`     | Cursor on a prose line → `None`                                                   |
-| `rename_heading_edits_text`                   | Heading text range rewritten to `new_name`                                        |
-| `rename_heading_updates_incoming_anchor`      | Incoming `[text](note.md#Old Heading)` → anchor rewritten to new name             |
-| `rename_heading_updates_self_anchor`          | Same-file `[text](#Old Heading)` → anchor rewritten to new name                   |
-| `rename_heading_case_insensitive_match`       | Link anchor `old heading` matches heading `Old Heading` → both updated            |
+| `rename_heading_edits_text`                   | Heading `text_range` rewritten to `new_name` (human-readable)                     |
+| `rename_heading_updates_incoming_anchor`      | Incoming `[text](note.md#old-heading)` → anchor rewritten to `slug(new_name)`     |
+| `rename_heading_updates_self_anchor`          | Same-file `[text](#old-heading)` → anchor rewritten to `slug(new_name)`           |
+| `rename_heading_case_insensitive_match`       | Link anchor `OLD-HEADING` matches heading `Old Heading` → anchor updated          |
 | `rename_heading_non_matching_anchor_skipped`  | Link with a different anchor → not included in the edit                           |
 | `rename_heading_no_heading_at_cursor_none`    | Cursor not on a heading line → `None`                                             |
 

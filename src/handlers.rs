@@ -14,6 +14,18 @@ use lsp_types::{
 
 use crate::index::{NoteIndex, ResolvedLink};
 
+// ─── GFM slug ─────────────────────────────────────────────────────────────────
+
+/// Convert heading text to a GitHub Flavored Markdown anchor slug.
+/// `## My Section` → `"my-section"`, `## Hello, World!` → `"hello-world"`.
+fn slug(text: &str) -> String {
+    text.chars()
+        .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-')
+        .collect::<String>()
+        .to_lowercase()
+        .replace(' ', "-")
+}
+
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
 pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
@@ -44,7 +56,7 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
                         .map(|n| {
                             n.headings
                                 .iter()
-                                .any(|h| h.text.to_lowercase() == anchor.to_lowercase())
+                                .any(|h| slug(&h.text) == slug(anchor))
                         })
                         .unwrap_or(false);
                     if !found {
@@ -206,7 +218,7 @@ pub fn handle_definition(
         let heading = target_note
             .headings
             .iter()
-            .find(|h| h.text.to_lowercase() == anchor.to_lowercase())?;
+            .find(|h| slug(&h.text) == slug(anchor))?;
         Some(heading.range)
     });
     let range = anchor_range.unwrap_or_default();
@@ -385,11 +397,12 @@ pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<Workspac
         .iter()
         .find(|h| h.range.start.line <= pos.line && pos.line <= h.range.end.line)?;
     let new_name = &params.new_name;
-    let old_text = heading.text.to_lowercase();
+    let old_slug = slug(&heading.text);
+    let new_slug = slug(new_name);
 
     let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
 
-    // a. Rewrite the heading text itself.
+    // a. Rewrite the heading text itself (human-readable, not slugified).
     changes
         .entry(path_to_uri(&path))
         .or_default()
@@ -400,20 +413,20 @@ pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<Workspac
         if !link.target.is_empty() {
             continue;
         }
-        if link.anchor.as_deref().map(|a| a.to_lowercase()).as_deref() != Some(old_text.as_str()) {
+        if link.anchor.as_deref().map(|a| slug(a)).as_deref() != Some(old_slug.as_str()) {
             continue;
         }
         let Some(anchor_range) = link.anchor_range else { continue };
         changes
             .entry(path_to_uri(&path))
             .or_default()
-            .push(TextEdit { range: anchor_range, new_text: new_name.clone() });
+            .push(TextEdit { range: anchor_range, new_text: new_slug.clone() });
     }
 
     // c. Incoming links from other files that reference this heading by anchor.
     for located in index.links_to(&path) {
-        if located.md_link.anchor.as_deref().map(|a| a.to_lowercase()).as_deref()
-            != Some(old_text.as_str())
+        if located.md_link.anchor.as_deref().map(|a| slug(a)).as_deref()
+            != Some(old_slug.as_str())
         {
             continue;
         }
@@ -421,7 +434,7 @@ pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<Workspac
         changes
             .entry(path_to_uri(&located.source_path))
             .or_default()
-            .push(TextEdit { range: anchor_range, new_text: new_name.clone() });
+            .push(TextEdit { range: anchor_range, new_text: new_slug.clone() });
     }
 
     Some(WorkspaceEdit { changes: Some(changes), ..Default::default() })
@@ -1010,63 +1023,69 @@ mod tests {
 
     #[test]
     fn rename_heading_edits_text() {
-        let content = "# OldHeading\n";
+        let content = "# Old Heading\n";
         let text_range = note("/vault/a.md", content).headings[0].text_range;
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", content));
-        let params = make_rename_heading_params("/vault/a.md", 0, 5, "NewHeading");
+        let params = make_rename_heading_params("/vault/a.md", 0, 5, "New Heading");
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
         let a_uri = file_uri("/vault/a.md");
         assert!(
-            changes[&a_uri].iter().any(|e| e.range == text_range && e.new_text == "NewHeading"),
-            "heading text_range should be rewritten to new_name"
+            changes[&a_uri].iter().any(|e| e.range == text_range && e.new_text == "New Heading"),
+            "heading text_range should be rewritten to new_name (human-readable)"
         );
     }
 
     #[test]
     fn rename_heading_updates_incoming_anchor() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "# OldHeading\n"));
-        idx.seed(note("/vault/b.md", "[link](a.md#OldHeading)"));
-        let params = make_rename_heading_params("/vault/a.md", 0, 5, "NewHeading");
+        idx.seed(note("/vault/a.md", "# Old Heading\n"));
+        idx.seed(note("/vault/b.md", "[link](a.md#old-heading)"));
+        let params = make_rename_heading_params("/vault/a.md", 0, 5, "New Heading");
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
         let b_uri = file_uri("/vault/b.md");
-        assert!(changes.contains_key(&b_uri), "incoming anchor in b.md should be updated");
-        assert!(changes[&b_uri].iter().any(|e| e.new_text == "NewHeading"));
+        assert!(changes.contains_key(&b_uri), "incoming slug anchor in b.md should be updated");
+        assert!(changes[&b_uri].iter().any(|e| e.new_text == "new-heading"));
     }
 
     #[test]
     fn rename_heading_updates_self_anchor() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "# OldHeading\n\n[link](#OldHeading)\n"));
-        let params = make_rename_heading_params("/vault/a.md", 0, 5, "NewHeading");
+        idx.seed(note("/vault/a.md", "# Old Heading\n\n[link](#old-heading)\n"));
+        let params = make_rename_heading_params("/vault/a.md", 0, 5, "New Heading");
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
         let a_uri = file_uri("/vault/a.md");
-        let count = changes[&a_uri].iter().filter(|e| e.new_text == "NewHeading").count();
-        assert!(count >= 2, "should have heading edit + self-anchor edit, got {count}");
+        assert!(
+            changes[&a_uri].iter().any(|e| e.new_text == "New Heading"),
+            "heading text should be updated"
+        );
+        assert!(
+            changes[&a_uri].iter().any(|e| e.new_text == "new-heading"),
+            "self-anchor should be updated to slug"
+        );
     }
 
     #[test]
     fn rename_heading_case_insensitive_match() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "# OldHeading\n"));
-        idx.seed(note("/vault/b.md", "[link](a.md#oldheading)"));
-        let params = make_rename_heading_params("/vault/a.md", 0, 5, "NewHeading");
+        idx.seed(note("/vault/a.md", "# Old Heading\n"));
+        idx.seed(note("/vault/b.md", "[link](a.md#OLD-HEADING)"));
+        let params = make_rename_heading_params("/vault/a.md", 0, 5, "New Heading");
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
         let b_uri = file_uri("/vault/b.md");
-        assert!(changes.contains_key(&b_uri), "lowercase anchor should match case-insensitively");
+        assert!(changes.contains_key(&b_uri), "slug of OLD-HEADING should match Old Heading");
     }
 
     #[test]
     fn rename_heading_non_matching_anchor_skipped() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "# OldHeading\n"));
-        idx.seed(note("/vault/b.md", "[link](a.md#OtherSection)"));
-        let params = make_rename_heading_params("/vault/a.md", 0, 5, "NewHeading");
+        idx.seed(note("/vault/a.md", "# Old Heading\n"));
+        idx.seed(note("/vault/b.md", "[link](a.md#other-section)"));
+        let params = make_rename_heading_params("/vault/a.md", 0, 5, "New Heading");
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
         let b_uri = file_uri("/vault/b.md");
@@ -1076,8 +1095,8 @@ mod tests {
     #[test]
     fn rename_heading_no_heading_at_cursor_none() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "# OldHeading\n\nsome prose\n"));
-        let params = make_rename_heading_params("/vault/a.md", 2, 0, "NewHeading");
+        idx.seed(note("/vault/a.md", "# Old Heading\n\nsome prose\n"));
+        let params = make_rename_heading_params("/vault/a.md", 2, 0, "New Heading");
         assert!(handle_rename(params, &idx).is_none());
     }
 }

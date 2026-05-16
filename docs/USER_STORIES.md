@@ -38,12 +38,13 @@ what display text I use in a link, so my prose reads naturally without affecting
 navigation.
 
 **US-06** — As a writer, I can link to a heading within a file using
-`[text](note.md#heading)` syntax and navigate directly to that heading.
+`[text](note.md#my-heading)` syntax (GFM slug form — lowercase, spaces to
+hyphens, punctuation stripped) and navigate directly to that heading.
 
 **US-28** — As a writer, I can rename a heading and have all
 `[text](note.md#old-heading)` anchor links across my workspace updated
-automatically, so reorganising a note's structure doesn't silently break
-cross-file references.
+automatically to the new GFM slug, so reorganising a note's structure doesn't
+silently break cross-file references.
 
 ---
 
@@ -54,8 +55,8 @@ surfaced as diagnostics (warnings), so I can find dead links without manually
 checking.
 
 **US-08** — As a writer, I can see when a heading anchor in a
-`[text](note.md#heading)` link no longer exists, so heading renames don't
-silently break links.
+`[text](note.md#heading)` link no longer exists (matched against the GFM slug
+of each heading), so heading renames don't silently break links.
 
 **US-32** — As a writer, I see a warning when a file contains two or more
 headings with the same text, so I know that anchor links targeting that heading
