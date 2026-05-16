@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
+![Version](https://img.shields.io/badge/version-0.3.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -20,11 +20,16 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 
 - `[text](path/to/note.md)` completions — triggered by `(`, inserts the path
   relative to the current file; includes non-Markdown files (images, PDFs)
+- Anchor completions — triggered by `#` inside a link, lists headings in the
+  target file as slug anchors (`[text](note.md#my-heading)`)
 - Go to Definition — jumps to the linked note; navigates to the heading when an
   anchor is present (`[text](note.md#heading)`)
 - Find References — all standard Markdown links pointing to a file
 - Rename a file — all incoming and outgoing links rewritten atomically via
   `workspace/willRenameFiles`
+- Rename a heading — all anchor links pointing to that heading updated in place
+- Document Symbols — outline of all headings in the current file
+- Workspace Symbols — search headings across the entire vault
 - Broken link diagnostics — warnings for links to missing files or headings;
   attachment links (images, PDFs) resolve against the full workspace
 - Incremental index — the workspace index stays live as files change
@@ -45,7 +50,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.2.0 — Rename & Refactor. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.3.0 — Heading Navigation & Anchors. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

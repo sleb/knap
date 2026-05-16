@@ -153,7 +153,7 @@ pure — given the same source text it always returns the same result.
 - Extracting standard Markdown links and images with position, target path, and
   optional heading anchor _(v0.1 for wiki-links; superseded by standard links)_
 - Extracting all headings with their level and text _(v0.3)_
-- Extracting YAML frontmatter (title, tags, arbitrary keys) _(v0.4)_
+- Extracting YAML frontmatter (title, tags, arbitrary keys) _(v0.1, extended v0.3)_
 
 **Contract:**
 
@@ -240,13 +240,17 @@ handle(params: LspParams, index: NoteIndex, config: Config) → LspResult
 Handlers are stateless — all state lives in the Note Index; config is passed in
 by the Protocol Handler.
 
-| Handler         | LSP Method                        | Shipped |
-| --------------- | --------------------------------- | ------- |
-| Completion      | `textDocument/completion`         | v0.1    |
-| Definition      | `textDocument/definition`         | v0.1    |
-| References      | `textDocument/references`         | v0.1    |
-| Diagnostics     | `textDocument/publishDiagnostics` | v0.1    |
-| WillRenameFiles | `workspace/willRenameFiles`       | v0.2    |
+| Handler          | LSP Method                        | Shipped |
+| ---------------- | --------------------------------- | ------- |
+| Completion       | `textDocument/completion`         | v0.1    |
+| Definition       | `textDocument/definition`         | v0.1    |
+| References       | `textDocument/references`         | v0.1    |
+| Diagnostics      | `textDocument/publishDiagnostics` | v0.1    |
+| WillRenameFiles  | `workspace/willRenameFiles`       | v0.2    |
+| DocumentSymbols  | `textDocument/documentSymbol`     | v0.3    |
+| WorkspaceSymbols | `workspace/symbol`                | v0.3    |
+| PrepareRename    | `textDocument/prepareRename`      | v0.3    |
+| Rename           | `textDocument/rename`             | v0.3    |
 
 ---
 
@@ -289,4 +293,4 @@ by the Protocol Handler.
 - **The client owns file change deduplication.** Open files are updated via
   `textDocument/didChange`; external changes arrive via
   `workspace/didChangeWatchedFiles`. The server never receives both for the same
-  change. </thinking>
+  change.
