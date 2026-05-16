@@ -47,7 +47,7 @@ changed). Both are handled atomically.
 
 ---
 
-## v0.3 — Heading Navigation & Anchors
+## v0.3 — Heading Navigation & Anchors _(released 2026-05-16)_
 
 **Goal:** Navigate within notes, not just between them.
 
