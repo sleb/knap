@@ -13,13 +13,13 @@ All implementation steps follow TDD:
 
 ## Status
 
-| Step | Description                            | Status |
-| ---- | -------------------------------------- | ------ |
-| 1    | Internal cleanup (dedup + test helper) |        |
-| 2    | Correctness and safety fixes           |        |
-| 3    | Documentation drift                    |        |
-| 4    | US-46 — Segment-by-segment completion  |        |
-| 5    | Integration tests + regression         |        |
+| Step | Description                            | Status  |
+| ---- | -------------------------------------- | ------- |
+| 1    | Internal cleanup (dedup + test helper) | ✅ Done |
+| 2    | Correctness and safety fixes           | ✅ Done |
+| 3    | Documentation drift                    | ✅ Done |
+| 4    | US-46 — Segment-by-segment completion  | ✅ Done |
+| 5    | Integration tests + regression         | ✅ Done |
 
 ---
 

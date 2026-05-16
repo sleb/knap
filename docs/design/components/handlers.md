@@ -35,10 +35,9 @@ fn contains(range: Range, pos: Position) -> bool {
 
 ### When it fires
 
-The client sends a completion request when the user types `(` (registered as a
-trigger character). Before building the list, the handler checks that the text
-on the cursor's line immediately before the cursor ends with `](` — confirming
-the user is inside the URL portion of a standard Markdown link.
+The client sends a completion request when the user types `(`, `#`, or `/`
+(all three are registered as trigger characters). Two distinct completion modes
+are dispatched:
 
 ```rust
 pub fn handle_completion(
@@ -47,15 +46,35 @@ pub fn handle_completion(
 ) -> Vec<CompletionItem>
 ```
 
-### Response
+### Anchor completion (`](path#`)
 
-One `CompletionItem` per note in the index (excluding the current file), plus
-one item per non-note file (attachment) in the index. For notes, `insert_text`
-and `filter_text` are the path relative to the current file's directory; when
-the note has a frontmatter `title`, the label is the title and `detail` is the
-relative path; otherwise label equals the relative path. For attachments, the
-label is the bare filename and `insert_text` is the relative path from the
-current file's directory; `kind` is `FILE`.
+When `check_anchor_trigger` detects that the cursor is immediately after a `#`
+inside a link destination with a non-empty path, the handler resolves the target
+note and returns one item per heading. Each item has:
+
+- `label`: heading text as written (e.g. `"My Section"`)
+- `insert_text`: GFM slug (e.g. `"my-section"`)
+- `filter_text`: heading text (for editor-side fuzzy matching)
+- `kind`: `REFERENCE`
+
+### Directory completion (`](` or `](partial/`)
+
+When `check_dir_trigger` detects that the cursor is inside a link destination
+with no `#`, the handler returns the **immediate children** of the directory
+identified by the typed partial path:
+
+- **Subdirectories** appear as `FOLDER` items (label `subdir/`, `filter_text`
+  without the trailing slash). Selecting one re-triggers completion (via the
+  registered `/` trigger character) to show that directory's contents.
+- **Files** (notes and attachments) in the same directory level appear as `FILE`
+  items. For notes with a frontmatter `title`, the label is the title and
+  `detail` is the filename; otherwise the label is the filename.
+
+Every item uses `text_edit: CompletionTextEdit::Edit(TextEdit { range, new_text
+})` where `range` replaces everything from right after `](` to the cursor, and
+`new_text` is the full relative path from the current note's directory (e.g.
+`sub/` for a folder item, `sub/b.md` for a file two levels down). This ensures
+that re-triggering after selecting a folder item replaces the prefix cleanly.
 
 ---
 
@@ -158,6 +177,81 @@ For each `FileRename { old_uri, new_uri }` in `params.files`:
 Returns `WorkspaceEdit { changes: Some(changes), ..Default::default() }`. The
 `changes` map is keyed by `lsp_types::Uri`; an empty map is returned for files
 with no affected links.
+
+---
+
+## Document Symbols (`textDocument/documentSymbol`)
+
+```rust
+pub fn handle_document_symbols(
+    params: DocumentSymbolParams,
+    index: &NoteIndex,
+) -> Option<DocumentSymbolResponse>
+```
+
+Returns a flat list of `DocumentSymbol` entries, one per heading in document
+order. Each symbol carries the heading text as its `name`, `SymbolKind::STRING`,
+and a `range` / `selection_range` covering the full heading line. Returns `None`
+when the file is not indexed; returns an empty list for a file with no headings.
+
+---
+
+## Workspace Symbols (`workspace/symbol`)
+
+```rust
+pub fn handle_workspace_symbols(
+    params: WorkspaceSymbolParams,
+    index: &NoteIndex,
+) -> Vec<SymbolInformation>
+```
+
+Returns headings from all indexed notes whose text contains the query string
+(case-insensitive). An empty query returns every heading in the workspace.
+Each result carries the heading text as `name`, the containing filename (without
+directory) as `container_name`, and `SymbolKind::STRING`.
+
+---
+
+## Prepare Rename (`textDocument/prepareRename`)
+
+```rust
+pub fn handle_prepare_rename(
+    params: TextDocumentPositionParams,
+    index: &NoteIndex,
+) -> Option<PrepareRenameResponse>
+```
+
+Returns `Some(PrepareRenameResponse::RangeWithPlaceholder { range, placeholder
+})` when the cursor is on a heading line, where `range` is the heading
+text range (excluding the `## ` prefix) and `placeholder` is the heading text.
+Returns `None` when the cursor is not on a heading — the editor shows no rename
+UI in that case.
+
+---
+
+## Rename (`textDocument/rename`)
+
+```rust
+pub fn handle_rename(
+    params: RenameParams,
+    index: &NoteIndex,
+) -> Option<WorkspaceEdit>
+```
+
+Renames a heading and all anchor links that point to it. The cursor must be on
+a heading line (same check as `prepareRename`); returns `None` otherwise.
+
+For the heading at the cursor:
+
+1. **Heading text edit** — rewrites the heading text in place (preserving the
+   `## ` prefix) to the new name.
+2. **Incoming anchor edits** — for every note in the workspace, finds
+   `[text](path#old-slug)` links whose slug matches the old heading (via
+   `slug()`) and rewrites the anchor to the new slug.
+3. **Self-link edits** — anchor-only links (`[text](#old-slug)`) within the
+   same file are also rewritten.
+
+URL targets are skipped. Returns `Some(WorkspaceEdit { changes: Some(map) })`.
 
 ---
 

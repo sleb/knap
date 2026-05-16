@@ -251,6 +251,11 @@ impl NoteIndex {
             .unwrap_or_default()
     }
 
+    /// All non-note file paths registered in the workspace (attachments).
+    pub fn all_attachment_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.all_files.iter().filter(|p| !self.by_path.contains_key(*p))
+    }
+
     /// Register a non-note file (attachment) in `all_files`. Notes that link
     /// to this path and were previously broken may now resolve.
     pub fn add_attachment(&mut self, path: PathBuf) -> IndexDelta {
