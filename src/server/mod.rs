@@ -340,13 +340,17 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
             return;
         }
     };
-    let content = match params.content_changes.into_iter().next() {
+    let mut iter = params.content_changes.into_iter();
+    let content = match iter.next() {
         Some(c) => c.text,
         None => {
             warn!("didChange: no content changes");
             return;
         }
     };
+    if iter.next().is_some() {
+        warn!("didChange: received >1 content changes; only the first is used (Full sync)");
+    }
     let Some(path) = uri_to_path(&params.text_document.uri) else { return; };
     let note = parser::parse(&path, &content);
     let delta = index.index(note);

@@ -193,7 +193,7 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
     if !check_link_trigger(&note.content, pos) {
         return vec![];
     }
-    let from_dir = path.parent().unwrap_or(Path::new(""));
+    let from_dir = path.parent().expect("indexed path must have a parent");
     let notes = index.all_notes().filter(|n| n.path != path).map(|n| {
         let rel = relative_path(from_dir, &n.path);
         let title = n
@@ -500,7 +500,7 @@ pub fn uri_to_path(uri: &lsp_types::Uri) -> Option<PathBuf> {
 /// Panics if `path` is not absolute.
 pub fn path_to_uri(path: &Path) -> lsp_types::Uri {
     url::Url::from_file_path(path)
-        .expect("non-absolute path")
+        .unwrap_or_else(|_| panic!("path_to_uri: path must be absolute, got: {}", path.display()))
         .as_str()
         .parse()
         .expect("file URL should parse as Uri")
