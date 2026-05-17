@@ -82,7 +82,7 @@ re-trigger on `/`)
 
 ---
 
-## v0.3.2 — Global Jump in Completions
+## v0.3.2 — Global Jump in Completions _(released 2026-05-17)_
 
 **Goal:** Let writers jump directly to any file in the workspace without
 drilling through directories, while keeping the directory-traversal items for

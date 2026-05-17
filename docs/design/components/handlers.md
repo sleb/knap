@@ -60,21 +60,25 @@ note and returns one item per heading. Each item has:
 ### Directory completion (`](` or `](partial/`)
 
 When `check_dir_trigger` detects that the cursor is inside a link destination
-with no `#`, the handler returns the **immediate children** of the directory
-identified by the typed partial path:
+with no `#`, the handler returns items in three sorted tiers. `sort_text` uses
+a string prefix so editors that respect the field keep the tiers ordered even
+when their fuzzy scorer would otherwise rerank items:
 
-- **Subdirectories** appear as `FOLDER` items (label `subdir/`, `filter_text`
-  without the trailing slash). Selecting one re-triggers completion (via the
-  registered `/` trigger character) to show that directory's contents.
-- **Files** (notes and attachments) in the same directory level appear as `FILE`
-  items. For notes with a frontmatter `title`, the label is the title and
-  `detail` is the filename; otherwise the label is the filename.
+| Tier | `sort_text` prefix | Contents                                                                                                                                                                                                                                                                                                                                                          |
+| ---- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | `"0_"`             | **FOLDER** items — immediate subdirectories of `base_dir`. Label is `subdir/`; selecting one re-triggers completion (via the registered `/` trigger character) to show its contents.                                                                                                                                                                              |
+| 1    | `"1_"`             | **FILE** items — notes and attachments directly inside `base_dir`. For notes with a frontmatter `title`, the label is the title and `detail` is the filename.                                                                                                                                                                                                     |
+| 2    | `"2_"`             | **FILE** items — every other workspace file not already shown as a tier-1 item and not the current file. Label is the frontmatter `title` if present, otherwise the bare filename. `filter_text` is the full relative path so editors surface the item when the user types any path segment (e.g. `sub` surfaces `sub/b.md`). `detail` is the full relative path. |
+
+Files already shown in tier 1 are tracked in a `HashSet` and excluded from
+tier 2 to avoid duplicates.
 
 Every item uses `text_edit: CompletionTextEdit::Edit(TextEdit { range, new_text
 })` where `range` replaces everything from right after `](` to the cursor, and
 `new_text` is the full relative path from the current note's directory (e.g.
-`sub/` for a folder item, `sub/b.md` for a file two levels down). This ensures
-that re-triggering after selecting a folder item replaces the prefix cleanly.
+`sub/` for a folder item, `sub/b.md` for a file). This ensures that
+re-triggering after selecting a folder item, or selecting a global item while a
+partial prefix is typed, replaces the prefix cleanly.
 
 ---
 
