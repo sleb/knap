@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.3.1-blue)
+![Version](https://img.shields.io/badge/version-0.3.2-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -50,7 +50,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.3.1 — Smarter Path Completion. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.3.2 — Global Jump in Completions. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

@@ -82,6 +82,20 @@ re-trigger on `/`)
 
 ---
 
+## v0.3.2 — Global Jump in Completions _(released 2026-05-17)_
+
+**Goal:** Let writers jump directly to any file in the workspace without
+drilling through directories, while keeping the directory-traversal items for
+when the full path isn't known upfront.
+
+| Story | Feature                                                                          |
+| ----- | -------------------------------------------------------------------------------- |
+| US-47 | Global file list alongside directory items — jump to any file by typing its path |
+
+**LSP capabilities delivered:** `textDocument/completion` (global file index in path completions)
+
+---
+
 ## v0.4 — Hover Previews
 
 **Goal:** See note contents without switching files.

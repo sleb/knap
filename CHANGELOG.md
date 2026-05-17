@@ -5,6 +5,21 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.3.2] — 2026-05-17
+
+### Changed
+
+- Path completions inside `[text](` now show every file in the workspace
+  alongside the directory items. Workspace-wide files appear as a third tier
+  below immediate subdirectories and immediate files, sorted with `sort_text` so
+  editors preserve the order. Selecting a global item replaces the entire typed
+  partial path cleanly. (US-47)
+- Global items use `filter_text` set to the full relative path (e.g.
+  `notes/work/meeting.md`) so typing any path segment — filename, parent
+  directory, or prefix — surfaces the item in the editor's fuzzy picker.
+- Global items show a frontmatter `title` as the label when one is present;
+  the full relative path is shown as `detail` (secondary text in the picker).
+
 ## [0.3.1] — 2026-05-16
 
 ### Changed

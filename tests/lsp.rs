@@ -964,13 +964,13 @@ fn test_dir_completion_initial() {
     assert!(c_item.is_some(), "expected a FILE item for c.md");
     assert_eq!(c_item.unwrap().kind, Some(CompletionItemKind::FILE));
 
-    // The deep path sub/b.md must NOT appear as a direct item
+    // sub/b.md also appears as a global FILE item so the user can jump directly
     let flat_item = items
         .iter()
         .find(|i| matches!(i.text_edit.as_ref(), Some(CompletionTextEdit::Edit(te)) if te.new_text == "sub/b.md"));
     assert!(
-        flat_item.is_none(),
-        "sub/b.md should not appear as a flat item — only sub/ as a FOLDER"
+        flat_item.is_some(),
+        "sub/b.md should appear as a global FILE item alongside the sub/ FOLDER"
     );
 
     do_shutdown(&client, 3);

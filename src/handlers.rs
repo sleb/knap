@@ -256,6 +256,7 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
             label: format!("{dir_name}/"),
             kind: Some(CompletionItemKind::FOLDER),
             filter_text: Some(dir_name.clone()),
+            sort_text: Some(format!("0_{dir_name}")),
             text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                 range: replace_range,
                 new_text: full_rel,
@@ -264,13 +265,16 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
         });
     }
 
-    for file_path in files {
-        let full_rel = relative_path(note_dir, &file_path);
+    // Track immediate file paths so we can skip them in the global list.
+    let immediate_set: std::collections::HashSet<&PathBuf> = files.iter().collect();
+
+    for file_path in &files {
+        let full_rel = relative_path(note_dir, file_path);
         let file_name = file_path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| full_rel.clone());
-        let (label, detail) = match index.get_note(&file_path) {
+        let (label, detail) = match index.get_note(file_path) {
             Some(n) => {
                 let title = n.frontmatter.as_ref().and_then(|fm| fm.title.clone());
                 (title.clone().unwrap_or_else(|| file_name.clone()), title.map(|_| file_name.clone()))
@@ -280,8 +284,45 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
         items.push(CompletionItem {
             label,
             kind: Some(CompletionItemKind::FILE),
-            filter_text: Some(file_name),
+            filter_text: Some(file_name.clone()),
+            sort_text: Some(format!("1_{file_name}")),
             detail,
+            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                range: replace_range,
+                new_text: full_rel,
+            })),
+            ..Default::default()
+        });
+    }
+
+    // Global items: every workspace file not already shown as an immediate child.
+    // These let the user jump directly to any file without drilling through dirs.
+    for file_path in note_paths.iter().chain(attach_paths.iter()) {
+        if file_path.as_path() == path.as_path() {
+            continue;
+        }
+        if immediate_set.contains(file_path) {
+            continue;
+        }
+        let full_rel = relative_path(note_dir, file_path);
+        let file_name = file_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| full_rel.clone());
+        let label = match index.get_note(file_path) {
+            Some(n) => n
+                .frontmatter
+                .as_ref()
+                .and_then(|fm| fm.title.clone())
+                .unwrap_or_else(|| file_name.clone()),
+            None => file_name.clone(),
+        };
+        items.push(CompletionItem {
+            label,
+            kind: Some(CompletionItemKind::FILE),
+            filter_text: Some(full_rel.clone()),
+            sort_text: Some(format!("2_{full_rel}")),
+            detail: Some(full_rel.clone()),
             text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                 range: replace_range,
                 new_text: full_rel,
@@ -739,11 +780,12 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx);
-        // b.md is one level deeper — only the directory item appears, not the file
+        // sub/ appears as a FOLDER item for drilling in
         assert!(items.iter().any(|i| {
             i.kind == Some(CompletionItemKind::FOLDER) && i.label == "sub/"
         }));
-        assert!(!items.iter().any(|i| text_edit_new_text(i) == Some("sub/b.md")));
+        // sub/b.md also appears as a global FILE item for jumping directly
+        assert!(items.iter().any(|i| text_edit_new_text(i) == Some("sub/b.md")));
     }
 
     #[test]
