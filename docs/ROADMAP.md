@@ -107,6 +107,17 @@ the index.
 
 ---
 
+## v0.3.4 — Rename Dialog for Formatted Headings _(released 2026-05-18)_
+
+**Goal:** Fix a silent failure where the rename dialog never appeared for headings
+containing inline Markdown formatting.
+
+| Story | Type | Feature                                                                                                   |
+| ----- | ---- | --------------------------------------------------------------------------------------------------------- |
+| #3    | Bug  | `prepareRename` returns raw placeholder text so editors that validate `placeholder == text-at-range` work |
+
+---
+
 ## v0.4 — Hover Previews
 
 **Goal:** See note contents without switching files.

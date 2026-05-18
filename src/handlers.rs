@@ -539,10 +539,15 @@ pub fn handle_prepare_rename(
     let heading = note.headings.iter().find(|h| {
         h.range.start.line <= pos.line && pos.line <= h.range.end.line
     })?;
-    Some(PrepareRenameResponse::RangeWithPlaceholder {
-        range: heading.text_range,
-        placeholder: heading.text.clone(),
-    })
+    let placeholder = {
+        let line_text = note.content.lines()
+            .nth(heading.text_range.start.line as usize)
+            .unwrap_or("");
+        let start = utf16_to_byte_offset(line_text, heading.text_range.start.character);
+        let end = utf16_to_byte_offset(line_text, heading.text_range.end.character);
+        line_text[start..end].to_string()
+    };
+    Some(PrepareRenameResponse::RangeWithPlaceholder { range: heading.text_range, placeholder })
 }
 
 #[allow(clippy::mutable_key_type)]
@@ -1176,6 +1181,24 @@ mod tests {
         let idx = NoteIndex::default();
         let params = make_prepare_rename_params("/vault/missing.md", 0, 0);
         assert!(handle_prepare_rename(params, &idx).is_none());
+    }
+
+    #[test]
+    fn prepare_rename_placeholder_is_raw_text() {
+        // heading.text is pulldown-cmark rendered ("My Fancy Heading"); the placeholder
+        // must be the raw source ("My _Fancy_ Heading") so editors that validate
+        // placeholder == text-at-range will accept it.
+        let mut idx = NoteIndex::default();
+        let content = "## My _Fancy_ Heading\n";
+        idx.seed(note("/vault/a.md", content));
+        let params = make_prepare_rename_params("/vault/a.md", 0, 5);
+        let resp = handle_prepare_rename(params, &idx);
+        match resp.expect("expected Some") {
+            PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } => {
+                assert_eq!(placeholder, "My _Fancy_ Heading");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
     }
 
     #[test]
