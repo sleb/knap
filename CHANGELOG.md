@@ -5,6 +5,17 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.3.4] — 2026-05-18
+
+### Fixed
+
+- `prepareRename` now returns a placeholder that matches the raw source text at
+  the rename range. Previously, for headings with inline Markdown formatting
+  (e.g. `_(released 2026-05-16)_`), the placeholder was the pulldown-cmark
+  rendered text (formatting stripped), which differed from the text editors read
+  at the range. Editors that validate `placeholder == text-at-range` silently
+  refused to show the rename dialog. (issue #3)
+
 ## [0.3.3] — 2026-05-18
 
 ### Fixed
