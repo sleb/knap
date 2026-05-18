@@ -118,6 +118,17 @@ containing inline Markdown formatting.
 
 ---
 
+## v0.3.5 — LSP Range Correctness _(released 2026-05-18)_
+
+**Goal:** Fix two bugs that together prevented the rename dialog from appearing
+for headings with multi-byte characters (em dash) or trailing inline markup.
+
+| Story | Type | Feature                                                                                              |
+| ----- | ---- | ---------------------------------------------------------------------------------------------------- |
+| #4    | Bug  | `LineIndex` now emits UTF-16 `character` offsets; `text_range` end covers trailing markup characters |
+
+---
+
 ## v0.4 — Hover Previews
 
 **Goal:** See note contents without switching files.

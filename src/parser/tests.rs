@@ -170,6 +170,15 @@ fn line_index_range() {
     assert_eq!(idx.range(3..5), range((1, 0), (1, 2)));
 }
 
+#[test]
+fn line_index_utf16_multibyte() {
+    // "— X" — em dash (U+2014) is 3 UTF-8 bytes but 1 UTF-16 code unit.
+    // 'X' is at byte 3 but UTF-16 column 1.
+    let idx = LineIndex::new("— X");
+    assert_eq!(idx.position(3), pos(0, 1)); // byte 3 → UTF-16 col 1
+    assert_eq!(idx.position(4), pos(0, 2)); // byte 4 → UTF-16 col 2 ('X' + space)
+}
+
 // ── headings ──────────────────────────────────────────────────────────────────
 
 #[test]
@@ -206,6 +215,25 @@ fn heading_text_range() {
     // "## " is bytes 0–2, "My Heading" is bytes 3–13 (chars 3..13 on line 0)
     let result = headings("## My Heading\n");
     assert_eq!(result[0].text_range, range((0, 3), (0, 13)));
+}
+
+#[test]
+fn heading_text_range_trailing_italic() {
+    // text_range must include the closing `_` even though pulldown-cmark's last
+    // Text event ends just before it.
+    // "## Title _(released)_\n" — text_range = cols 3..21
+    let result = headings("## Title _(released)_\n");
+    assert_eq!(result[0].text_range, range((0, 3), (0, 21)));
+}
+
+#[test]
+fn heading_text_range_with_em_dash_utf16() {
+    // "## v0.3 — Title\n"
+    // em dash (—) is 3 UTF-8 bytes, 1 UTF-16 code unit.
+    // text_range must use UTF-16 positions: 'T' in "Title" is UTF-16 col 10, not byte 12.
+    // Full text "v0.3 — Title" is 12 UTF-16 CUs, so text_range = cols 3..15.
+    let result = headings("## v0.3 \u{2014} Title\n");
+    assert_eq!(result[0].text_range, range((0, 3), (0, 15)));
 }
 
 // ── frontmatter ───────────────────────────────────────────────────────────────
