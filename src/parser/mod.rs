@@ -74,6 +74,7 @@ pub struct LineIndex {
     /// Byte offset of the start of each line.
     /// line_starts[0] = 0, line_starts[n] = byte offset of line n.
     line_starts: Vec<usize>,
+    content: String,
 }
 
 impl LineIndex {
@@ -84,13 +85,18 @@ impl LineIndex {
                 starts.push(offset + 1);
             }
         }
-        LineIndex { line_starts: starts }
+        LineIndex { line_starts: starts, content: content.to_string() }
     }
 
     pub fn position(&self, byte_offset: usize) -> Position {
         let line = self.line_starts.partition_point(|&s| s <= byte_offset) - 1;
-        let character = byte_offset - self.line_starts[line];
-        Position { line: line as u32, character: character as u32 }
+        let line_start = self.line_starts[line];
+        // LSP requires UTF-16 code unit offsets, not byte offsets.
+        let character = self.content[line_start..byte_offset]
+            .chars()
+            .map(|c| c.len_utf16() as u32)
+            .sum();
+        Position { line: line as u32, character }
     }
 
     pub fn range(&self, byte_range: Range<usize>) -> LspRange {
@@ -358,8 +364,8 @@ fn extract_body_elements(
     let mut headings: Vec<Heading> = Vec::new();
     let mut md_links: Vec<MarkdownLink> = Vec::new();
 
-    // (level, heading_byte_start, accumulated_text, first_text_byte, last_text_end_byte)
-    let mut current_heading: Option<(u8, usize, String, Option<usize>, usize)> = None;
+    // (level, heading_byte_start, accumulated_text, first_text_byte)
+    let mut current_heading: Option<(u8, usize, String, Option<usize>)> = None;
     // (dest_url, range_start_in_body, text_buf, is_image)
     let mut current_link: Option<(String, usize, String, bool)> = None;
 
@@ -372,17 +378,26 @@ fn extract_body_elements(
                     byte_range.start,
                     String::new(),
                     None,
-                    byte_range.start,
                 ));
             }
             Event::End(TagEnd::Heading(_)) => {
-                if let Some((level, heading_start, text, first_start, last_text_end)) =
+                if let Some((level, heading_start, text, first_start)) =
                     current_heading.take()
                 {
                     let range =
                         line_index.range((heading_start + offset)..(byte_range.end + offset));
+                    // text_range end: use the line end (byte_range.end minus the trailing \n)
+                    // rather than last_text_end from Text events, because pulldown-cmark text
+                    // events exclude surrounding markup chars (e.g. the closing `_` in `_..._`).
+                    let text_end = if byte_range.end > 0
+                        && content.as_bytes().get(byte_range.end - 1) == Some(&b'\n')
+                    {
+                        byte_range.end - 1
+                    } else {
+                        byte_range.end
+                    };
                     let text_range = match first_start {
-                        Some(ts) => line_index.range((ts + offset)..(last_text_end + offset)),
+                        Some(ts) => line_index.range((ts + offset)..(text_end + offset)),
                         None => line_index
                             .range((heading_start + offset)..(heading_start + offset)),
                     };
@@ -472,13 +487,10 @@ fn extract_body_elements(
 
             // ── Text (accumulated by whichever collector is active) ───────────
             Event::Text(s) => {
-                if let Some((_, _, ref mut text, ref mut first_start, ref mut last_end)) =
-                    current_heading
-                {
+                if let Some((_, _, ref mut text, ref mut first_start)) = current_heading {
                     if first_start.is_none() {
                         *first_start = Some(byte_range.start);
                     }
-                    *last_end = byte_range.end;
                     text.push_str(&s);
                 }
                 if let Some((_, _, ref mut text, _)) = current_link {

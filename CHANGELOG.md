@@ -5,6 +5,21 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.3.5] — 2026-05-18
+
+### Fixed
+
+- All LSP positions (`character` fields in ranges) are now UTF-16 code unit
+  offsets as required by the spec. Previously `LineIndex.position()` returned
+  raw byte offsets, which are identical to UTF-16 for ASCII but diverge for any
+  multi-byte character (e.g. the em dash `—` in headings). This caused the
+  rename dialog to be rejected by editors for headings containing such characters.
+- `text_range` for headings now spans the full raw heading text including any
+  trailing inline markup characters (e.g. the closing `_` in `_..._`).
+  Previously, `text_range` ended at the last pulldown-cmark Text event boundary,
+  which excludes surrounding markup — leaving the closing `_` outside the range
+  and making placeholder ≠ text-at-range. (issue #4 / follow-up to #3)
+
 ## [0.3.4] — 2026-05-18
 
 ### Fixed
