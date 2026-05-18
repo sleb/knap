@@ -13,6 +13,7 @@ use lsp_types::{
 };
 
 use crate::index::{self, NoteIndex, ResolvedLink};
+use crate::parser;
 
 // ─── GFM slug ─────────────────────────────────────────────────────────────────
 
@@ -525,7 +526,15 @@ pub fn handle_prepare_rename(
     index: &NoteIndex,
 ) -> Option<PrepareRenameResponse> {
     let path = uri_to_path(&params.text_document.uri)?;
-    let note = index.get_note(&path)?;
+    let disk_note;
+    let note: &parser::Note = match index.get_note(&path) {
+        Some(n) => n,
+        None => {
+            let content = std::fs::read_to_string(&path).ok()?;
+            disk_note = parser::parse(&path, &content);
+            &disk_note
+        }
+    };
     let pos = params.position;
     let heading = note.headings.iter().find(|h| {
         h.range.start.line <= pos.line && pos.line <= h.range.end.line
@@ -539,7 +548,15 @@ pub fn handle_prepare_rename(
 #[allow(clippy::mutable_key_type)]
 pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<WorkspaceEdit> {
     let path = uri_to_path(&params.text_document_position.text_document.uri)?;
-    let note = index.get_note(&path)?;
+    let disk_note;
+    let note: &parser::Note = match index.get_note(&path) {
+        Some(n) => n,
+        None => {
+            let content = std::fs::read_to_string(&path).ok()?;
+            disk_note = parser::parse(&path, &content);
+            &disk_note
+        }
+    };
     let pos = params.text_document_position.position;
     let heading = note
         .headings
@@ -1259,6 +1276,67 @@ mod tests {
         idx.seed(note("/vault/a.md", "# Old Heading\n\nsome prose\n"));
         let params = make_rename_heading_params("/vault/a.md", 2, 0, "New Heading");
         assert!(handle_rename(params, &idx).is_none());
+    }
+
+    // ── disk-fallback (issue #2) ──────────────────────────────────────────────
+
+    fn write_temp(name: &str, content: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(name);
+        std::fs::write(&path, content).expect("write temp file");
+        path
+    }
+
+    #[test]
+    fn prepare_rename_disk_fallback() {
+        let path = write_temp("knap_test_pr_fallback.md", "# My Heading\n");
+        let idx = NoteIndex::default();
+        let params = make_prepare_rename_params(path.to_str().unwrap(), 0, 5);
+        let resp = handle_prepare_rename(params, &idx);
+        std::fs::remove_file(&path).ok();
+        match resp.expect("expected Some for unindexed on-disk file") {
+            PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. } => {
+                assert_eq!(placeholder, "My Heading");
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn prepare_rename_disk_fallback_off_heading() {
+        let path = write_temp("knap_test_pr_fallback_off.md", "# Heading\n\nsome prose\n");
+        let idx = NoteIndex::default();
+        let params = make_prepare_rename_params(path.to_str().unwrap(), 2, 0);
+        let resp = handle_prepare_rename(params, &idx);
+        std::fs::remove_file(&path).ok();
+        assert!(resp.is_none(), "cursor on prose should return None even with disk fallback");
+    }
+
+    #[test]
+    fn rename_disk_fallback_edits_heading() {
+        let path = write_temp("knap_test_rn_fallback.md", "# Old Heading\n");
+        let idx = NoteIndex::default();
+        let params = make_rename_heading_params(path.to_str().unwrap(), 0, 5, "New Heading");
+        let edit = handle_rename(params, &idx).expect("expected Some for unindexed on-disk file");
+        std::fs::remove_file(&path).ok();
+        let changes = edit.changes.unwrap();
+        let uri = path_to_uri(&path);
+        let edits = changes.get(&uri).expect("expected edits for the file");
+        assert!(
+            edits.iter().any(|e| e.new_text == "New Heading"),
+            "heading text should be rewritten"
+        );
+    }
+
+    #[test]
+    fn rename_disk_fallback_no_incoming_links() {
+        let path = write_temp("knap_test_rn_incoming.md", "# Old Heading\n");
+        let idx = NoteIndex::default();
+        let params = make_rename_heading_params(path.to_str().unwrap(), 0, 5, "New Heading");
+        let edit = handle_rename(params, &idx).expect("expected Some");
+        std::fs::remove_file(&path).ok();
+        let changes = edit.changes.unwrap();
+        // Only the file itself should have edits — no incoming links since the index is empty.
+        assert_eq!(changes.len(), 1, "expected edits only for the renamed file, not for other files");
     }
 
     // ── anchor completion (US-45) ─────────────────────────────────────────────

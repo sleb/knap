@@ -231,6 +231,11 @@ text range (excluding the `## ` prefix) and `placeholder` is the heading text.
 Returns `None` when the cursor is not on a heading — the editor shows no rename
 UI in that case.
 
+The handler uses the indexed note when available. If the file is absent from the
+index (e.g. the server started without workspace folders configured and no
+`didOpen` has been received yet), it falls back to reading the file from disk
+and parsing it on the fly. Returns `None` if the file cannot be read.
+
 ---
 
 ## Rename (`textDocument/rename`)
@@ -244,16 +249,19 @@ pub fn handle_rename(
 
 Renames a heading and all anchor links that point to it. The cursor must be on
 a heading line (same check as `prepareRename`); returns `None` otherwise.
+Applies the same indexed-note / disk-parse fallback as `handle_prepare_rename`.
 
 For the heading at the cursor:
 
 1. **Heading text edit** — rewrites the heading text in place (preserving the
    `## ` prefix) to the new name.
-2. **Incoming anchor edits** — for every note in the workspace, finds
-   `[text](path#old-slug)` links whose slug matches the old heading (via
-   `slug()`) and rewrites the anchor to the new slug.
-3. **Self-link edits** — anchor-only links (`[text](#old-slug)`) within the
-   same file are also rewritten.
+2. **Self-link edits** — anchor-only links (`[text](#old-slug)`) within the
+   same file are rewritten to the new slug.
+3. **Incoming anchor edits** — for every note in the workspace that links to
+   this file via `index.links_to`, finds `[text](path#old-slug)` links whose
+   slug matches the old heading (via `slug()`) and rewrites the anchor to the
+   new slug. When the file was not in the index (disk-parse fallback), `links_to`
+   returns an empty slice and no incoming-link edits are produced.
 
 URL targets are skipped. Returns `Some(WorkspaceEdit { changes: Some(map) })`.
 
