@@ -96,6 +96,17 @@ when the full path isn't known upfront.
 
 ---
 
+## v0.3.3 — Rename for Unindexed Files _(released 2026-05-18)_
+
+**Goal:** Fix a silent failure where heading rename did nothing for files not in
+the index.
+
+| Story | Type | Feature                                                                                         |
+| ----- | ---- | ----------------------------------------------------------------------------------------------- |
+| #2    | Bug  | `prepareRename` and `rename` fall back to disk parse when the file is absent from the NoteIndex |
+
+---
+
 ## v0.4 — Hover Previews
 
 **Goal:** See note contents without switching files.

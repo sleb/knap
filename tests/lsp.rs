@@ -1054,3 +1054,72 @@ fn references_returns_backlinks() {
 
     do_shutdown(&client, 3);
 }
+
+// ─── Issue #2 regression test ─────────────────────────────────────────────────
+
+/// prepareRename must return a non-null result even when the file was never sent
+/// via didOpen (i.e. it is absent from the NoteIndex at the time of the request).
+///
+/// Scenario: server starts with no workspace_folders (empty index), no didOpen
+/// is sent, and prepareRename is fired directly against an on-disk file.
+#[test]
+fn prepare_rename_without_did_open() {
+    let path = std::env::temp_dir().join("knap_integ_pr_no_open.md");
+    std::fs::write(&path, "# My Heading\n\nsome prose\n").expect("write temp file");
+    let uri = format!("file://{}", path.display());
+
+    let client = spawn_server();
+
+    // Initialize with no workspace_folders → empty index at startup.
+    client
+        .sender
+        .send(Message::Request(Request {
+            id: lsp_server::RequestId::from(1i32),
+            method: "initialize".to_string(),
+            params: json!({
+                "capabilities": {},
+                "clientInfo": { "name": "test-client", "version": "0.0.0" }
+            }),
+        }))
+        .unwrap();
+    recv_response(&client, lsp_server::RequestId::from(1i32));
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "initialized".to_string(),
+            params: json!({}),
+        }))
+        .unwrap();
+    loop {
+        match client.receiver.recv().unwrap() {
+            Message::Request(req) if req.method == "client/registerCapability" => break,
+            _ => {}
+        }
+    }
+
+    // No didOpen — file is absent from the index.
+    send_request(
+        &client,
+        2,
+        "textDocument/prepareRename",
+        json!({
+            "textDocument": { "uri": uri },
+            "position": { "line": 0, "character": 5 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    std::fs::remove_file(&path).ok();
+
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+
+    assert!(!result.is_null(), "prepareRename should return non-null for an on-disk file even without didOpen");
+    assert_eq!(
+        result["placeholder"].as_str(),
+        Some("My Heading"),
+        "placeholder should be the heading text"
+    );
+
+    do_shutdown(&client, 3);
+}

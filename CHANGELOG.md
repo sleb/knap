@@ -5,6 +5,18 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.3.3] — 2026-05-18
+
+### Fixed
+
+- Heading rename (`F2`) now works for any readable Markdown file, even when the
+  file was not yet indexed (e.g. server started without workspace folders
+  configured, or the editor did not send `didOpen` before triggering rename).
+  `prepareRename` and `rename` fall back to reading the file from disk when it
+  is absent from the index. Incoming anchor links are still updated when the
+  file is fully indexed; the heading text and self-anchors are always updated.
+  (issue #2)
+
 ## [0.3.2] — 2026-05-17
 
 ### Changed
