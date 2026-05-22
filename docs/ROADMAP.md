@@ -129,7 +129,7 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 ---
 
-## v0.4 — Code Actions
+## v0.4 — Code Actions _(released 2026-05-21)_
 
 **Goal:** Fix broken links without leaving the editor.
 

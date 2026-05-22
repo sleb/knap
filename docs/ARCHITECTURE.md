@@ -70,8 +70,9 @@ struct at startup. Configuration is fixed for the lifetime of the session —
 
 ```
 Config {
-  index_roots: PathBuf[]   // workspace folders from the initialize request
-  extensions: string[]     // default: ["md"]
+  index_roots: PathBuf[]       // workspace folders from the initialize request
+  extensions: string[]         // default: ["md"]
+  new_note_dir: Option<string> // inbox folder for Quick Fix "Create note"; relative to index_roots[0]
 }
 ```
 
@@ -251,6 +252,7 @@ by the Protocol Handler.
 | WorkspaceSymbols | `workspace/symbol`                | v0.3    |
 | PrepareRename    | `textDocument/prepareRename`      | v0.3    |
 | Rename           | `textDocument/rename`             | v0.3    |
+| CodeAction       | `textDocument/codeAction`         | v0.4    |
 
 ---
 

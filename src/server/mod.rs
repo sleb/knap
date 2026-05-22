@@ -8,7 +8,8 @@ use log::{debug, info, warn};
 use crossbeam_channel::Sender;
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
-    CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    CodeActionParams, CodeActionProviderCapability, CompletionOptions, CompletionParams,
+    DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWatchedFilesRegistrationOptions, DidOpenTextDocumentParams, DocumentSymbolParams,
     FileChangeType, FileOperationFilter, FileOperationPattern, FileOperationRegistrationOptions,
     FileSystemWatcher, GlobPattern, GotoDefinitionParams, InitializeParams, InitializeResult,
@@ -22,9 +23,10 @@ use crate::handlers::{self, uri_to_path};
 use crate::index::{self, NoteIndex};
 use crate::parser;
 
-struct Config {
-    index_roots: Vec<PathBuf>,
-    extensions: Vec<String>,
+pub(crate) struct Config {
+    pub(crate) index_roots: Vec<PathBuf>,
+    pub(crate) extensions: Vec<String>,
+    pub(crate) new_note_dir: Option<String>,
 }
 
 /// Mirrors the shape of `initializationOptions` sent by the editor.
@@ -32,6 +34,7 @@ struct Config {
 #[serde(rename_all = "camelCase", default)]
 struct InitOptions {
     extensions: Option<Vec<String>>,
+    new_note_dir: Option<String>,
 }
 
 impl Config {
@@ -63,6 +66,7 @@ impl Config {
         Config {
             index_roots,
             extensions: opts.extensions.unwrap_or_else(|| vec!["md".to_string()]),
+            new_note_dir: opts.new_note_dir,
         }
     }
 }
@@ -111,6 +115,7 @@ pub fn run(connection: Connection) -> Result<()> {
             ]),
             ..Default::default()
         }),
+        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
@@ -168,7 +173,7 @@ pub fn run(connection: Connection) -> Result<()> {
                     info!("shutdown requested");
                     break;
                 }
-                dispatch_request(req, &connection, &index)?;
+                dispatch_request(req, &connection, &index, &config)?;
             }
             Message::Notification(notif) => {
                 debug!("notification: method={}", notif.method);
@@ -228,8 +233,17 @@ fn register_file_watcher(
     Ok(())
 }
 
-fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex) -> Result<()> {
+fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex, config: &Config) -> Result<()> {
     match req.method.as_str() {
+        "textDocument/codeAction" => {
+            let actions = serde_json::from_value::<CodeActionParams>(req.params)
+                .ok()
+                .map(|params| handlers::handle_code_actions(params, index, config))
+                .unwrap_or_default();
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, actions)))?;
+        }
         "textDocument/completion" => {
             let items = serde_json::from_value::<CompletionParams>(req.params)
                 .ok()

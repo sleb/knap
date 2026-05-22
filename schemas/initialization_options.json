@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "knap initializationOptions",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "extensions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["md"],
+      "description": "File extensions treated as notes (default: [\"md\"])"
+    },
+    "newNoteDir": {
+      "type": "string",
+      "description": "Folder path relative to workspace root where Quick Fix 'Create note' places new files. When absent, files are created next to the linking note."
+    }
+  }
+}
