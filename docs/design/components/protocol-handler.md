@@ -40,6 +40,8 @@ struct Config {
     index_roots: Vec<PathBuf>,
     /// File extensions treated as notes. Default: ["md"]
     extensions: Vec<String>,
+    /// Inbox folder for Quick Fix "Create note"; relative to index_roots[0].
+    new_note_dir: Option<String>,
 }
 ```
 
@@ -68,6 +70,7 @@ ServerCapabilities {
         trigger_characters: Some(vec!["(".to_string(), "#".to_string(), "/".to_string()]),
         ..Default::default()
     }),
+    code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
     definition_provider: Some(OneOf::Left(true)),
     references_provider: Some(OneOf::Left(true)),
     workspace: Some(WorkspaceServerCapabilities {
@@ -159,6 +162,7 @@ fn dispatch_request(req: Request, ...) {
         "workspace/symbol"              => handle_workspace_symbols(req, ...),
         "textDocument/prepareRename"    => handle_prepare_rename(req, ...),
         "textDocument/rename"           => handle_rename(req, ...),
+        "textDocument/codeAction"       => handle_code_actions(req, ...),
         _                               => respond_with_null(req, ...),
     }
 }

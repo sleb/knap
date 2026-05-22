@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.3.2-blue)
+![Version](https://img.shields.io/badge/version-0.4.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -32,8 +32,11 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 - Workspace Symbols — search headings across the entire vault
 - Broken link diagnostics — warnings for links to missing files or headings;
   attachment links (images, PDFs) resolve against the full workspace
+- Quick Fix — create a missing file from a broken link, or pick a valid heading
+  to replace a broken anchor; both via standard `textDocument/codeAction`
 - Incremental index — the workspace index stays live as files change
-- Configurable file extensions (e.g. `.md`, `.mdx`) via `initializationOptions`
+- Configurable file extensions (e.g. `.md`, `.mdx`) and inbox folder
+  (`newNoteDir`) via `initializationOptions`
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 Dedicated extensions are available for [VS Code](https://github.com/sleb/vscode-knap) and [Zed](https://github.com/sleb/zed-knap).
@@ -50,7 +53,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.3.2 — Global Jump in Completions. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.4.0 — Code Actions. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

@@ -267,6 +267,41 @@ URL targets are skipped. Returns `Some(WorkspaceEdit { changes: Some(map) })`.
 
 ---
 
+## Code Actions (`textDocument/codeAction`)
+
+```rust
+pub(crate) fn handle_code_actions(
+    params: CodeActionParams,
+    index: &NoteIndex,
+    config: &Config,
+) -> Vec<CodeActionOrCommand>
+```
+
+Re-derives link context from the index by iterating `note.md_links` and
+checking `contains(link.range, cursor)` where `cursor = params.range.start`.
+Anchor-only links (`link.target.is_empty()`) are always skipped.
+
+For each link under the cursor:
+
+| Condition                                       | Action offered                                                                                    |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `index.resolve(…) == Broken`                    | **Create note** — a `CreateFile` workspace edit (`ignore_if_exists: true`)                        |
+| `Found(target)` + broken anchor (slug mismatch) | One **Change anchor to "…"** per heading in the target note — a `TextEdit` on `link.anchor_range` |
+| `Found(target)` + valid anchor (or no anchor)   | No action                                                                                         |
+
+New-file path logic for **Create note** (`new_note_path`):
+
+```rust
+fn new_note_path(link_target: &str, source: &Path, config: &Config) -> PathBuf {
+    match config.new_note_dir.as_deref().zip(config.index_roots.first()) {
+        Some((dir, root)) => root.join(dir).join(Path::new(link_target).file_name()),
+        None => normalize_path(&source.parent().join(link_target)),
+    }
+}
+```
+
+---
+
 ## Utilities
 
 ```rust

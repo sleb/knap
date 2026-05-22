@@ -5,6 +5,24 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.4.0] — 2026-05-21
+
+### Added
+
+- Quick Fix: place the cursor on a broken `[text](missing.md)` link and trigger
+  code actions (`Cmd+.` / lightbulb) to create the missing file instantly. The
+  file is created empty; triggering the action a second time is a no-op. (US-18)
+- Quick Fix: place the cursor on a link with a broken anchor
+  (`[text](note.md#nonexistent)`) to see one "Change anchor to …" action per
+  heading in the target note. Selecting an action rewrites the anchor to the
+  correct GFM slug. (US-29)
+- `newNoteDir` configuration option: set a folder path relative to the workspace
+  root and all "Create note" Quick Fixes will place new files there instead of
+  next to the linking note. Useful for inbox-style workflows. (US-30)
+- JSON Schema for `initializationOptions` at `schemas/initialization_options.json`.
+  Reference it with `$schema` in your editor's LSP config to get inline
+  completions and validation for knap options. (US-31)
+
 ## [0.3.5] — 2026-05-18
 
 ### Fixed
