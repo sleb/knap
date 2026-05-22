@@ -1123,3 +1123,201 @@ fn prepare_rename_without_did_open() {
 
     do_shutdown(&client, 3);
 }
+
+// ─── v0.4 Integration tests ───────────────────────────────────────────────────
+
+fn do_initialize_with_options(client: &Connection, workspace_uri: &str, options: serde_json::Value) {
+    client
+        .sender
+        .send(Message::Request(Request {
+            id: lsp_server::RequestId::from(1i32),
+            method: "initialize".to_string(),
+            params: json!({
+                "capabilities": {},
+                "clientInfo": { "name": "test-client", "version": "0.0.1" },
+                "workspaceFolders": [{ "uri": workspace_uri, "name": "vault" }],
+                "initializationOptions": options
+            }),
+        }))
+        .unwrap();
+
+    recv_response(client, lsp_server::RequestId::from(1i32));
+
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "initialized".to_string(),
+            params: json!({}),
+        }))
+        .unwrap();
+
+    loop {
+        match client.receiver.recv().unwrap() {
+            Message::Request(req) if req.method == "client/registerCapability" => break,
+            _ => {}
+        }
+    }
+}
+
+/// Cursor on a broken link returns a `CreateFile` code action.
+#[test]
+fn test_code_action_create_note() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // "[link](missing.md)" — cursor at (0, 3) is inside the link
+    did_open(&client, "file:///vault/a.md", "[link](missing.md)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/codeAction",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "range": { "start": { "line": 0, "character": 3 }, "end": { "line": 0, "character": 3 } },
+            "context": { "diagnostics": [] }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let actions: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+
+    assert_eq!(actions.len(), 1, "expected one code action for broken link");
+
+    let action = &actions[0];
+    let create_uri = action["edit"]["documentChanges"][0]["uri"].as_str();
+    assert!(
+        create_uri.map(|u| u.ends_with("missing.md")).unwrap_or(false),
+        "expected CreateFile URI ending in missing.md, got: {action}"
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// With `newNoteDir` configured, `CreateFile` URI points into the inbox folder.
+#[test]
+fn test_code_action_create_note_in_new_note_dir() {
+    let client = spawn_server();
+    do_initialize_with_options(
+        &client,
+        "file:///vault",
+        json!({ "newNoteDir": "inbox" }),
+    );
+
+    did_open(&client, "file:///vault/a.md", "[link](missing.md)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/codeAction",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "range": { "start": { "line": 0, "character": 3 }, "end": { "line": 0, "character": 3 } },
+            "context": { "diagnostics": [] }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let actions: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+
+    assert_eq!(actions.len(), 1);
+    let create_uri = actions[0]["edit"]["documentChanges"][0]["uri"].as_str().unwrap_or("");
+    assert!(
+        create_uri.ends_with("/vault/inbox/missing.md"),
+        "expected CreateFile in inbox folder, got: {create_uri}"
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// Broken anchor with headings in target → actions with correct TextEdit.
+#[test]
+fn test_code_action_fix_anchor() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/b.md", "# Introduction\n");
+    // "[link](b.md#wrong)" — cursor at (0, 3)
+    did_open(&client, "file:///vault/a.md", "[link](b.md#wrong)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/codeAction",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "range": { "start": { "line": 0, "character": 3 }, "end": { "line": 0, "character": 3 } },
+            "context": { "diagnostics": [] }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let actions: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+
+    assert_eq!(actions.len(), 1, "expected one fix-anchor action");
+
+    let new_text = actions[0]["edit"]["changes"]["file:///vault/a.md"][0]["newText"]
+        .as_str()
+        .unwrap_or("");
+    assert_eq!(new_text, "introduction", "expected slug of 'Introduction'");
+
+    do_shutdown(&client, 3);
+}
+
+/// Cursor on a valid link returns an empty list (not null).
+#[test]
+fn test_code_action_empty_for_valid_link() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/b.md", "");
+    did_open(&client, "file:///vault/a.md", "[link](b.md)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/codeAction",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "range": { "start": { "line": 0, "character": 3 }, "end": { "line": 0, "character": 3 } },
+            "context": { "diagnostics": [] }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result = resp.result.unwrap_or_default();
+    let actions: Vec<serde_json::Value> = serde_json::from_value(result).unwrap_or_default();
+    assert!(actions.is_empty(), "expected empty list for valid link, got {actions:?}");
+
+    do_shutdown(&client, 3);
+}
+
+/// Cursor not on a link returns an empty list.
+#[test]
+fn test_code_action_empty_off_link() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "[link](missing.md) prose\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/codeAction",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "range": { "start": { "line": 0, "character": 22 }, "end": { "line": 0, "character": 22 } },
+            "context": { "diagnostics": [] }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let actions: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+    assert!(actions.is_empty(), "expected empty list when cursor is off any link");
+
+    do_shutdown(&client, 3);
+}

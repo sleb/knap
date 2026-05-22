@@ -5,10 +5,12 @@ use crossbeam_channel::Sender;
 use log::warn;
 use lsp_server::{Message, Notification};
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionParams, CompletionTextEdit, Diagnostic,
-    DiagnosticSeverity, DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
-    GotoDefinitionResponse, Location, Position, PrepareRenameResponse, PublishDiagnosticsParams,
-    Range, ReferenceParams, RenameFilesParams, RenameParams, SymbolInformation, SymbolKind,
+    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
+    CompletionItem, CompletionItemKind, CompletionParams, CompletionTextEdit, CreateFile,
+    CreateFileOptions, Diagnostic, DiagnosticSeverity, DocumentChangeOperation, DocumentChanges,
+    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
+    Location, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
+    RenameFilesParams, RenameParams, ResourceOp, SymbolInformation, SymbolKind,
     TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
 };
 
@@ -609,6 +611,96 @@ pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<Workspac
     }
 
     Some(WorkspaceEdit { changes: Some(changes), ..Default::default() })
+}
+
+// ─── Code Actions ─────────────────────────────────────────────────────────────
+
+pub(crate) fn handle_code_actions(
+    params: CodeActionParams,
+    index: &NoteIndex,
+    config: &crate::server::Config,
+) -> Vec<CodeActionOrCommand> {
+    let Some(path) = uri_to_path(&params.text_document.uri) else {
+        return vec![];
+    };
+    let Some(note) = index.get_note(&path) else {
+        return vec![];
+    };
+    let cursor = params.range.start;
+    let mut actions = Vec::new();
+
+    for link in &note.md_links {
+        if link.target.is_empty() {
+            continue;
+        }
+        if !contains(link.range, cursor) {
+            continue;
+        }
+        match index.resolve(&path, &link.target) {
+            ResolvedLink::Broken => {
+                let new_path = new_note_path(&link.target, &path, config);
+                actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                    title: "Create note".to_string(),
+                    kind: Some(CodeActionKind::QUICKFIX),
+                    edit: Some(WorkspaceEdit {
+                        document_changes: Some(DocumentChanges::Operations(vec![
+                            DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
+                                uri: path_to_uri(&new_path),
+                                options: Some(CreateFileOptions {
+                                    ignore_if_exists: Some(true),
+                                    overwrite: None,
+                                }),
+                                annotation_id: None,
+                            })),
+                        ])),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }));
+            }
+            ResolvedLink::Found(target_path) => {
+                let (Some(anchor), Some(anchor_range)) = (&link.anchor, link.anchor_range) else {
+                    continue;
+                };
+                let target_note = index.get_note(&target_path);
+                let anchor_matches = target_note
+                    .map(|n| n.headings.iter().any(|h| slug(&h.text) == slug(anchor)))
+                    .unwrap_or(false);
+                if !anchor_matches {
+                    for heading in target_note.iter().flat_map(|n| &n.headings) {
+                        let new_anchor = slug(&heading.text);
+                        actions.push(CodeActionOrCommand::CodeAction(CodeAction {
+                            title: format!("Change anchor to \"{new_anchor}\""),
+                            kind: Some(CodeActionKind::QUICKFIX),
+                            edit: Some(WorkspaceEdit {
+                                changes: Some(std::collections::HashMap::from([(
+                                    path_to_uri(&path),
+                                    vec![TextEdit {
+                                        range: anchor_range,
+                                        new_text: new_anchor,
+                                    }],
+                                )])),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    actions
+}
+
+fn new_note_path(link_target: &str, source: &Path, config: &crate::server::Config) -> PathBuf {
+    match config.new_note_dir.as_deref().zip(config.index_roots.first()) {
+        Some((dir, root)) => {
+            let stem = Path::new(link_target).file_name().unwrap_or_default();
+            root.join(dir).join(stem)
+        }
+        None => index::normalize_path(&source.parent().unwrap_or(source).join(link_target)),
+    }
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
@@ -1360,6 +1452,190 @@ mod tests {
         let changes = edit.changes.unwrap();
         // Only the file itself should have edits — no incoming links since the index is empty.
         assert_eq!(changes.len(), 1, "expected edits only for the renamed file, not for other files");
+    }
+
+    // ── handle_code_actions ───────────────────────────────────────────────────
+
+    fn make_code_action_params(path: &str, line: u32, character: u32) -> lsp_types::CodeActionParams {
+        lsp_types::CodeActionParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            range: Range {
+                start: Position { line, character },
+                end: Position { line, character },
+            },
+            context: lsp_types::CodeActionContext::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    }
+
+    fn make_config(index_roots: Vec<std::path::PathBuf>, new_note_dir: Option<&str>) -> crate::server::Config {
+        crate::server::Config {
+            index_roots,
+            extensions: vec!["md".to_string()],
+            new_note_dir: new_note_dir.map(|s| s.to_string()),
+        }
+    }
+
+    fn extract_create_file(action: &lsp_types::CodeActionOrCommand) -> Option<&lsp_types::CreateFile> {
+        match action {
+            lsp_types::CodeActionOrCommand::CodeAction(a) => {
+                let edit = a.edit.as_ref()?;
+                if let Some(lsp_types::DocumentChanges::Operations(ops)) = &edit.document_changes {
+                    for op in ops {
+                        if let lsp_types::DocumentChangeOperation::Op(lsp_types::ResourceOp::Create(cf)) = op {
+                            return Some(cf);
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn code_actions_create_note_for_broken_link() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](missing.md)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert_eq!(actions.len(), 1);
+        assert!(extract_create_file(&actions[0]).is_some());
+    }
+
+    #[test]
+    fn code_actions_no_action_for_valid_link() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[link](b.md)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn code_actions_no_action_off_link() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](missing.md) prose"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 20);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn code_actions_new_note_dir_respected() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](missing.md)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], Some("inbox"));
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert_eq!(actions.len(), 1);
+        let cf = extract_create_file(&actions[0]).unwrap();
+        assert!(cf.uri.as_str().ends_with("/vault/inbox/missing.md"));
+    }
+
+    #[test]
+    fn code_actions_default_path_relative() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/sub/a.md", "[link](missing.md)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/sub/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert_eq!(actions.len(), 1);
+        let cf = extract_create_file(&actions[0]).unwrap();
+        assert!(cf.uri.as_str().ends_with("/vault/sub/missing.md"));
+    }
+
+    #[test]
+    fn code_actions_create_note_ignore_if_exists() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](missing.md)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert_eq!(actions.len(), 1);
+        let cf = extract_create_file(&actions[0]).unwrap();
+        assert_eq!(cf.options.as_ref().and_then(|o| o.ignore_if_exists), Some(true));
+    }
+
+    #[test]
+    fn code_actions_skips_anchor_only_links() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](#section)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn code_actions_fix_anchor_offers_headings() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "# Introduction\n# Summary\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md#nonexistent)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert_eq!(actions.len(), 2);
+    }
+
+    #[test]
+    fn code_actions_fix_anchor_edit_replaces_range() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "# Introduction\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md#nonexistent)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            lsp_types::CodeActionOrCommand::CodeAction(a) => {
+                let changes = a.edit.as_ref().unwrap().changes.as_ref().unwrap();
+                let edits: Vec<_> = changes.values().flatten().collect();
+                assert_eq!(edits.len(), 1);
+                assert_eq!(edits[0].new_text, "introduction");
+            }
+            _ => panic!("expected CodeAction"),
+        }
+    }
+
+    #[test]
+    fn code_actions_fix_anchor_no_headings_empty() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "just prose"));
+        idx.seed(note("/vault/a.md", "[link](b.md#nonexistent)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn code_actions_fix_anchor_valid_anchor_skipped() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "# Introduction\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md#introduction)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn code_actions_fix_anchor_no_anchor_range_skipped() {
+        // A link with anchor but no anchor_range should produce no actions.
+        // We test this indirectly: a plain `[link](b.md)` with no anchor → no anchor actions.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "# Introduction\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert!(actions.is_empty());
     }
 
     // ── anchor completion (US-45) ─────────────────────────────────────────────

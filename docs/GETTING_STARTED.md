@@ -112,15 +112,36 @@ knap works with zero configuration for a standard single-folder Markdown
 workspace. The following options can be passed via `initializationOptions`
 when you need to customise behaviour:
 
-| Option       | Type       | Default  | Description                                                                               |
-| ------------ | ---------- | -------- | ----------------------------------------------------------------------------------------- |
-| `extensions` | `string[]` | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments. |
+| Option       | Type       | Default  | Description                                                                                                                                         |
+| ------------ | ---------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extensions` | `string[]` | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments.                                                           |
+| `newNoteDir` | `string`   | —        | Folder path relative to workspace root where Quick Fix "Create note" places new files. When absent, new files are created next to the linking note. |
 
-**Example — multi-extension vault:**
+**Example — multi-extension vault with inbox:**
 
 ```json
 {
-  "extensions": ["md", "mdx"]
+  "extensions": ["md", "mdx"],
+  "newNoteDir": "0-Inbox"
+}
+```
+
+### Schema (Zed / JSON-aware editors)
+
+A JSON Schema for `initializationOptions` is provided at
+`schemas/initialization_options.json` in the repository. Reference it with
+`$schema` to get inline completions and validation:
+
+```json
+{
+  "lsp": {
+    "knap": {
+      "initialization_options": {
+        "$schema": "file:///path/to/knap/schemas/initialization_options.json",
+        "extensions": ["md", "txt"]
+      }
+    }
+  }
 }
 ```
 
