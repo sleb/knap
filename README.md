@@ -18,24 +18,46 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 
 ## What it does
 
-- `[text](path/to/note.md)` completions — triggered by `(`, inserts the path
-  relative to the current file; includes non-Markdown files (images, PDFs)
-- Anchor completions — triggered by `#` inside a link, lists headings in the
-  target file as slug anchors (`[text](note.md#my-heading)`)
-- Go to Definition — jumps to the linked note; navigates to the heading when an
-  anchor is present (`[text](note.md#heading)`)
-- Find References — all standard Markdown links pointing to a file
-- Rename a file — all incoming and outgoing links rewritten atomically via
+### Linking & completions
+
+- **Path completions** — type `(` inside a Markdown link for a directory
+  browser; drill into subfolders one level at a time, or type any filename
+  segment to jump directly to any note or attachment in the workspace (images
+  and PDFs included)
+- **Anchor completions** — type `#` after a file path to pick from that file's
+  headings; inserts the GFM slug automatically (`## My Section` → `my-section`)
+
+### Navigation
+
+- **Go to Definition** — jump to the linked note; navigates to the heading line
+  when an anchor is present (`[text](note.md#heading)`)
+- **Document Symbols** — outline of every heading in the current file, jumpable
+  from your editor's symbol panel
+- **Workspace Symbols** — fuzzy-search headings across the entire vault
+
+### Finding references
+
+- **Find References** — every standard Markdown link pointing to the current
+  file
+
+### Refactoring
+
+- **Rename a file** — all incoming and outgoing links rewritten atomically via
   `workspace/willRenameFiles`
-- Rename a heading — all anchor links pointing to that heading updated in place
-- Document Symbols — outline of all headings in the current file
-- Workspace Symbols — search headings across the entire vault
-- Broken link diagnostics — warnings for links to missing files or headings;
+- **Rename a heading** — all `[text](note.md#old-slug)` anchor links updated in
+  place to the new slug
+
+### Diagnostics & fixes
+
+- **Broken link diagnostics** — warnings for links to missing files or headings;
   attachment links (images, PDFs) resolve against the full workspace
-- Quick Fix — create a missing file from a broken link, or pick a valid heading
-  to replace a broken anchor; both via standard `textDocument/codeAction`
-- Incremental index — the workspace index stays live as files change
-- Configurable file extensions (e.g. `.md`, `.mdx`) and inbox folder
+- **Quick Fix** — create a missing file from a broken link, or pick a valid
+  heading to replace a broken anchor; both via standard `textDocument/codeAction`
+
+### Workspace
+
+- Incremental index — stays live as files change, no restart needed
+- Configurable file extensions (e.g. `.md`, `.mdx`) and new-note inbox folder
   (`newNoteDir`) via `initializationOptions`
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.

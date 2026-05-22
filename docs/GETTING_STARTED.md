@@ -9,12 +9,19 @@ backlinks, catch broken links, and rename files without breaking anything.
 
 ## 1. Install the server
 
-> **Zed users:** the `zed-knap` extension downloads the server automatically.
-> You can skip this step and go straight to [Connect your editor](#2-connect-your-editor).
+The `knap` binary is the language server your editor connects to. How you get it
+depends on your editor:
+
+- **Zed** — the `zed-knap` extension downloads and manages the binary for you.
+  Skip to [Connect your editor](#2-connect-your-editor).
+- **VS Code** — the `vscode-knap` extension finds a binary you've installed
+  manually (it searches `~/.cargo/bin`, `/usr/local/bin`, and `$PATH`).
+- **All other editors** — install the binary manually.
 
 ### Download a pre-built binary
 
-Grab the latest release from the [GitHub releases page](https://github.com/sleb/knap/releases/latest), download the binary for your platform, and copy it somewhere on your `PATH`:
+Grab the latest release from the [GitHub releases page](https://github.com/sleb/knap/releases/latest),
+download the binary for your platform, and copy it somewhere on your `PATH`:
 
 ```bash
 cp knap ~/.local/bin/
@@ -153,11 +160,12 @@ Once connected, knap provides the following in any Markdown file:
 
 ### Link completions
 
-Inside a Markdown link, type `(` to open a completion list showing the immediate
-children of the current directory: sibling notes appear as file items, and
-subdirectories appear as folder items (e.g. `notes/`). Select a folder item and
-the picker re-opens showing that directory's contents — drill down one level at a
-time. Typing `/` re-triggers completion automatically.
+Inside a Markdown link, type `(` to open a completion list. Directory items let
+you drill down one folder at a time — select a folder and the picker re-opens
+showing its contents; typing `/` re-triggers automatically. Below the directory
+items, the list also shows every file in the workspace, so you can jump directly
+to any note or attachment by typing part of its name or path without navigating
+through folders.
 
 ### Anchor completions
 
@@ -226,6 +234,30 @@ restart needed.
 **Attachment links:** `![alt](image.png)` resolves against all files in the
 workspace, not just note files. If `image.png` exists anywhere under the
 workspace root, the link is considered resolved and no diagnostic is emitted.
+
+### Quick Fix (Code Actions)
+
+When your cursor is on a broken-link diagnostic, trigger your editor's Quick Fix
+command to see available repairs:
+
+- **Broken file link** (`Link target not found`) — a **Create note** action
+  creates the missing `.md` file. The new file opens immediately so you can
+  start writing.
+- **Broken anchor** (`Heading not found`) — a **Replace anchor** action lists
+  the target file's current headings; selecting one rewrites the anchor in place.
+
+Quick Fix keybindings by editor:
+
+| Editor  | Keybinding                                                 |
+| ------- | ---------------------------------------------------------- |
+| VS Code | `Ctrl+.` / `Cmd+.`                                         |
+| Zed     | `Ctrl+.` / `Cmd+.`                                         |
+| Neovim  | `vim.lsp.buf.code_action()` (bind to a key of your choice) |
+| Helix   | `Space+a`                                                  |
+
+By default, **Create note** places new files next to the linking file. Set
+`newNoteDir` in your configuration (see [Configuration](#3-configuration)) to
+route all new notes to an inbox folder instead.
 
 ---
 
