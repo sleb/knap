@@ -129,17 +129,18 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 ---
 
-## v0.4 — Hover Previews
+## v0.4 — Code Actions
 
-**Goal:** See note contents without switching files.
+**Goal:** Fix broken links without leaving the editor.
 
-| Story | Feature                                                                |
-| ----- | ---------------------------------------------------------------------- |
-| US-09 | Hover on a link → preview of the first N lines of the target note      |
-| US-10 | Hover on an image or external URL → inline summary                     |
-| US-23 | Frontmatter `title:` used as the display name in completions and hover |
+| Story | Feature                                                                                        |
+| ----- | ---------------------------------------------------------------------------------------------- |
+| US-18 | Code action: create the missing file from a broken link                                        |
+| US-29 | Code action: fix a broken anchor by picking from the target note's available headings          |
+| US-30 | Config: `newNoteDir` — notes created by Quick Fix land in a configured folder                  |
+| US-31 | Zed extension: JSON schema for `initialization_options` — autocompletion and inline validation |
 
-**LSP capabilities delivered:** `textDocument/hover`
+**LSP capabilities delivered:** `textDocument/codeAction`
 
 ---
 
@@ -158,18 +159,17 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 ---
 
-## v0.6 — Code Actions
+## v0.6 — Hover Previews
 
-**Goal:** Fix broken links without leaving the editor.
+**Goal:** See note contents without switching files.
 
-| Story | Feature                                                                                        |
-| ----- | ---------------------------------------------------------------------------------------------- |
-| US-18 | Code action: create the missing file from a broken link                                        |
-| US-29 | Code action: fix a broken anchor by picking from the target note's available headings          |
-| US-30 | Config: `newNoteDir` — notes created by Quick Fix land in a configured folder                  |
-| US-31 | Zed extension: JSON schema for `initialization_options` — autocompletion and inline validation |
+| Story | Feature                                                                |
+| ----- | ---------------------------------------------------------------------- |
+| US-09 | Hover on a link → preview of the first N lines of the target note      |
+| US-10 | Hover on an image or external URL → inline summary                     |
+| US-23 | Frontmatter `title:` used as the display name in completions and hover |
 
-**LSP capabilities delivered:** `textDocument/codeAction`
+**LSP capabilities delivered:** `textDocument/hover`
 
 ---
 
