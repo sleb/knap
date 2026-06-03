@@ -54,6 +54,9 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
             }
             ResolvedLink::Found(target_path) => {
                 if let Some(anchor) = &link.anchor {
+                    if index::looks_like_url(&link.target) {
+                        continue; // can't verify headings on remote URLs
+                    }
                     let found = index
                         .get_note(&target_path)
                         .map(|n| {
@@ -854,6 +857,14 @@ mod tests {
         idx.seed(note("/vault/a.md", "[text](#section)"));
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
         assert!(diags.is_empty(), "anchor-only links should not produce diagnostics");
+    }
+
+    #[test]
+    fn diagnostics_external_url_with_anchor_no_warning() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[text](https://example.com/page#section)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert!(diags.is_empty(), "external URLs with # fragments should not produce diagnostics");
     }
 
     // ── handle_completion ─────────────────────────────────────────────────────
