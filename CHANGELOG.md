@@ -5,6 +5,15 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.4.1] — 2026-06-04
+
+### Fixed
+
+- Links to external URLs containing `#` fragments (e.g. `https://example.com/page#section`)
+  no longer produce a spurious "Heading not found" diagnostic. (fixes #48)
+
+---
+
 ## [0.4.0] — 2026-05-21
 
 ### Added

@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.4.0-blue)
+![Version](https://img.shields.io/badge/version-0.4.1-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -75,7 +75,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.4.0 — Code Actions. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.4.1 — Code Actions. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 
