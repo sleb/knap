@@ -87,6 +87,8 @@ pub struct LineIndex {
     /// line_starts[0] = 0 (start of file)
     /// line_starts[n] = byte offset of line n
     line_starts: Vec<usize>,
+    /// Full source content, retained to compute UTF-16 character offsets.
+    content: String,
 }
 
 impl LineIndex {
@@ -97,14 +99,19 @@ impl LineIndex {
                 starts.push(offset + 1);
             }
         }
-        LineIndex { line_starts: starts }
+        LineIndex { line_starts: starts, content: content.to_string() }
     }
 
     pub fn position(&self, byte_offset: usize) -> Position {
         // Binary search for the last line start <= byte_offset
         let line = self.line_starts.partition_point(|&s| s <= byte_offset) - 1;
-        let character = byte_offset - self.line_starts[line];
-        Position { line: line as u32, character: character as u32 }
+        let line_start = self.line_starts[line];
+        // LSP requires UTF-16 code unit offsets, not byte offsets.
+        let character = self.content[line_start..byte_offset]
+            .chars()
+            .map(|c| c.len_utf16() as u32)
+            .sum();
+        Position { line: line as u32, character }
     }
 
     pub fn range(&self, byte_range: Range<usize>) -> LspRange {

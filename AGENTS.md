@@ -4,7 +4,7 @@ This file provides guidance to agents when working with code in this repository.
 
 ## Project
 
-Knap is a Markdown LSP server written in Rust. It brings IDE-quality linking and
+knap is a Markdown LSP server written in Rust. It brings IDE-quality linking and
 navigation to any LSP-compatible editor using standard Markdown `[text](path)`
 links — no wiki-link extensions. See `README.md` for the one-paragraph summary.
 

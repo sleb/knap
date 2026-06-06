@@ -1,4 +1,4 @@
-# Knap — Roadmap
+# knap — Roadmap
 
 Each release is designed to be independently useful. A writer should get value
 from v0.1 alone and accumulate more with each release.
@@ -294,17 +294,6 @@ Explicitly deferred — not scheduled:
 - Git integration
 - Graph visualization
 - Sync / publishing
-
----
-
-## Debug CLI
-
-Developer-facing subcommands available from v0.1.
-
-| Subcommand          | Story  |
-| ------------------- | ------ |
-| `knap parse <file>` | US-D01 |
-| `knap index <dir>`  | US-D02 |
 
 ---
 

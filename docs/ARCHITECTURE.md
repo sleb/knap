@@ -1,4 +1,4 @@
-# Knap — Architecture
+# knap — Architecture
 
 High-level component design. Each component is described by its responsibility
 and the contracts it exposes or depends on. Per-feature implementation details
@@ -152,7 +152,7 @@ pure — given the same source text it always returns the same result.
 **Responsibilities (full target state — fields added per release):**
 
 - Extracting standard Markdown links and images with position, target path, and
-  optional heading anchor _(v0.1 for wiki-links; superseded by standard links)_
+  optional heading anchor _(v0.1)_
 - Extracting all headings with their level and text _(v0.3)_
 - Extracting YAML frontmatter (title, tags, arbitrary keys) _(v0.1, extended v0.3)_
 
@@ -165,8 +165,6 @@ parse(path: string, content: string) → Note
 `Note` grows across releases. See the per-release design docs for the current
 shape. The parser does not resolve links — it only records what is written in
 the file.
-
-The parser does not resolve links — it only records what is written in the file.
 
 ---
 
@@ -188,8 +186,10 @@ notes in the workspace.
 **Contract (writes):**
 
 ```
-index(note: Note) → IndexDelta    // add or replace; returns affected paths for diagnostics
-remove(path: string) → IndexDelta // delete; returns affected paths for diagnostics
+index(note: Note) → IndexDelta             // add or replace; returns affected paths for diagnostics
+remove(path: string) → IndexDelta          // delete; returns affected paths for diagnostics
+add_attachment(path: PathBuf) → IndexDelta // register a non-note file; may clear broken-link diagnostics
+remove_attachment(path: PathBuf) → IndexDelta
 ```
 
 **Contract (reads):**
@@ -201,8 +201,6 @@ all_notes() → Note[]
 links_to(path: string) → LocatedLink[]  // standard links from other notes pointing here
 all_tags() → string[]
 notes_by_tag(tag: string) → Note[]
-add_attachment(path: PathBuf) → IndexDelta
-remove_attachment(path: PathBuf) → IndexDelta
 ```
 
 The index is the single source of truth. Request Handlers read from it

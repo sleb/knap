@@ -1,4 +1,4 @@
-# Knap — Markdown LSP Server: User Stories
+# knap — Markdown LSP Server: User Stories
 
 A language server for Markdown that brings smart linking, navigation, and
 diagnostics to any LSP-compatible editor — using standard Markdown syntax.
