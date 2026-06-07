@@ -144,7 +144,7 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 ---
 
-## v0.5 — Tags
+## v0.5 — Tags _(released 2026-06-06)_
 
 **Goal:** Explore and maintain your topic taxonomy via frontmatter tags.
 

@@ -215,7 +215,9 @@ a flat list you can jump to directly.
 ### Workspace Symbols
 
 Open Workspace Symbols (usually `Cmd+T` / `Ctrl+T`) and type part of a heading
-name to search headings across all indexed notes.
+name to search headings across all indexed notes. Results also include
+frontmatter tags, which appear with a distinct icon (`KEY`) so you can
+distinguish them from headings at a glance. Filtering is case-insensitive.
 
 ### Broken link diagnostics
 
@@ -235,7 +237,26 @@ restart needed.
 workspace, not just note files. If `image.png` exists anywhere under the
 workspace root, the link is considered resolved and no diagnostic is emitted.
 
-### Quick Fix (Code Actions)
+### Tag completions
+
+Inside a frontmatter `tags:` value, trigger completions to see every tag used
+across your workspace. All three YAML forms are supported:
+
+```yaml
+tags: writing          # bare scalar — cursor anywhere on the value
+tags: [writing, ...]   # inline list — cursor inside the brackets
+tags:
+  - writing            # block list — cursor on the value after `- `
+```
+
+Tags already present in the current note's frontmatter are excluded. Typing
+narrows the list by prefix.
+
+### Find References and Go to Definition on tags
+
+Place your cursor on a tag value in frontmatter and trigger Find References or
+Go to Definition. Both return every note in the workspace that carries that tag,
+with each result pointing directly at the tag's range in the file.
 
 When your cursor is on a broken-link diagnostic, trigger your editor's Quick Fix
 command to see available repairs:

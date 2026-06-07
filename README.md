@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.4.1-blue)
+![Version](https://img.shields.io/badge/version-0.5.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -35,10 +35,22 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
   from your editor's symbol panel
 - **Workspace Symbols** — fuzzy-search headings across the entire vault
 
+### Tags
+
+- **Tag completions** — inside a frontmatter `tags:` value, your workspace tag
+  index appears as a pick list; already-used tags are excluded and prefix
+  filtering narrows results as you type
+- **Find References on a tag** — shows every note that carries the tag, with
+  each result pointing directly at the tag range
+- **Go to Definition on a tag** — same set of locations, letting you jump to
+  any note using the tag
+- **Workspace Symbols includes tags** — tags appear alongside headings in the
+  symbol search with `SymbolKind::KEY` so editors can style them distinctly
+
 ### Finding references
 
 - **Find References** — every standard Markdown link pointing to the current
-  file
+  file, or every note using a tag when the cursor is on a tag value
 
 ### Refactoring
 
@@ -75,7 +87,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.4.1 — Code Actions. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.5.0 — Tags. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 
