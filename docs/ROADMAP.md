@@ -148,14 +148,16 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 **Goal:** Explore and maintain your topic taxonomy via frontmatter tags.
 
-| Story | Feature                                                      |
-| ----- | ------------------------------------------------------------ |
-| US-14 | Frontmatter `tags:` completions from the workspace tag index |
-| US-15 | Find References on a tag value → all files using it          |
-| US-13 | Go to Definition on a tag value → all files using it         |
+| Story | Feature                                                                              |
+| ----- | ------------------------------------------------------------------------------------ |
+| US-14 | Frontmatter `tags:` completions from the workspace tag index                         |
+| US-15 | Find References on a tag value → all files using it                                  |
+| US-13 | Go to Definition on a tag value → all files using it                                 |
+| [#50](https://github.com/sleb/knap/issues/50) | Workspace Symbols include tags (`SymbolKind::KEY`) alongside headings |
 
 **LSP capabilities delivered:** `textDocument/completion` (frontmatter),
-`textDocument/references` (tags), `textDocument/definition` (tags)
+`textDocument/references` (tags), `textDocument/definition` (tags),
+`workspace/symbol` (tags)
 
 ---
 
