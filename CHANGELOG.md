@@ -5,6 +5,24 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.5.0] — 2026-06-06
+
+### Added
+
+- Frontmatter `tags:` completions: place the cursor inside a `tags:` value
+  (bare scalar, inline list `[…]`, or block list `- …`) and your tag index
+  appears as a pick list. Already-used tags are excluded; prefix filtering
+  narrows the list as you type. (US-14)
+- Find References on a tag value → every note in the workspace that carries
+  that tag, each location pointing directly at the tag range. (US-15)
+- Go to Definition on a tag value → same set of locations as Find References,
+  letting you jump to any note using the tag. (US-13)
+- Workspace Symbols now includes frontmatter tags alongside headings. Tags
+  appear with `SymbolKind::KEY` so editors can style them distinctly; the
+  container name is the filename. Query filtering is case-insensitive. (#50)
+
+---
+
 ## [0.4.1] — 2026-06-04
 
 ### Fixed
