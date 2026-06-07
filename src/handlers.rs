@@ -100,6 +100,126 @@ pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: 
     }
 }
 
+// ─── Tag helpers ──────────────────────────────────────────────────────────────
+
+fn find_tag_at_position<'a>(note: &'a parser::Note, pos: Position) -> Option<&'a parser::Tag> {
+    let fm = note.frontmatter.as_ref()?;
+    fm.tags.iter().find(|tag| contains(tag.range, pos))
+}
+
+/// Returns `Some((partial, replace_range))` when the cursor is inside a
+/// frontmatter `tags:` value position. Supports three YAML forms:
+///   - Bare scalar:   `tags: partial`
+///   - Inline list:   `tags: [rust, partial`
+///   - Block list:    `  - partial` (under a `tags:` header)
+///
+/// `partial` is the tag text already typed; `replace_range` covers it so the
+/// completion text edit replaces it cleanly.
+fn check_tag_trigger(content: &str, pos: Position) -> Option<(String, Range)> {
+    let lines: Vec<&str> = content.lines().collect();
+
+    // Must start with a frontmatter block.
+    if lines.first().copied() != Some("---") {
+        return None;
+    }
+    // Find the closing `---` line (scanning from line 1).
+    let closing_line = lines[1..].iter().position(|l| l.trim() == "---")? + 1;
+
+    // Cursor must be inside the frontmatter (not on either `---` marker line).
+    if pos.line == 0 || pos.line as usize >= closing_line {
+        return None;
+    }
+
+    let line = lines[pos.line as usize];
+    let cursor_byte = utf16_to_byte_offset(line, pos.character);
+
+    // ── Bare scalar or inline list: line starts with `tags:` ──────────────────
+    if let Some(after_colon) = line.strip_prefix("tags:") {
+        let trimmed = after_colon.trim_start();
+
+        if trimmed.starts_with('[') {
+            // Inline list: `tags: [rust, partial`
+            let bracket_byte = line.find('[').expect("found [ via trim");
+            if cursor_byte <= bracket_byte {
+                return None;
+            }
+            // Check cursor is not past the closing `]`.
+            if let Some(close) = line.find(']') {
+                if cursor_byte > close {
+                    return None;
+                }
+            }
+            let content_before = &line[bracket_byte + 1..cursor_byte];
+            let (partial, partial_offset_in_content) = match content_before.rfind(',') {
+                Some(comma) => {
+                    let after = &content_before[comma + 1..];
+                    let ws = after.len() - after.trim_start().len();
+                    (after.trim_start().to_string(), comma + 1 + ws)
+                }
+                None => {
+                    let ws = content_before.len() - content_before.trim_start().len();
+                    (content_before.trim_start().to_string(), ws)
+                }
+            };
+            let partial_start = bracket_byte + 1 + partial_offset_in_content;
+            let start_char = byte_to_utf16_offset(line, partial_start);
+            return Some((partial, Range {
+                start: Position { line: pos.line, character: start_char },
+                end: pos,
+            }));
+        }
+
+        if !trimmed.starts_with('-') {
+            // Bare scalar: `tags: partial`
+            let ws = after_colon.len() - after_colon.trim_start().len();
+            let value_start = "tags:".len() + ws;
+            if cursor_byte < value_start {
+                return None;
+            }
+            let partial = line[value_start..cursor_byte].to_string();
+            let start_char = byte_to_utf16_offset(line, value_start);
+            return Some((partial, Range {
+                start: Position { line: pos.line, character: start_char },
+                end: pos,
+            }));
+        }
+    }
+
+    // ── Block list item: `  - partial` ────────────────────────────────────────
+    let stripped = line.trim_start();
+    if let Some(after_dash) = stripped.strip_prefix('-') {
+        let leading_ws = line.len() - stripped.len();
+        // Backtrack through sibling list items to find a bare `tags:` header.
+        let mut found_tags = false;
+        for scan in (1..pos.line as usize).rev() {
+            let sl = lines[scan].trim_start();
+            if sl.starts_with('-') {
+                continue; // sibling list item
+            }
+            if lines[scan].trim() == "tags:" {
+                found_tags = true;
+            }
+            break;
+        }
+        if !found_tags {
+            return None;
+        }
+        let ws_after_dash = after_dash.len() - after_dash.trim_start().len();
+        let partial_start = leading_ws + 1 + ws_after_dash; // past `- ` prefix
+        if cursor_byte < partial_start {
+            return None;
+        }
+        let partial = line[partial_start..cursor_byte].to_string();
+        let start_char = byte_to_utf16_offset(line, partial_start);
+        return Some((partial, Range {
+            start: Position { line: pos.line, character: start_char },
+            end: pos,
+        }));
+    }
+
+    None
+}
+
 // ─── Completion ───────────────────────────────────────────────────────────────
 
 /// Convert a UTF-16 code unit offset (LSP `Position.character`) to a UTF-8
@@ -182,6 +302,28 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
     let Some(note) = index.get_note(&path) else {
         return vec![];
     };
+
+    // Tag completion: cursor is inside a frontmatter `tags:` value.
+    if let Some((partial, replace_range)) = check_tag_trigger(&note.content, pos) {
+        let used: std::collections::HashSet<String> = note.frontmatter
+            .as_ref()
+            .map(|fm| fm.tags.iter().map(|t| t.name.to_lowercase()).collect())
+            .unwrap_or_default();
+        return index
+            .all_tags()
+            .filter(|t| !used.contains(*t))
+            .filter(|t| t.starts_with(&partial.to_lowercase()))
+            .map(|tag_name| CompletionItem {
+                label: tag_name.to_string(),
+                kind: Some(CompletionItemKind::VALUE),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: replace_range,
+                    new_text: tag_name.to_string(),
+                })),
+                ..Default::default()
+            })
+            .collect();
+    }
 
     // Anchor completion: `](path#` → list headings from target note.
     if let Some(target_rel) = check_anchor_trigger(&note.content, pos) {
@@ -340,6 +482,25 @@ pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<Com
     items
 }
 
+// ─── Tag locations (shared by definition and references) ──────────────────────
+
+/// All locations in the workspace where `tag_name` appears in frontmatter.
+fn tag_locations(tag_name: &str, index: &NoteIndex) -> Vec<Location> {
+    index
+        .notes_by_tag(tag_name)
+        .into_iter()
+        .flat_map(|n| {
+            let uri = path_to_uri(&n.path);
+            n.frontmatter
+                .iter()
+                .flat_map(|fm| fm.tags.iter())
+                .filter(|t| t.name.eq_ignore_ascii_case(tag_name))
+                .map(|t| Location { uri: uri.clone(), range: t.range })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 // ─── Go to Definition ─────────────────────────────────────────────────────────
 
 fn contains(range: Range, pos: Position) -> bool {
@@ -363,6 +524,13 @@ pub fn handle_definition(
     let pos = params.text_document_position_params.position;
     let path = uri_to_path(&params.text_document_position_params.text_document.uri)?;
     let note = index.get_note(&path)?;
+
+    // Tag: go-to-definition shows every note that carries the tag.
+    if let Some(tag) = find_tag_at_position(note, pos) {
+        let tag_name = tag.name.clone();
+        let locations: Vec<Location> = tag_locations(&tag_name, index);
+        return Some(GotoDefinitionResponse::Array(locations));
+    }
 
     let link = find_md_link_at_position(note, pos)?;
     let ResolvedLink::Found(target_path) = index.resolve(&path, &link.target) else {
@@ -393,6 +561,12 @@ pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Loca
     let Some(note) = index.get_note(&path) else {
         return vec![];
     };
+
+    // Tag: find-references shows every note that carries the tag.
+    if let Some(tag) = find_tag_at_position(note, pos) {
+        let tag_name = tag.name.clone();
+        return tag_locations(&tag_name, index);
+    }
 
     let target_path = if let Some(link) = find_md_link_at_position(note, pos) {
         match index.resolve(&path, &link.target) {
@@ -501,7 +675,8 @@ pub fn handle_workspace_symbols(
     index: &NoteIndex,
 ) -> Vec<SymbolInformation> {
     let query = params.query.to_lowercase();
-    index
+
+    let mut symbols: Vec<SymbolInformation> = index
         .all_notes()
         .flat_map(|note| {
             note.headings.iter().filter_map(|h| {
@@ -521,7 +696,27 @@ pub fn handle_workspace_symbols(
                 }
             })
         })
-        .collect()
+        .collect();
+
+    for note in index.all_notes() {
+        let Some(fm) = note.frontmatter.as_ref() else { continue };
+        let uri = path_to_uri(&note.path);
+        let container = note.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        for tag in &fm.tags {
+            if query.is_empty() || tag.name.contains(&query) {
+                symbols.push(SymbolInformation {
+                    name: tag.name.clone(),
+                    kind: SymbolKind::KEY,
+                    location: Location { uri: uri.clone(), range: tag.range },
+                    container_name: Some(container.clone()),
+                    tags: None,
+                    deprecated: None,
+                });
+            }
+        }
+    }
+
+    symbols
 }
 
 // ─── Heading Rename ───────────────────────────────────────────────────────────
@@ -1873,5 +2068,326 @@ mod tests {
         assert_eq!(item.label, "img.png");
         assert_eq!(item.filter_text.as_deref(), Some("img.png"));
         assert!(item.detail.is_none());
+    }
+
+    // ── check_tag_trigger ─────────────────────────────────────────────────────
+
+    #[test]
+    fn tag_trigger_bare_scalar() {
+        let content = "---\ntags: par\n---\n";
+        // cursor after "par" (line 1, character 10)
+        let result = check_tag_trigger(content, Position { line: 1, character: 10 });
+        assert!(result.is_some());
+        let (partial, range) = result.unwrap();
+        assert_eq!(partial, "par");
+        assert_eq!(range.start, Position { line: 1, character: 6 });
+    }
+
+    #[test]
+    fn tag_trigger_bare_scalar_empty() {
+        let content = "---\ntags: \n---\n";
+        // cursor right after the space (character 6)
+        let result = check_tag_trigger(content, Position { line: 1, character: 6 });
+        assert!(result.is_some());
+        let (partial, _) = result.unwrap();
+        assert_eq!(partial, "");
+    }
+
+    #[test]
+    fn tag_trigger_inline_list_partial() {
+        let content = "---\ntags: [rust, we\n---\n";
+        // cursor after "we" (character 17); "tags: [rust, we" → w is at byte 13
+        let result = check_tag_trigger(content, Position { line: 1, character: 17 });
+        assert!(result.is_some());
+        let (partial, range) = result.unwrap();
+        assert_eq!(partial, "we");
+        assert_eq!(range.start.character, 13); // after "[rust, "
+    }
+
+    #[test]
+    fn tag_trigger_inline_list_first_item() {
+        let content = "---\ntags: [ru\n---\n";
+        // cursor after "ru" (character 10)
+        let result = check_tag_trigger(content, Position { line: 1, character: 10 });
+        assert!(result.is_some());
+        let (partial, _) = result.unwrap();
+        assert_eq!(partial, "ru");
+    }
+
+    #[test]
+    fn tag_trigger_inline_list_past_bracket_returns_none() {
+        // cursor is past the closing `]`
+        let content = "---\ntags: [rust]\n---\n";
+        let result = check_tag_trigger(content, Position { line: 1, character: 15 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn tag_trigger_block_list_item() {
+        let content = "---\ntags:\n  - rus\n---\n";
+        // cursor after "rus" on line 2 (character 7)
+        let result = check_tag_trigger(content, Position { line: 2, character: 7 });
+        assert!(result.is_some());
+        let (partial, range) = result.unwrap();
+        assert_eq!(partial, "rus");
+        assert_eq!(range.start.character, 4); // after "  - "
+    }
+
+    #[test]
+    fn tag_trigger_block_list_second_item() {
+        let content = "---\ntags:\n  - rust\n  - we\n---\n";
+        // cursor after "we" on line 3 (character 6)
+        let result = check_tag_trigger(content, Position { line: 3, character: 6 });
+        assert!(result.is_some());
+        let (partial, _) = result.unwrap();
+        assert_eq!(partial, "we");
+    }
+
+    #[test]
+    fn tag_trigger_block_list_wrong_key_returns_none() {
+        let content = "---\ncategories:\n  - foo\n---\n";
+        // cursor on line 2 under `categories:`, not `tags:`
+        let result = check_tag_trigger(content, Position { line: 2, character: 7 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn tag_trigger_outside_frontmatter_returns_none() {
+        let content = "---\ntags: rust\n---\ntags: body\n";
+        // cursor on line 3 (body), not in frontmatter
+        let result = check_tag_trigger(content, Position { line: 3, character: 10 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn tag_trigger_no_frontmatter_returns_none() {
+        let content = "tags: rust\n";
+        let result = check_tag_trigger(content, Position { line: 0, character: 10 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn tag_trigger_on_closing_marker_returns_none() {
+        let content = "---\ntags: rust\n---\n";
+        // cursor on closing `---` line (line 2)
+        let result = check_tag_trigger(content, Position { line: 2, character: 2 });
+        assert!(result.is_none());
+    }
+
+    // ── tag completion (US-14) ────────────────────────────────────────────────
+
+    #[test]
+    fn tag_completion_bare_scalar_returns_tags() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntags: rust\n---\n"));
+        // cursor is in a.md at `tags: ` position
+        idx.seed(note("/vault/a.md", "---\ntags: \n---\n"));
+        let params = make_completion_params("/vault/a.md", 1, 6);
+        let items = handle_completion(params, &idx);
+        assert!(items.iter().any(|i| i.label == "rust"));
+    }
+
+    #[test]
+    fn tag_completion_excludes_already_used_tags() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntags: [rust, web]\n---\n"));
+        // a.md already has "rust" — should not appear again
+        idx.seed(note("/vault/a.md", "---\ntags: [rust, \n---\n"));
+        let params = make_completion_params("/vault/a.md", 1, 15);
+        let items = handle_completion(params, &idx);
+        assert!(!items.iter().any(|i| i.label == "rust"), "rust already used, must be excluded");
+        assert!(items.iter().any(|i| i.label == "web"), "web should appear");
+    }
+
+    #[test]
+    fn tag_completion_filters_by_partial() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntags: [rust, web, review]\n---\n"));
+        // cursor in a.md after "re" — only "review" should match
+        idx.seed(note("/vault/a.md", "---\ntags: re\n---\n"));
+        let params = make_completion_params("/vault/a.md", 1, 8);
+        let items = handle_completion(params, &idx);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].label, "review");
+    }
+
+    #[test]
+    fn tag_completion_item_kind_is_value() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntags: rust\n---\n"));
+        idx.seed(note("/vault/a.md", "---\ntags: \n---\n"));
+        let params = make_completion_params("/vault/a.md", 1, 6);
+        let items = handle_completion(params, &idx);
+        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+    }
+
+    #[test]
+    fn tag_completion_text_edit_replaces_partial() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntags: rust\n---\n"));
+        // a.md has "ru" typed — replace range should cover "ru"
+        idx.seed(note("/vault/a.md", "---\ntags: ru\n---\n"));
+        let params = make_completion_params("/vault/a.md", 1, 8);
+        let items = handle_completion(params, &idx);
+        let item = items.iter().find(|i| i.label == "rust").unwrap();
+        let edit = match item.text_edit.as_ref().unwrap() {
+            CompletionTextEdit::Edit(te) => te,
+            _ => panic!("expected Edit"),
+        };
+        assert_eq!(edit.range.start.character, 6, "replace should start after 'tags: '");
+        assert_eq!(edit.range.end.character, 8, "replace should end at cursor");
+        assert_eq!(edit.new_text, "rust");
+    }
+
+    #[test]
+    fn tag_completion_does_not_fire_outside_frontmatter() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntags: rust\n---\n"));
+        // tags: appears in the body, not frontmatter
+        idx.seed(note("/vault/a.md", "prose\ntags: \n"));
+        let params = make_completion_params("/vault/a.md", 1, 6);
+        let items = handle_completion(params, &idx);
+        // Should return path-completion items (no trigger context), not tag items
+        assert!(!items.iter().any(|i| i.kind == Some(CompletionItemKind::VALUE)));
+    }
+
+    #[test]
+    fn tag_completion_block_list_item() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntags: rust\n---\n"));
+        idx.seed(note("/vault/a.md", "---\ntags:\n  - \n---\n"));
+        // cursor after "  - " on line 2 (character 4)
+        let params = make_completion_params("/vault/a.md", 2, 4);
+        let items = handle_completion(params, &idx);
+        assert!(items.iter().any(|i| i.label == "rust"));
+    }
+
+    // ── tag find-references (US-15) ───────────────────────────────────────────
+
+    #[test]
+    fn references_on_tag_returns_all_files_using_it() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\ntags: rust\n---\n"));
+        idx.seed(note("/vault/b.md", "---\ntags: rust\n---\n"));
+        idx.seed(note("/vault/c.md", "---\ntags: web\n---\n"));
+        // cursor on "rust" in a.md — tag is on line 1, character 6
+        let params = make_references_params("/vault/a.md", 1, 6);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 2);
+        let uris: Vec<_> = locs.iter().map(|l| l.uri.as_str()).collect();
+        assert!(uris.iter().any(|u| u.ends_with("a.md")));
+        assert!(uris.iter().any(|u| u.ends_with("b.md")));
+        assert!(!uris.iter().any(|u| u.ends_with("c.md")));
+    }
+
+    #[test]
+    fn references_on_tag_single_file() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\ntags: unique\n---\n"));
+        let params = make_references_params("/vault/a.md", 1, 6);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 1);
+        assert!(locs[0].uri.as_str().ends_with("a.md"));
+    }
+
+    #[test]
+    fn references_on_tag_location_points_to_tag_range() {
+        let mut idx = NoteIndex::default();
+        let content = "---\ntags: rust\n---\n";
+        let parsed = crate::test_helpers::note("/vault/a.md", content);
+        let tag_range = parsed.frontmatter.as_ref().unwrap().tags[0].range;
+        idx.seed(parsed);
+        let params = make_references_params("/vault/a.md", 1, 6);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 1);
+        assert_eq!(locs[0].range, tag_range);
+    }
+
+    // ── tag go-to-definition (US-13) ──────────────────────────────────────────
+
+    #[test]
+    fn definition_on_tag_returns_all_files() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\ntags: rust\n---\n"));
+        idx.seed(note("/vault/b.md", "---\ntags: rust\n---\n"));
+        let params = make_definition_params("/vault/a.md", 1, 6);
+        let resp = handle_definition(params, &idx);
+        match resp.expect("expected Some") {
+            GotoDefinitionResponse::Array(locs) => {
+                assert_eq!(locs.len(), 2);
+            }
+            other => panic!("expected Array, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn definition_on_tag_not_in_frontmatter_still_resolves_link() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        // cursor is on a link, not a tag
+        idx.seed(note("/vault/a.md", "[link](b.md)"));
+        let params = make_definition_params("/vault/a.md", 0, 3);
+        let resp = handle_definition(params, &idx);
+        match resp.expect("expected Some") {
+            GotoDefinitionResponse::Scalar(loc) => {
+                assert!(loc.uri.as_str().ends_with("b.md"));
+            }
+            other => panic!("expected Scalar, got {:?}", other),
+        }
+    }
+
+    // ── workspace symbols include tags (issue #50) ────────────────────────────
+
+    #[test]
+    fn workspace_symbols_includes_tags() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\ntags: rust\n---\n# Heading\n"));
+        let params = make_workspace_symbol_params("");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert!(syms.iter().any(|s| s.name == "rust" && s.kind == SymbolKind::KEY));
+        assert!(syms.iter().any(|s| s.name == "Heading" && s.kind == SymbolKind::STRING));
+    }
+
+    #[test]
+    fn workspace_symbols_tags_query_filters() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\ntags: [rust, web]\n---\n"));
+        let params = make_workspace_symbol_params("ru");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert_eq!(syms.len(), 1);
+        assert_eq!(syms[0].name, "rust");
+        assert_eq!(syms[0].kind, SymbolKind::KEY);
+    }
+
+    #[test]
+    fn workspace_symbols_tag_container_is_filename() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/notes/my-note.md", "---\ntags: rust\n---\n"));
+        let params = make_workspace_symbol_params("rust");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert_eq!(syms.len(), 1);
+        assert_eq!(syms[0].container_name.as_deref(), Some("my-note.md"));
+    }
+
+    #[test]
+    fn workspace_symbols_tag_location_points_to_tag_range() {
+        let content = "---\ntags: rust\n---\n";
+        let parsed = crate::test_helpers::note("/vault/a.md", content);
+        let tag_range = parsed.frontmatter.as_ref().unwrap().tags[0].range;
+        let mut idx = NoteIndex::default();
+        idx.seed(parsed);
+        let params = make_workspace_symbol_params("rust");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert_eq!(syms.len(), 1);
+        assert_eq!(syms[0].location.range, tag_range);
+    }
+
+    #[test]
+    fn workspace_symbols_no_tags_in_note_omitted() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# Heading\n"));
+        let params = make_workspace_symbol_params("");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert!(syms.iter().all(|s| s.kind != SymbolKind::KEY));
     }
 }

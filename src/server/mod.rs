@@ -112,6 +112,7 @@ pub fn run(connection: Connection) -> Result<()> {
                 "(".to_string(),
                 "#".to_string(),
                 "/".to_string(),
+                "-".to_string(),
             ]),
             ..Default::default()
         }),
