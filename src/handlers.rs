@@ -703,7 +703,7 @@ pub fn handle_workspace_symbols(
         let uri = path_to_uri(&note.path);
         let container = note.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
         for tag in &fm.tags {
-            if query.is_empty() || tag.name.contains(&query) {
+            if query.is_empty() || tag.name.to_lowercase().contains(&query) {
                 symbols.push(SymbolInformation {
                     name: tag.name.clone(),
                     kind: SymbolKind::KEY,
@@ -2380,6 +2380,16 @@ mod tests {
         let syms = handle_workspace_symbols(params, &idx);
         assert_eq!(syms.len(), 1);
         assert_eq!(syms[0].location.range, tag_range);
+    }
+
+    #[test]
+    fn workspace_symbols_tag_query_case_insensitive() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\ntags: Rust\n---\n"));
+        let params = make_workspace_symbol_params("ru");
+        let syms = handle_workspace_symbols(params, &idx);
+        assert_eq!(syms.len(), 1, "lowercase query should match mixed-case tag");
+        assert_eq!(syms[0].name, "Rust");
     }
 
     #[test]
