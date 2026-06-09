@@ -5,6 +5,16 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.5.1] — 2026-06-08
+
+### Fixed
+
+- Workspace Symbols: headings whose text is entirely or partially inside
+  backtick inline-code spans (e.g. `` ### `textDocument/didOpen` ``) now show
+  the correct name instead of a blank entry. (fixes #52)
+
+---
+
 ## [0.5.0] — 2026-06-06
 
 ### Added
