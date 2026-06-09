@@ -5,6 +5,25 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.7.0] — 2026-06-08
+
+### Added
+
+- **Same-file anchor completions** — typing `[text](#` now opens a heading
+  picker for the **current file**, the same way `[text](file.md#` does for
+  cross-file anchors. (US-51)
+- **Go to Definition on bare anchors** — `[text](#my-section)` navigates
+  directly to the matching heading in the same file; falls back to the top of
+  the file if no heading matches. (US-48)
+- **Broken same-file anchor diagnostics** — `[text](#missing)` produces a
+  warning when no heading in the current file has that GFM slug.
+  Message: `Heading not found: '#missing'`. (US-50)
+- **Find References on a heading** — cursor on a heading line now returns all
+  anchor references to that heading: same-file bare anchors and cross-file
+  anchors from other notes, alongside existing backlink behaviour. (US-49)
+
+---
+
 ## [0.6.0] — 2026-06-08
 
 ### Added

@@ -169,9 +169,16 @@ through folders.
 
 ### Anchor completions
 
-After a file path inside a Markdown link, type `#` to open a heading picker for
-the target file (`[text](file.md#`). Each item shows the heading text and inserts
-the GFM slug form — no leading `#`. Example: `## My Section` inserts `my-section`.
+Type `#` after a file path or at the start of a link destination to open a
+heading picker:
+
+- **Same-file anchor** — `[text](#` opens a picker for headings in the **current
+  file**.
+- **Cross-file anchor** — `[text](file.md#` opens a picker for headings in the
+  **target file**.
+
+Each item shows the heading text and inserts the GFM slug form — no leading `#`.
+Example: `## My Section` inserts `my-section`.
 
 ### Go to Definition
 
@@ -181,12 +188,13 @@ target file.
 
 Supported link forms:
 
-| Syntax                       | Behaviour                                          |
-| ---------------------------- | -------------------------------------------------- |
-| `[text](note.md)`            | Navigate to `note.md`                              |
-| `[text](note.md#my-section)` | Navigate to the matching heading line in `note.md` |
-| `[text](../folder/note.md)`  | Relative paths resolved from the current file      |
-| `![alt](image.png)`          | Navigate to `image.png` in the workspace           |
+| Syntax                       | Behaviour                                              |
+| ---------------------------- | ------------------------------------------------------ |
+| `[text](note.md)`            | Navigate to `note.md`                                  |
+| `[text](note.md#my-section)` | Navigate to the matching heading line in `note.md`     |
+| `[text](#my-section)`        | Navigate to the matching heading in the **current** file |
+| `[text](../folder/note.md)`  | Relative paths resolved from the current file          |
+| `![alt](image.png)`          | Navigate to `image.png` in the workspace               |
 
 ### Find References
 
@@ -226,8 +234,11 @@ knap publishes warnings for:
 - **Broken links** — `[text](target.md)` where the relative path doesn't
   resolve to an existing file in the workspace.
   Message: `Link target not found: 'target.md'`
-- **Broken anchors** — `[text](note.md#heading)` where the anchor doesn't match
-  any heading in the target file (compared via GFM slug).
+- **Broken cross-file anchors** — `[text](note.md#heading)` where the anchor
+  doesn't match any heading in the target file (compared via GFM slug).
+  Message: `Heading not found: '#heading'`
+- **Broken same-file anchors** — `[text](#heading)` where the anchor doesn't
+  match any heading in the current file.
   Message: `Heading not found: '#heading'`
 
 Diagnostics update as files are opened, saved, created, and deleted — no

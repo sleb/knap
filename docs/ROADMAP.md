@@ -177,7 +177,7 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 ---
 
-## v0.7 — Same-file Anchor Links
+## v0.7 — Same-file Anchor Links _(released 2026-06-08)_
 
 **Goal:** Navigate within the current note using bare anchor links.
 

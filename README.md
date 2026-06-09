@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.6.0-blue)
+![Version](https://img.shields.io/badge/version-0.7.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -25,12 +25,14 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
   segment to jump directly to any note or attachment in the workspace (images
   and PDFs included)
 - **Anchor completions** — type `#` after a file path to pick from that file's
-  headings; inserts the GFM slug automatically (`## My Section` → `my-section`)
+  headings, or `[text](#` to pick from the current file's headings; inserts the
+  GFM slug automatically (`## My Section` → `my-section`)
 
 ### Navigation
 
 - **Go to Definition** — jump to the linked note; navigates to the heading line
-  when an anchor is present (`[text](note.md#heading)`)
+  when an anchor is present (`[text](note.md#heading)` or `[text](#heading)` for
+  same-file headings)
 - **Document Symbols** — outline of every heading in the current file, jumpable
   from your editor's symbol panel
 - **Workspace Symbols** — fuzzy-search headings across the entire vault
@@ -55,7 +57,8 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 ### Finding references
 
 - **Find References** — every standard Markdown link pointing to the current
-  file, or every note using a tag when the cursor is on a tag value
+  file; on a heading, collects same-file bare anchors and cross-file anchors to
+  that heading; or every note using a tag when the cursor is on a tag value
 
 ### Refactoring
 
@@ -66,7 +69,8 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 
 ### Diagnostics & fixes
 
-- **Broken link diagnostics** — warnings for links to missing files or headings;
+- **Broken link diagnostics** — warnings for links to missing files, cross-file
+  missing anchors, and same-file bare anchors that don't match any heading;
   attachment links (images, PDFs) resolve against the full workspace
 - **Quick Fix** — create a missing file from a broken link, or pick a valid
   heading to replace a broken anchor; both via standard `textDocument/codeAction`
@@ -92,7 +96,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.6.0 — Backlinks. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.7.0 — Same-file Anchor Links. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

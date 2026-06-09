@@ -46,11 +46,17 @@ pub fn handle_completion(
 ) -> Vec<CompletionItem>
 ```
 
-### Anchor completion (`](path#`)
+### Anchor completion (`](path#` or `](#`)
 
 When `check_anchor_trigger` detects that the cursor is immediately after a `#`
-inside a link destination with a non-empty path, the handler resolves the target
-note and returns one item per heading. Each item has:
+inside a link destination, the handler returns one item per heading. Two cases:
+
+- **Same-file anchor** (`[text](#`) — `target_rel` is empty; items come from the
+  headings of the current note itself.
+- **Cross-file anchor** (`[text](file.md#`) — `target_rel` is non-empty; the
+  handler resolves the target note via `index.resolve` and returns its headings.
+
+Each item has:
 
 - `label`: heading text as written (e.g. `"My Section"`)
 - `insert_text`: GFM slug (e.g. `"my-section"`)
@@ -91,13 +97,18 @@ pub fn handle_definition(
 ) -> Option<GotoDefinitionResponse>
 ```
 
-Finds the `MarkdownLink` at the cursor position. Resolves the target via
-`index.resolve(source, &link.target)`. Returns `None` for broken links.
+Finds the `MarkdownLink` at the cursor position and returns a `Location`.
 
-When the link has an anchor, navigates to the matching heading's `range` in the
-target note. If the anchor doesn't match any heading, falls back to
-`Range::default()` (top of file). When there is no anchor, always returns
-`Range::default()`.
+**Same-file anchor** (`link.target.is_empty()`): resolves the anchor against
+`note.headings` directly. Returns a `Location` in the current file at the
+matching heading's `range`, or `Range::default()` (top of file) if no heading
+matches.
+
+**Cross-file link** (`link.target` is non-empty): resolves via
+`index.resolve(source, &link.target)`. Returns `None` for broken links. When
+the link has an anchor, navigates to the matching heading's `range` in the
+target note (falling back to `Range::default()` if the anchor doesn't match).
+When there is no anchor, returns `Range::default()`.
 
 Response is always `GotoDefinitionResponse::Scalar(Location)`.
 
@@ -115,8 +126,12 @@ Priority:
 2. **Markdown link at cursor** → resolves the target; returns all
    `LocatedLink`s from `index.links_to(target)`. Returns `vec![]` for broken
    links.
-3. **No link at cursor** → returns all backlinks to the current document
-   (`index.links_to(current_path)`).
+3. **Heading at cursor** (no link at cursor) → collects all anchor references
+   to that heading: same-file bare anchors (`[text](#slug)` in the current note
+   whose anchor slug matches) plus cross-file anchors (`[text](this.md#slug)`
+   from `index.links_to(current_path)` filtered by anchor slug).
+4. **No link or heading at cursor** → returns all backlinks to the current
+   document (`index.links_to(current_path)`).
 
 ---
 
@@ -140,16 +155,19 @@ pub fn publish_diagnostics(
 pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic>
 ```
 
-Anchor-only links (`target = ""`) are skipped — they reference a heading in the
-current file and are not validated in v0.1.
+For each Markdown link in the note:
 
-For each local Markdown link with a non-empty target:
+| Link type                                             | Diagnostic range               | Message                                    |
+| ----------------------------------------------------- | ------------------------------ | ------------------------------------------ |
+| Bare anchor `[text](#slug)` — slug not in this file   | `link.anchor_range` (or range) | `Heading not found: '#slug'`               |
+| Bare anchor `[text](#)` — empty slug (`anchor = None`)| —                              | No diagnostic                              |
+| Cross-file — `Broken` target                          | `link.target_range`            | `Link target not found: 'path/to/note.md'` |
+| Cross-file — `Found` + anchor not matching any heading| `link.anchor_range`            | `Heading not found: '#anchor'`             |
+| Cross-file — `Found` + no anchor (or valid anchor)    | —                              | No diagnostic                              |
 
-| Resolution                                | Diagnostic range    | Message                                    |
-| ----------------------------------------- | ------------------- | ------------------------------------------ |
-| `Broken`                                  | `link.target_range` | `Link target not found: 'path/to/note.md'` |
-| `Found` + anchor not matching any heading | `link.anchor_range` | `Heading not found: '#anchor'`             |
-| `Found` + no anchor (or valid anchor)     | —                   | No diagnostic                              |
+Bare anchor-only links (`target = ""`) are validated against the current note's
+headings (via GFM slug comparison). A link `[text](#)` with an empty anchor
+(`link.anchor = None`) produces no diagnostic.
 
 ---
 
