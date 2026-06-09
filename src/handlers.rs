@@ -54,7 +54,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnos
             }
             ResolvedLink::Found(target_path) => {
                 if let Some(anchor) = &link.anchor {
-                    if index::looks_like_url(&link.target) {
+                    if index::is_url_like(&link.target) {
                         continue; // can't verify headings on remote URLs
                     }
                     let found = index
@@ -591,7 +591,7 @@ pub(crate) fn handle_references(params: ReferenceParams, index: &NoteIndex) -> V
 
 #[allow(clippy::mutable_key_type)] // lsp_types::Uri has interior mutability; HashMap<Uri, _> is the LSP-spec type
 pub(crate) fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) -> WorkspaceEdit {
-    use crate::index::{looks_like_url, normalize_path};
+    use crate::index::{is_url_like, normalize_path};
 
     let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
 
@@ -625,7 +625,7 @@ pub(crate) fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIn
         // need updating if the file moves to a different directory.
         if let Some(note) = index.get_note(&old_path) {
             for link in &note.md_links {
-                if link.target.is_empty() || looks_like_url(&link.target) {
+                if link.target.is_empty() || is_url_like(&link.target) {
                     continue;
                 }
                 let abs_target = normalize_path(&old_dir.join(&link.target));

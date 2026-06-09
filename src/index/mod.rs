@@ -46,7 +46,7 @@ pub struct IndexDelta {
 }
 
 /// Returns `true` for targets that are external URLs.
-pub fn looks_like_url(s: &str) -> bool {
+pub fn is_url_like(s: &str) -> bool {
     s.starts_with("https://")
         || s.starts_with("http://")
         || s.starts_with("ftp://")
@@ -76,7 +76,7 @@ impl NoteIndex {
     /// Relative paths are joined to `source`'s parent directory, normalized,
     /// and looked up in `all_files`.
     pub fn resolve(&self, source: &Path, target: &str) -> ResolvedLink {
-        if looks_like_url(target) {
+        if is_url_like(target) {
             return ResolvedLink::Found(PathBuf::from(target));
         }
         let candidate = source
@@ -106,7 +106,7 @@ impl NoteIndex {
 
         // 3. Resolve each md_link and populate links_to.
         for link in &note.md_links {
-            if link.target.is_empty() || looks_like_url(&link.target) {
+            if link.target.is_empty() || is_url_like(&link.target) {
                 continue;
             }
             let candidate = note
@@ -158,7 +158,7 @@ impl NoteIndex {
 
         for note in self.by_path.values() {
             for link in &note.md_links {
-                if link.target.is_empty() || looks_like_url(&link.target) {
+                if link.target.is_empty() || is_url_like(&link.target) {
                     continue;
                 }
                 let candidate = note
