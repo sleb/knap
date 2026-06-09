@@ -191,11 +191,11 @@ fn all_attachment_paths_excludes_notes() {
     let _ = idx.add_attachment(pb("/vault/img.png"));
     let _ = idx.add_attachment(pb("/vault/doc.pdf"));
 
-    let attachments: Vec<&PathBuf> = idx.all_attachment_paths().collect();
+    let attachments: Vec<PathBuf> = idx.all_attachment_paths().map(Path::to_path_buf).collect();
     assert_eq!(attachments.len(), 2);
-    assert!(!attachments.contains(&&pb("/vault/a.md")));
-    assert!(attachments.contains(&&pb("/vault/img.png")));
-    assert!(attachments.contains(&&pb("/vault/doc.pdf")));
+    assert!(!attachments.contains(&pb("/vault/a.md")));
+    assert!(attachments.contains(&pb("/vault/img.png")));
+    assert!(attachments.contains(&pb("/vault/doc.pdf")));
 }
 
 // ── tag index ─────────────────────────────────────────────────────────────────

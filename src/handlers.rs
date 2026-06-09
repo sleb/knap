@@ -365,7 +365,7 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex) -> 
 
     // Collect owned copies so we can borrow index freely afterwards.
     let note_paths: Vec<PathBuf> = index.all_notes().map(|n| n.path.clone()).collect();
-    let attach_paths: Vec<PathBuf> = index.all_attachment_paths().cloned().collect();
+    let attach_paths: Vec<PathBuf> = index.all_attachment_paths().map(Path::to_path_buf).collect();
 
     let mut dirs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut files: Vec<PathBuf> = vec![];

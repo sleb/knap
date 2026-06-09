@@ -258,8 +258,8 @@ impl NoteIndex {
     }
 
     /// All non-note files registered in the workspace (images, PDFs, etc.).
-    pub fn all_attachment_paths(&self) -> impl Iterator<Item = &PathBuf> {
-        self.all_files.iter().filter(|p| !self.by_path.contains_key(*p))
+    pub fn all_attachment_paths(&self) -> impl Iterator<Item = &Path> {
+        self.all_files.iter().filter(|p| !self.by_path.contains_key(*p)).map(PathBuf::as_path)
     }
 
     /// All notes carrying the given tag (case-insensitive match).
