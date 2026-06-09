@@ -263,13 +263,12 @@ impl NoteIndex {
     }
 
     /// All notes carrying the given tag (case-insensitive match).
-    pub fn notes_by_tag(&self, tag: &str) -> Vec<&Note> {
+    pub fn notes_by_tag<'a>(&'a self, tag: &str) -> impl Iterator<Item = &'a Note> {
+        let key = tag.to_lowercase();
         self.by_tag
-            .get(&tag.to_lowercase())
-            .map(|paths| {
-                paths.iter().filter_map(|p| self.by_path.get(p)).collect()
-            })
-            .unwrap_or_default()
+            .get(&key)
+            .into_iter()
+            .flat_map(|paths| paths.iter().filter_map(|p| self.by_path.get(p)))
     }
 
     /// Register a non-note file (attachment) in `all_files`. Rechecks all

@@ -221,10 +221,8 @@ fn index_by_tag_removed() {
 fn notes_by_tag_case_insensitive() {
     let mut idx = NoteIndex::default();
     idx.seed(note("/vault/a.md", "---\ntags: [Rust]\n---\n"));
-    let notes = idx.notes_by_tag("rust");
-    assert_eq!(notes.len(), 1);
-    let notes_upper = idx.notes_by_tag("RUST");
-    assert_eq!(notes_upper.len(), 1);
+    assert_eq!(idx.notes_by_tag("rust").count(), 1);
+    assert_eq!(idx.notes_by_tag("RUST").count(), 1);
 }
 
 #[test]
@@ -241,8 +239,7 @@ fn all_tags_distinct() {
 fn duplicate_tags_within_note_not_double_counted() {
     let mut idx = NoteIndex::default();
     idx.seed(note("/vault/a.md", "---\ntags: [rust, rust]\n---\n"));
-    let notes = idx.notes_by_tag("rust");
-    assert_eq!(notes.len(), 1, "duplicate tag should only produce one entry");
+    assert_eq!(idx.notes_by_tag("rust").count(), 1, "duplicate tag should only produce one entry");
 }
 
 #[test]
