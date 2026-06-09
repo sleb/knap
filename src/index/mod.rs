@@ -58,7 +58,7 @@ pub fn is_url_like(s: &str) -> bool {
 /// This works correctly for paths that don't yet exist on disk, which is
 /// needed during link resolution where the target file may not exist yet.
 pub fn normalize_path(path: &Path) -> PathBuf {
-    let mut out: Vec<Component> = Vec::new();
+    let mut out: Vec<Component> = Vec::with_capacity(path.components().count());
     for c in path.components() {
         match c {
             Component::CurDir => {}           // drop `.`
