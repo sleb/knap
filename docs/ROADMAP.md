@@ -171,8 +171,9 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 **LSP capabilities delivered:** `textDocument/codeLens`
 
-> Clicking the lens opens the references panel in VS Code. Zed support is
-> pending an upcoming Zed release that adds code lens rendering.
+> Clicking the lens opens the references panel in VS Code. Zed supports code
+> lens but it is disabled by default — enable it with `"code_lens": true` in
+> your Zed settings.
 
 ---
 

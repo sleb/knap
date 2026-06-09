@@ -100,8 +100,8 @@ references panel programmatically. The three arguments are:
 Bundling the locations into the command arguments means VS Code displays them
 instantly without issuing a second `textDocument/references` request.
 
-Zed does not yet render code lenses. The lens will be ignored there until Zed
-adds support; no special-casing is needed server-side.
+Zed supports code lens but disables it by default. Users enable it with
+`"code_lens": true` in their Zed settings. No server-side changes are needed.
 
 ---
 

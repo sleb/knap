@@ -261,10 +261,18 @@ lens appears above the first line:
 ↑ 3 backlinks
 ```
 
-In VS Code, clicking the lens opens the References panel pre-populated with
-every file that links to the current note — no cursor placement needed.
+Clicking the lens opens the References panel pre-populated with every file that
+links to the current note — no cursor placement needed. Notes with no incoming
+links show no lens.
 
-Notes with no incoming links show no lens.
+**Zed:** code lens is disabled by default. Enable it by adding `"code_lens": true`
+to your Zed `settings.json`:
+
+```json
+{
+  "code_lens": true
+}
+```
 
 ### Find References and Go to Definition on tags
 
