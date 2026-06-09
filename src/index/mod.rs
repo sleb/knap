@@ -6,6 +6,7 @@ use crate::parser::{self, MarkdownLink, Note};
 #[cfg(test)]
 mod tests;
 
+/// In-memory index of all notes and attachments in the workspace.
 #[derive(Default)]
 pub struct NoteIndex {
     /// Primary store: absolute path → parsed note.
@@ -23,7 +24,7 @@ pub struct NoteIndex {
     by_tag: HashMap<String, Vec<PathBuf>>,
 }
 
-/// A Markdown link together with the file it lives in.
+/// A Markdown link paired with the file it lives in, used in the reverse index.
 pub struct LocatedLink {
     pub source_path: PathBuf,
     pub md_link: MarkdownLink,
@@ -38,8 +39,8 @@ pub enum ResolvedLink {
 /// Paths whose diagnostic state may have changed after a mutation.
 type AffectedPaths = HashSet<PathBuf>;
 
-/// Returned by every index mutation; tells the caller which files need
-/// their diagnostics republished.
+/// Returned by every [`NoteIndex`] mutation; carries the set of files whose
+/// diagnostics must be republished after the change.
 #[must_use]
 pub struct IndexDelta {
     pub affected_paths: AffectedPaths,
@@ -239,10 +240,12 @@ impl NoteIndex {
         affected
     }
 
+    /// Look up a note by its absolute path.
     pub fn get_note(&self, path: &Path) -> Option<&Note> {
         self.by_path.get(path)
     }
 
+    /// Iterate over every indexed note in unspecified order.
     pub fn all_notes(&self) -> impl Iterator<Item = &Note> {
         self.by_path.values()
     }
@@ -252,7 +255,7 @@ impl NoteIndex {
         self.links_to.get(path).map(Vec::as_slice).unwrap_or(&[])
     }
 
-    /// Distinct lowercase tag names across all indexed notes.
+    /// Distinct lowercase tag names present in any indexed note.
     pub fn all_tags(&self) -> impl Iterator<Item = &str> {
         self.by_tag.keys().map(String::as_str)
     }

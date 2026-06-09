@@ -31,6 +31,7 @@ fn slug(text: &str) -> String {
 
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
+/// Compute LSP diagnostics for `path` against the current index state.
 pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
     let Some(note) = index.get_note(path) else {
         return vec![];
@@ -83,6 +84,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnos
     diagnostics
 }
 
+/// Publish `textDocument/publishDiagnostics` notifications for every path in `paths`.
 pub(crate) fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>) {
     for path in paths {
         let diagnostics = compute_diagnostics(path, index);
@@ -292,6 +294,7 @@ fn relative_path(from_dir: &Path, to: &Path) -> String {
     result.to_string_lossy().into_owned()
 }
 
+/// Handle `textDocument/completion`: link paths, anchors, and tag values.
 pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
     let pos = params.text_document_position.position;
     let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
@@ -514,6 +517,7 @@ fn find_md_link_at_position(
     note.md_links.iter().find(|link| contains(link.range, pos))
 }
 
+/// Handle `textDocument/definition`: navigate to a link's target or a tag's occurrences.
 pub(crate) fn handle_definition(
     params: GotoDefinitionParams,
     index: &NoteIndex,
@@ -550,6 +554,7 @@ pub(crate) fn handle_definition(
 
 // ─── Find References ──────────────────────────────────────────────────────────
 
+/// Handle `textDocument/references`: backlinks to the current file or tag occurrences.
 pub(crate) fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Location> {
     let pos = params.text_document_position.position;
     let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
