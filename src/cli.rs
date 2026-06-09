@@ -180,8 +180,7 @@ pub fn cmd_check() -> anyhow::Result<()> {
                     "version": env!("CARGO_PKG_VERSION")
                 }
             }),
-        }))
-        .expect("send");
+        }))?;
 
     let init_resp = recv_response(&client_conn)?;
     check!("initialize", init_resp.error.is_none(), "ok");
@@ -219,8 +218,7 @@ pub fn cmd_check() -> anyhow::Result<()> {
         .send(Message::Notification(Notification {
             method: "initialized".to_string(),
             params: json!({}),
-        }))
-        .expect("send");
+        }))?;
 
     // Server should immediately send client/registerCapability.
     match client_conn.receiver.recv()? {
@@ -267,8 +265,7 @@ pub fn cmd_check() -> anyhow::Result<()> {
                 id: lsp_server::RequestId::from(id),
                 method: method.to_string(),
                 params: json!({}),
-            }))
-            .expect("send");
+            }))?;
 
         let resp = recv_response(&client_conn)?;
         let null_result =
@@ -284,8 +281,7 @@ pub fn cmd_check() -> anyhow::Result<()> {
             id: lsp_server::RequestId::from(5i32),
             method: "workspace/unknownMethod".to_string(),
             params: json!({}),
-        }))
-        .expect("send");
+        }))?;
 
     let unk = recv_response(&client_conn)?;
     check!(
@@ -302,8 +298,7 @@ pub fn cmd_check() -> anyhow::Result<()> {
             id: lsp_server::RequestId::from(6i32),
             method: "shutdown".to_string(),
             params: json!(null),
-        }))
-        .expect("send");
+        }))?;
 
     let shut = recv_response(&client_conn)?;
     check!("shutdown", shut.error.is_none(), "clean");
