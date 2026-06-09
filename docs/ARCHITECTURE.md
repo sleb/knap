@@ -251,6 +251,7 @@ by the Protocol Handler.
 | PrepareRename    | `textDocument/prepareRename`      | v0.3    |
 | Rename           | `textDocument/rename`             | v0.3    |
 | CodeAction       | `textDocument/codeAction`         | v0.4    |
+| CodeLens         | `textDocument/codeLens`           | v0.6    |
 
 ---
 

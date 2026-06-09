@@ -111,12 +111,12 @@ pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Loca
 
 Priority:
 
-1. **Markdown link at cursor** → resolves the target; returns all
+1. **Tag at cursor** → returns all notes carrying that tag.
+2. **Markdown link at cursor** → resolves the target; returns all
    `LocatedLink`s from `index.links_to(target)`. Returns `vec![]` for broken
    links.
-2. **No link at cursor** → returns all backlinks to the current document
-   (`index.links_to(current_path)`). This is what the backlinks code lens
-   triggers when clicked (v0.7+).
+3. **No link at cursor** → returns all backlinks to the current document
+   (`index.links_to(current_path)`).
 
 ---
 
@@ -299,6 +299,24 @@ fn new_note_path(link_target: &str, source: &Path, config: &Config) -> PathBuf {
     }
 }
 ```
+
+---
+
+## Code Lens (`textDocument/codeLens`)
+
+```rust
+pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec<CodeLens>
+```
+
+Returns a single `↑ N backlink(s)` code lens anchored at line 0, character 0.
+Returns an empty vec when the file is not indexed or has no incoming links —
+no lens is shown for orphan notes.
+
+The lens command is `editor.action.showReferences` with three arguments: the
+document URI, the anchor position `{line:0,char:0}`, and the pre-computed list
+of `Location` values (one per backlink). VS Code opens the references panel
+with these locations immediately on click, without issuing a second
+`textDocument/references` request.
 
 ---
 

@@ -51,7 +51,7 @@ relative path (relative to the source file's location). External URLs are always
 
 ```rust
 pub fn resolve(&self, source: &Path, target: &str) -> ResolvedLink {
-    if looks_like_url(target) {
+    if is_url_like(target) {
         return ResolvedLink::Found(PathBuf::from(target));
     }
     let candidate = source
@@ -94,7 +94,7 @@ pub fn index(&mut self, note: Note) -> IndexDelta {
 
     // 3. Resolve each local link and populate links_to.
     for link in &note.md_links {
-        if link.target.is_empty() || looks_like_url(&link.target) {
+        if link.target.is_empty() || is_url_like(&link.target) {
             continue;
         }
         let candidate = normalize_path(
@@ -145,7 +145,7 @@ fn recheck_incoming(&mut self, new_path: &Path) -> AffectedPaths {
 
     for note in self.by_path.values() {
         for link in &note.md_links {
-            if link.target.is_empty() || looks_like_url(&link.target) {
+            if link.target.is_empty() || is_url_like(&link.target) {
                 continue;
             }
             let candidate = normalize_path(
@@ -244,15 +244,15 @@ impl NoteIndex {
     }
 
     /// All notes carrying the given tag (case-insensitive match).
-    pub fn notes_by_tag(&self, tag: &str) -> Vec<&Note> {
+    pub fn notes_by_tag<'a>(&'a self, tag: &str) -> impl Iterator<Item = &'a Note> {
         self.by_tag
             .get(&tag.to_lowercase())
-            .map(|paths| paths.iter().filter_map(|p| self.by_path.get(p)).collect())
-            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|paths| paths.iter().filter_map(|p| self.by_path.get(p)))
     }
 
     /// All non-note file paths registered in the workspace (attachments).
-    pub fn all_attachment_paths(&self) -> impl Iterator<Item = &PathBuf> {
+    pub fn all_attachment_paths(&self) -> impl Iterator<Item = &Path> {
         self.all_files.iter().filter(|p| !self.by_path.contains_key(*p))
     }
 

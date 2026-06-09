@@ -67,10 +67,11 @@ ServerCapabilities {
         TextDocumentSyncKind::FULL,
     )),
     completion_provider: Some(CompletionOptions {
-        trigger_characters: Some(vec!["(".to_string(), "#".to_string(), "/".to_string()]),
+        trigger_characters: Some(vec!["(".to_string(), "#".to_string(), "/".to_string(), "-".to_string()]),
         ..Default::default()
     }),
     code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+    code_lens_provider: Some(CodeLensOptions { resolve_provider: Some(false) }),
     definition_provider: Some(OneOf::Left(true)),
     references_provider: Some(OneOf::Left(true)),
     workspace: Some(WorkspaceServerCapabilities {
@@ -163,6 +164,7 @@ fn dispatch_request(req: Request, ...) {
         "textDocument/prepareRename"    => handle_prepare_rename(req, ...),
         "textDocument/rename"           => handle_rename(req, ...),
         "textDocument/codeAction"       => handle_code_actions(req, ...),
+        "textDocument/codeLens"         => handle_code_lens(req, ...),
         _                               => respond_with_null(req, ...),
     }
 }

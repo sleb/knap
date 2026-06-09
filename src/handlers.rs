@@ -6,6 +6,7 @@ use log::warn;
 use lsp_server::{Message, Notification};
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
+    CodeLens, CodeLensParams, Command,
     CompletionItem, CompletionItemKind, CompletionParams, CompletionTextEdit, CreateFile,
     CreateFileOptions, Diagnostic, DiagnosticSeverity, DocumentChangeOperation, DocumentChanges,
     DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
@@ -901,6 +902,49 @@ fn new_note_path(link_target: &str, source: &Path, config: &crate::server::Confi
         }
         None => index::normalize_path(&source.parent().unwrap_or(source).join(link_target)),
     }
+}
+
+// ─── Code Lens ────────────────────────────────────────────────────────────────
+
+/// Returns a single `↑ N backlinks` code lens at line 0 for any note that has
+/// at least one incoming link. Returns an empty vec for orphan notes.
+pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec<CodeLens> {
+    let Some(path) = uri_to_path(&params.text_document.uri) else {
+        return vec![];
+    };
+    if index.get_note(&path).is_none() {
+        return vec![];
+    }
+    let backlinks = index.links_to(&path);
+    if backlinks.is_empty() {
+        return vec![];
+    }
+
+    let count = backlinks.len();
+    let locations: Vec<Location> = backlinks
+        .iter()
+        .map(|l| Location {
+            uri: path_to_uri(&l.source_path),
+            range: l.md_link.range,
+        })
+        .collect();
+
+    let anchor = Position { line: 0, character: 0 };
+    let command = Command {
+        title: format!("↑ {} backlink{}", count, if count == 1 { "" } else { "s" }),
+        command: "editor.action.showReferences".to_string(),
+        arguments: Some(vec![
+            serde_json::to_value(path_to_uri(&path)).expect("URI is serializable"),
+            serde_json::to_value(anchor).expect("Position is serializable"),
+            serde_json::to_value(&locations).expect("Locations are serializable"),
+        ]),
+    };
+
+    vec![CodeLens {
+        range: Range { start: anchor, end: anchor },
+        command: Some(command),
+        data: None,
+    }]
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
@@ -2401,5 +2445,82 @@ mod tests {
         let params = make_workspace_symbol_params("");
         let syms = handle_workspace_symbols(params, &idx);
         assert!(syms.iter().all(|s| s.kind != SymbolKind::KEY));
+    }
+
+    // ── Code Lens ─────────────────────────────────────────────────────────────
+
+    fn make_code_lens_params(path: &str) -> CodeLensParams {
+        CodeLensParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    }
+
+    #[test]
+    fn code_lens_no_backlinks() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# Orphan\n"));
+        let lenses = handle_code_lens(make_code_lens_params("/vault/a.md"), &idx);
+        assert!(lenses.is_empty(), "orphan note should produce no lens");
+    }
+
+    #[test]
+    fn code_lens_unknown_file() {
+        let idx = NoteIndex::default();
+        let lenses = handle_code_lens(make_code_lens_params("/vault/unknown.md"), &idx);
+        assert!(lenses.is_empty(), "unknown URI should produce no lens");
+    }
+
+    #[test]
+    fn code_lens_single_backlink() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "# Target\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md)\n"));
+        let lenses = handle_code_lens(make_code_lens_params("/vault/b.md"), &idx);
+        assert_eq!(lenses.len(), 1);
+        let cmd = lenses[0].command.as_ref().unwrap();
+        assert_eq!(cmd.title, "↑ 1 backlink");
+        let args = cmd.arguments.as_ref().unwrap();
+        let locations: Vec<Location> = serde_json::from_value(args[2].clone()).unwrap();
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].uri, file_uri("/vault/a.md"));
+    }
+
+    #[test]
+    fn code_lens_multiple_backlinks() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/target.md", "# Target\n"));
+        idx.seed(note("/vault/a.md", "[link](target.md)\n"));
+        idx.seed(note("/vault/b.md", "[link](target.md)\n"));
+        idx.seed(note("/vault/c.md", "[link](target.md)\n"));
+        let lenses = handle_code_lens(make_code_lens_params("/vault/target.md"), &idx);
+        assert_eq!(lenses.len(), 1);
+        let cmd = lenses[0].command.as_ref().unwrap();
+        assert_eq!(cmd.title, "↑ 3 backlinks");
+        let args = cmd.arguments.as_ref().unwrap();
+        let locations: Vec<Location> = serde_json::from_value(args[2].clone()).unwrap();
+        assert_eq!(locations.len(), 3);
+    }
+
+    #[test]
+    fn code_lens_range_is_line_zero() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "# Target\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md)\n"));
+        let lenses = handle_code_lens(make_code_lens_params("/vault/b.md"), &idx);
+        assert_eq!(lenses.len(), 1);
+        assert_eq!(lenses[0].range.start, Position { line: 0, character: 0 });
+        assert_eq!(lenses[0].range.end, Position { line: 0, character: 0 });
+    }
+
+    #[test]
+    fn code_lens_command_name() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "# Target\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md)\n"));
+        let lenses = handle_code_lens(make_code_lens_params("/vault/b.md"), &idx);
+        let cmd = lenses[0].command.as_ref().unwrap();
+        assert_eq!(cmd.command, "editor.action.showReferences");
     }
 }

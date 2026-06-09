@@ -5,6 +5,18 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.6.0] — 2026-06-08
+
+### Added
+
+- Backlinks code lens: a `↑ N backlinks` annotation now appears above the
+  first line of any note that has at least one incoming link. In VS Code,
+  clicking the lens opens the References panel pre-populated with every file
+  that links to the current note. Notes with no incoming links show no lens.
+  (US-25)
+
+---
+
 ## [0.5.1] — 2026-06-08
 
 ### Fixed

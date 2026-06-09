@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.5.0-blue)
+![Version](https://img.shields.io/badge/version-0.6.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -47,6 +47,11 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 - **Workspace Symbols includes tags** — tags appear alongside headings in the
   symbol search with `SymbolKind::KEY` so editors can style them distinctly
 
+### Backlinks
+
+- **Backlinks code lens** — a `↑ N backlinks` annotation above the first line
+  of any note with incoming links; click to open the References panel in VS Code
+
 ### Finding references
 
 - **Find References** — every standard Markdown link pointing to the current
@@ -87,7 +92,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.5.0 — Tags. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.6.0 — Backlinks. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

@@ -252,6 +252,20 @@ tags:
 Tags already present in the current note's frontmatter are excluded. Typing
 narrows the list by prefix.
 
+### Backlinks code lens
+
+When you open a note that has at least one other note linking to it, a code
+lens appears above the first line:
+
+```
+↑ 3 backlinks
+```
+
+In VS Code, clicking the lens opens the References panel pre-populated with
+every file that links to the current note — no cursor placement needed.
+
+Notes with no incoming links show no lens.
+
 ### Find References and Go to Definition on tags
 
 Place your cursor on a tag value in frontmatter and trigger Find References or

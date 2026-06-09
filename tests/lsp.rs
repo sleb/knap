@@ -191,7 +191,9 @@ fn lifecycle_capabilities() {
 
     // unimplemented capabilities must NOT be present
     assert!(caps.hover_provider.is_none(), "hover should not be advertised");
-    assert!(caps.code_lens_provider.is_none(), "code lens should not be advertised");
+
+    // code lens must be advertised (v0.6)
+    assert!(caps.code_lens_provider.is_some(), "code lens should be advertised");
 
     client
         .sender
@@ -1320,4 +1322,105 @@ fn test_code_action_empty_off_link() {
     assert!(actions.is_empty(), "expected empty list when cursor is off any link");
 
     do_shutdown(&client, 3);
+}
+
+// ─── Code Lens (v0.6) ─────────────────────────────────────────────────────────
+
+/// File with two inbound links → one lens with the correct count and command.
+#[test]
+fn test_code_lens_backlinks() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/target.md", "# Target\n");
+    did_open(&client, "file:///vault/a.md", "[link](target.md)\n");
+    did_open(&client, "file:///vault/b.md", "[link](target.md)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/codeLens",
+        serde_json::json!({
+            "textDocument": { "uri": "file:///vault/target.md" }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let lenses: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+
+    assert_eq!(lenses.len(), 1, "expected exactly one code lens");
+    let title = lenses[0]["command"]["title"].as_str().unwrap_or("");
+    assert_eq!(title, "↑ 2 backlinks");
+    assert_eq!(lenses[0]["command"]["command"].as_str().unwrap_or(""), "editor.action.showReferences");
+
+    let locations = lenses[0]["command"]["arguments"][2].as_array().unwrap();
+    assert_eq!(locations.len(), 2);
+
+    do_shutdown(&client, 3);
+}
+
+/// Orphan file → empty array, no lens.
+#[test]
+fn test_code_lens_no_backlinks() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/orphan.md", "# Orphan\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/codeLens",
+        serde_json::json!({
+            "textDocument": { "uri": "file:///vault/orphan.md" }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let lenses: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+
+    assert!(lenses.is_empty(), "orphan note should return empty lens array");
+
+    do_shutdown(&client, 3);
+}
+
+/// After a new linking note is opened, the lens count reflects the updated index.
+#[test]
+fn test_code_lens_updates_after_index_change() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/target.md", "# Target\n");
+    did_open(&client, "file:///vault/a.md", "[link](target.md)\n");
+
+    // Initial state: 1 backlink.
+    send_request(
+        &client,
+        2,
+        "textDocument/codeLens",
+        serde_json::json!({ "textDocument": { "uri": "file:///vault/target.md" } }),
+    );
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let lenses: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+    assert_eq!(lenses[0]["command"]["title"].as_str().unwrap_or(""), "↑ 1 backlink");
+
+    // Add a second linking note.
+    did_open(&client, "file:///vault/b.md", "[link](target.md)\n");
+
+    // Updated state: 2 backlinks.
+    send_request(
+        &client,
+        3,
+        "textDocument/codeLens",
+        serde_json::json!({ "textDocument": { "uri": "file:///vault/target.md" } }),
+    );
+    let resp = recv_response(&client, lsp_server::RequestId::from(3i32));
+    let lenses: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+    assert_eq!(lenses[0]["command"]["title"].as_str().unwrap_or(""), "↑ 2 backlinks");
+
+    do_shutdown(&client, 4);
 }

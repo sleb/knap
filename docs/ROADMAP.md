@@ -161,7 +161,7 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 ---
 
-## v0.6 — Backlinks
+## v0.6 — Backlinks _(released 2026-06-08)_
 
 **Goal:** Surface connections to the current note passively.
 
