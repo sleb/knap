@@ -70,22 +70,22 @@ pub struct Heading {
 }
 
 /// Maps byte offsets (from pulldown-cmark) to LSP line/character positions.
-pub struct LineIndex {
+pub struct LineIndex<'a> {
     /// Byte offset of the start of each line.
     /// line_starts[0] = 0, line_starts[n] = byte offset of line n.
     line_starts: Vec<usize>,
-    content: String,
+    content: &'a str,
 }
 
-impl LineIndex {
-    pub fn new(content: &str) -> Self {
+impl<'a> LineIndex<'a> {
+    pub fn new(content: &'a str) -> Self {
         let mut starts = vec![0];
         for (offset, ch) in content.char_indices() {
             if ch == '\n' {
                 starts.push(offset + 1);
             }
         }
-        LineIndex { line_starts: starts, content: content.to_string() }
+        LineIndex { line_starts: starts, content }
     }
 
     pub fn position(&self, byte_offset: usize) -> Position {
