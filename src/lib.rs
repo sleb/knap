@@ -1,3 +1,6 @@
+#![deny(clippy::correctness)]
+#![warn(clippy::suspicious, clippy::perf)]
+
 pub mod cli;
 pub mod handlers;
 pub mod index;

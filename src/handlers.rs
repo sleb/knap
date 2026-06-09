@@ -102,7 +102,7 @@ pub(crate) fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, s
 
 // ─── Tag helpers ──────────────────────────────────────────────────────────────
 
-fn find_tag_at_position<'a>(note: &'a parser::Note, pos: Position) -> Option<&'a parser::Tag> {
+fn find_tag_at_position(note: &parser::Note, pos: Position) -> Option<&parser::Tag> {
     let fm = note.frontmatter.as_ref()?;
     fm.tags.iter().find(|tag| contains(tag.range, pos))
 }
@@ -144,10 +144,8 @@ fn check_tag_trigger(content: &str, pos: Position) -> Option<(String, Range)> {
                 return None;
             }
             // Check cursor is not past the closing `]`.
-            if let Some(close) = line.find(']') {
-                if cursor_byte > close {
-                    return None;
-                }
+            if matches!(line.find(']'), Some(close) if cursor_byte > close) {
+                return None;
             }
             let content_before = &line[bracket_byte + 1..cursor_byte];
             let (partial, partial_offset_in_content) = match content_before.rfind(',') {
@@ -488,7 +486,6 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex) -> 
 fn tag_locations(tag_name: &str, index: &NoteIndex) -> Vec<Location> {
     index
         .notes_by_tag(tag_name)
-        .into_iter()
         .flat_map(|n| {
             let uri = path_to_uri(&n.path);
             n.frontmatter
