@@ -42,7 +42,21 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnos
 
     for link in &note.md_links {
         if link.target.is_empty() {
-            continue; // anchor-only links; nothing to resolve
+            // Bare anchor (`[text](#slug)`): validate against current note's headings.
+            // `[text](#)` has `link.anchor = None` (empty slug) — nothing to check.
+            let Some(anchor) = &link.anchor else { continue };
+            let found = note.headings.iter().any(|h| slug(&h.text) == slug(anchor));
+            if !found {
+                let range = link.anchor_range.unwrap_or(link.range);
+                diagnostics.push(Diagnostic {
+                    range,
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: format!("Heading not found: '#{anchor}'"),
+                    source: Some("knap".to_string()),
+                    ..Default::default()
+                });
+            }
+            continue;
         }
         match index.resolve(path, &link.target) {
             ResolvedLink::Broken => {
@@ -271,9 +285,6 @@ fn check_anchor_trigger(content: &str, pos: Position) -> Option<String> {
     let after_open = &before[open + 2..];
     let hash_pos = after_open.find('#')?;
     let path = &after_open[..hash_pos];
-    if path.is_empty() {
-        return None;
-    }
     Some(path.to_string())
 }
 
@@ -293,6 +304,18 @@ fn relative_path(from_dir: &Path, to: &Path) -> String {
         result.push(c.as_os_str());
     }
     result.to_string_lossy().into_owned()
+}
+
+fn heading_completion_item(h: &parser::Heading) -> CompletionItem {
+    let s = slug(&h.text);
+    CompletionItem {
+        label: h.text.clone(),
+        kind: Some(CompletionItemKind::REFERENCE),
+        filter_text: Some(h.text.clone()),
+        insert_text: Some(s.clone()),
+        detail: Some(format!("#{s}")),
+        ..Default::default()
+    }
 }
 
 /// Handle `textDocument/completion`: link paths, anchors, and tag values.
@@ -327,8 +350,16 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex) -> 
             .collect();
     }
 
-    // Anchor completion: `](path#` → list headings from target note.
+    // Anchor completion: `](path#` → list headings from target note,
+    // or `](#` → list headings from the current note.
     if let Some(target_rel) = check_anchor_trigger(&note.content, pos) {
+        if target_rel.is_empty() {
+            return note
+                .headings
+                .iter()
+                .map(heading_completion_item)
+                .collect();
+        }
         let ResolvedLink::Found(target_path) = index.resolve(&path, &target_rel) else {
             return vec![];
         };
@@ -338,17 +369,7 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex) -> 
         return target_note
             .headings
             .iter()
-            .map(|h| {
-                let s = slug(&h.text);
-                CompletionItem {
-                    label: h.text.clone(),
-                    kind: Some(CompletionItemKind::REFERENCE),
-                    filter_text: Some(h.text.clone()),
-                    insert_text: Some(s.clone()),
-                    detail: Some(format!("#{s}")),
-                    ..Default::default()
-                }
-            })
+            .map(heading_completion_item)
             .collect();
     }
 
@@ -518,6 +539,12 @@ fn find_md_link_at_position(
     note.md_links.iter().find(|link| contains(link.range, pos))
 }
 
+fn find_heading_at_position(note: &parser::Note, pos: Position) -> Option<&parser::Heading> {
+    note.headings
+        .iter()
+        .find(|h| h.range.start.line <= pos.line && pos.line <= h.range.end.line)
+}
+
 /// Handle `textDocument/definition`: navigate to a link's target or a tag's occurrences.
 pub(crate) fn handle_definition(
     params: GotoDefinitionParams,
@@ -535,6 +562,21 @@ pub(crate) fn handle_definition(
     }
 
     let link = find_md_link_at_position(note, pos)?;
+
+    // Bare anchor (`[text](#slug)`): resolve against current note's headings.
+    if link.target.is_empty() {
+        let range = link
+            .anchor
+            .as_ref()
+            .and_then(|anchor| note.headings.iter().find(|h| slug(&h.text) == slug(anchor)))
+            .map(|h| h.range)
+            .unwrap_or_default();
+        return Some(GotoDefinitionResponse::Scalar(Location {
+            uri: path_to_uri(&path),
+            range,
+        }));
+    }
+
     let ResolvedLink::Found(target_path) = index.resolve(&path, &link.target) else {
         return None;
     };
@@ -571,17 +613,47 @@ pub(crate) fn handle_references(params: ReferenceParams, index: &NoteIndex) -> V
         return tag_locations(&tag_name, index);
     }
 
-    let target_path = if let Some(link) = find_md_link_at_position(note, pos) {
-        match index.resolve(&path, &link.target) {
+    // Link: cursor on a link → backlinks to the link's target file.
+    if let Some(link) = find_md_link_at_position(note, pos) {
+        let target_path = match index.resolve(&path, &link.target) {
             ResolvedLink::Found(p) => p,
             ResolvedLink::Broken => return vec![],
-        }
-    } else {
-        path.clone()
-    };
+        };
+        return index
+            .links_to(&target_path)
+            .iter()
+            .map(|located| Location {
+                uri: path_to_uri(&located.source_path),
+                range: located.md_link.range,
+            })
+            .collect();
+    }
 
+    // Heading: cursor on a heading → anchor references to that heading.
+    if let Some(heading) = find_heading_at_position(note, pos) {
+        let heading_slug = slug(&heading.text);
+        let mut locs: Vec<Location> = Vec::new();
+        for link in &note.md_links {
+            if link.target.is_empty()
+                && link.anchor.as_deref().map(slug).as_deref() == Some(&heading_slug)
+            {
+                locs.push(Location { uri: path_to_uri(&path), range: link.range });
+            }
+        }
+        for located in index.links_to(&path) {
+            if located.md_link.anchor.as_deref().map(slug).as_deref() == Some(&heading_slug) {
+                locs.push(Location {
+                    uri: path_to_uri(&located.source_path),
+                    range: located.md_link.range,
+                });
+            }
+        }
+        return locs;
+    }
+
+    // Fallback: no link, no heading → backlinks to the current file.
     index
-        .links_to(&target_path)
+        .links_to(&path)
         .iter()
         .map(|located| Location {
             uri: path_to_uri(&located.source_path),
@@ -1095,9 +1167,9 @@ mod tests {
     #[test]
     fn diagnostics_anchor_only_skipped() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "[text](#section)"));
+        idx.seed(note("/vault/a.md", "[text](#)"));
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
-        assert!(diags.is_empty(), "anchor-only links should not produce diagnostics");
+        assert!(diags.is_empty(), "empty anchor slug should not produce diagnostics");
     }
 
     #[test]
@@ -2522,5 +2594,141 @@ mod tests {
         let lenses = handle_code_lens(make_code_lens_params("/vault/b.md"), &idx);
         let cmd = lenses[0].command.as_ref().unwrap();
         assert_eq!(cmd.command, "editor.action.showReferences");
+    }
+
+    // ── same-file anchor completions (US-51) ──────────────────────────────────
+
+    #[test]
+    fn completion_bare_anchor_returns_current_file_headings() {
+        let mut idx = NoteIndex::default();
+        // line 0: "## Alpha", line 1: "## Beta", line 2: "", line 3: "[see](#"
+        idx.seed(note("/vault/a.md", "## Alpha\n## Beta\n\n[see](#"));
+        let params = make_completion_params("/vault/a.md", 3, 7);
+        let items = handle_completion(params, &idx);
+        assert_eq!(items.len(), 2);
+        let slugs: Vec<_> = items.iter().filter_map(|i| i.insert_text.as_deref()).collect();
+        assert!(slugs.contains(&"alpha"));
+        assert!(slugs.contains(&"beta"));
+    }
+
+    #[test]
+    fn completion_bare_anchor_empty_headings() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "no headings\n\n[see](#"));
+        let params = make_completion_params("/vault/a.md", 2, 7);
+        let items = handle_completion(params, &idx);
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn completion_bare_anchor_does_not_include_other_notes() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "## Other Note Heading\n"));
+        idx.seed(note("/vault/a.md", "## My Heading\n\n[see](#"));
+        let params = make_completion_params("/vault/a.md", 2, 7);
+        let items = handle_completion(params, &idx);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].label, "My Heading");
+    }
+
+    // ── same-file anchor definition (US-48) ───────────────────────────────────
+
+    #[test]
+    fn definition_same_file_anchor_navigates_to_heading() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Section\n\n[jump](#section)"));
+        // cursor on `[jump](#section)` at line 2
+        let params = make_definition_params("/vault/a.md", 2, 5);
+        let loc = unwrap_scalar(handle_definition(params, &idx));
+        assert!(loc.uri.as_str().ends_with("a.md"));
+        assert_eq!(loc.range.start.line, 0);
+    }
+
+    #[test]
+    fn definition_same_file_anchor_missing_falls_back_to_top() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Section\n\n[jump](#missing)"));
+        let params = make_definition_params("/vault/a.md", 2, 5);
+        let loc = unwrap_scalar(handle_definition(params, &idx));
+        assert!(loc.uri.as_str().ends_with("a.md"));
+        assert_eq!(loc.range, Range::default());
+    }
+
+    // ── bare anchor diagnostics (US-50) ───────────────────────────────────────
+
+    #[test]
+    fn diagnostics_bare_anchor_valid() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Existing\n\n[text](#existing)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn diagnostics_bare_anchor_broken() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Existing\n\n[text](#missing)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("#missing"));
+    }
+
+    #[test]
+    fn diagnostics_bare_anchor_no_headings() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[text](#anything)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert_eq!(diags.len(), 1);
+    }
+
+    #[test]
+    fn diagnostics_bare_anchor_empty_slug_no_diagnostic() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[text](#)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        assert!(diags.is_empty());
+    }
+
+    // ── find references on heading (US-49) ────────────────────────────────────
+
+    #[test]
+    fn references_heading_includes_same_file_bare_anchors() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Section\n\n[link](#section)"));
+        // cursor on the heading line
+        let params = make_references_params("/vault/a.md", 0, 3);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 1);
+        assert!(locs[0].uri.as_str().ends_with("a.md"));
+    }
+
+    #[test]
+    fn references_heading_includes_cross_file_anchors() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Section\n"));
+        idx.seed(note("/vault/b.md", "[text](a.md#section)"));
+        let params = make_references_params("/vault/a.md", 0, 3);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 1);
+        assert!(locs[0].uri.as_str().ends_with("b.md"));
+    }
+
+    #[test]
+    fn references_heading_excludes_non_matching_anchors() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Section\n"));
+        idx.seed(note("/vault/b.md", "[text](a.md#other)"));
+        let params = make_references_params("/vault/a.md", 0, 3);
+        let locs = handle_references(params, &idx);
+        assert!(locs.is_empty());
+    }
+
+    #[test]
+    fn references_heading_no_refs_returns_empty() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Section\n"));
+        let params = make_references_params("/vault/a.md", 0, 3);
+        let locs = handle_references(params, &idx);
+        assert!(locs.is_empty());
     }
 }

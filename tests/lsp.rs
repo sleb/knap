@@ -1386,6 +1386,188 @@ fn test_code_lens_no_backlinks() {
     do_shutdown(&client, 3);
 }
 
+// ─── v0.7 Integration tests ───────────────────────────────────────────────────
+
+/// `textDocument/definition` on `[text](#section)` navigates to the matching
+/// heading in the same file.
+#[test]
+fn test_same_file_anchor_definition() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // Line 0: "## Section", Line 2: "[text](#section)"
+    did_open(&client, "file:///vault/a.md", "## Section\n\n[text](#section)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/definition",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 2, "character": 3 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: Option<GotoDefinitionResponse> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let loc = match result.expect("expected definition result") {
+        GotoDefinitionResponse::Scalar(loc) => loc,
+        GotoDefinitionResponse::Array(locs) if locs.len() == 1 => locs.into_iter().next().unwrap(),
+        other => panic!("unexpected response shape: {:?}", other),
+    };
+    assert!(loc.uri.as_str().ends_with("a.md"), "should navigate within the same file");
+    assert_eq!(loc.range.start.line, 0, "should land on the heading line");
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/definition` on `[text](#missing)` returns the top of the same file.
+#[test]
+fn test_same_file_anchor_definition_missing() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "## Section\n\n[text](#missing)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/definition",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 2, "character": 3 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: Option<GotoDefinitionResponse> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let loc = match result.expect("expected definition result") {
+        GotoDefinitionResponse::Scalar(loc) => loc,
+        GotoDefinitionResponse::Array(locs) if locs.len() == 1 => locs.into_iter().next().unwrap(),
+        other => panic!("unexpected response shape: {:?}", other),
+    };
+    assert!(loc.uri.as_str().ends_with("a.md"));
+    assert_eq!(loc.range.start.line, 0);
+    assert_eq!(loc.range.start.character, 0, "missing anchor falls back to top of file");
+
+    do_shutdown(&client, 3);
+}
+
+/// Opening a file with `[text](#missing)` (no matching heading) publishes a WARNING.
+#[test]
+fn test_same_file_anchor_broken_diagnostic() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "## Real\n\n[text](#missing)\n");
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .last()
+        .expect("expected diagnostics for a.md");
+    assert_eq!(file_diags.diagnostics.len(), 1);
+    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert!(
+        file_diags.diagnostics[0].message.contains("#missing"),
+        "message should contain '#missing', got: {}",
+        file_diags.diagnostics[0].message
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// Opening a file with `[text](#existing)` where a matching heading exists → no diagnostic.
+#[test]
+fn test_same_file_anchor_valid_no_diagnostic() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "## Existing\n\n[text](#existing)\n");
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags: Vec<_> =
+        diags.iter().filter(|d| d.uri.as_str().ends_with("a.md")).collect();
+    let last = file_diags.last().expect("expected diagnostics published for a.md");
+    assert!(
+        last.diagnostics.is_empty(),
+        "expected no diagnostics for valid bare anchor, got {:?}",
+        last.diagnostics
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/completion` at `[see](#` returns headings from the current file.
+#[test]
+fn test_same_file_anchor_completion() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // Line 0: "## My Section", Line 1: "## Another", Line 2: "", Line 3: "[see](#"
+    did_open(&client, "file:///vault/a.md", "## My Section\n## Another\n\n[see](#");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/completion",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 3, "character": 7 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: Option<CompletionResponse> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let items = match result.expect("expected completion result") {
+        CompletionResponse::Array(items) => items,
+        CompletionResponse::List(list) => list.items,
+    };
+
+    assert_eq!(items.len(), 2, "expected 2 heading completions from current file");
+    let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+    assert!(labels.contains(&"My Section"));
+    assert!(labels.contains(&"Another"));
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/references` on a heading line returns the bare anchor link
+/// pointing to it within the same file.
+#[test]
+fn test_same_file_anchor_references_on_heading() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // Line 0: "## Introduction", Line 2: "[go to intro](#introduction)"
+    did_open(&client, "file:///vault/a.md", "## Introduction\n\n[go to intro](#introduction)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 0, "character": 3 },
+            "context": { "includeDeclaration": false }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let locs: Option<Vec<Location>> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let locs = locs.unwrap_or_default();
+
+    assert_eq!(locs.len(), 1, "expected 1 reference: the bare anchor link");
+    assert!(locs[0].uri.as_str().ends_with("a.md"));
+
+    do_shutdown(&client, 3);
+}
+
 /// After a new linking note is opened, the lens count reflects the updated index.
 #[test]
 fn test_code_lens_updates_after_index_change() {
