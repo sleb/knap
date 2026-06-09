@@ -31,7 +31,7 @@ fn slug(text: &str) -> String {
 
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
-pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
+pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
     let Some(note) = index.get_note(path) else {
         return vec![];
     };
@@ -83,7 +83,7 @@ pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
     diagnostics
 }
 
-pub fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>) {
+pub(crate) fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>) {
     for path in paths {
         let diagnostics = compute_diagnostics(path, index);
         let params = PublishDiagnosticsParams {
@@ -294,7 +294,7 @@ fn relative_path(from_dir: &Path, to: &Path) -> String {
     result.to_string_lossy().into_owned()
 }
 
-pub fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
+pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
     let pos = params.text_document_position.position;
     let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
         return vec![];
@@ -517,7 +517,7 @@ fn find_md_link_at_position(
     note.md_links.iter().find(|link| contains(link.range, pos))
 }
 
-pub fn handle_definition(
+pub(crate) fn handle_definition(
     params: GotoDefinitionParams,
     index: &NoteIndex,
 ) -> Option<GotoDefinitionResponse> {
@@ -553,7 +553,7 @@ pub fn handle_definition(
 
 // ─── Find References ──────────────────────────────────────────────────────────
 
-pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Location> {
+pub(crate) fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Location> {
     let pos = params.text_document_position.position;
     let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
         return vec![];
@@ -590,7 +590,7 @@ pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Loca
 // ─── Rename ───────────────────────────────────────────────────────────────────
 
 #[allow(clippy::mutable_key_type)] // lsp_types::Uri has interior mutability; HashMap<Uri, _> is the LSP-spec type
-pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) -> WorkspaceEdit {
+pub(crate) fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) -> WorkspaceEdit {
     use crate::index::{looks_like_url, normalize_path};
 
     let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
@@ -646,7 +646,7 @@ pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) ->
 // ─── Document Symbols ─────────────────────────────────────────────────────────
 
 #[allow(deprecated)] // SymbolInformation::deprecated field is itself deprecated in lsp-types
-pub fn handle_document_symbols(
+pub(crate) fn handle_document_symbols(
     params: DocumentSymbolParams,
     index: &NoteIndex,
 ) -> Option<DocumentSymbolResponse> {
@@ -670,7 +670,7 @@ pub fn handle_document_symbols(
 // ─── Workspace Symbols ────────────────────────────────────────────────────────
 
 #[allow(deprecated)]
-pub fn handle_workspace_symbols(
+pub(crate) fn handle_workspace_symbols(
     params: WorkspaceSymbolParams,
     index: &NoteIndex,
 ) -> Vec<SymbolInformation> {
@@ -721,7 +721,7 @@ pub fn handle_workspace_symbols(
 
 // ─── Heading Rename ───────────────────────────────────────────────────────────
 
-pub fn handle_prepare_rename(
+pub(crate) fn handle_prepare_rename(
     params: TextDocumentPositionParams,
     index: &NoteIndex,
 ) -> Option<PrepareRenameResponse> {
@@ -751,7 +751,7 @@ pub fn handle_prepare_rename(
 }
 
 #[allow(clippy::mutable_key_type)]
-pub fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<WorkspaceEdit> {
+pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<WorkspaceEdit> {
     let path = uri_to_path(&params.text_document_position.text_document.uri)?;
     let disk_note;
     let note: &parser::Note = match index.get_note(&path) {
@@ -908,14 +908,14 @@ fn new_note_path(link_target: &str, source: &Path, config: &crate::server::Confi
 /// Returns `None` for non-`file://` URIs (e.g. `untitled:` or
 /// `vscode-notebook-cell:`). Callers should silently skip `None` — there is
 /// nothing useful to index or serve for a buffer without a path.
-pub fn uri_to_path(uri: &lsp_types::Uri) -> Option<PathBuf> {
+pub(crate) fn uri_to_path(uri: &lsp_types::Uri) -> Option<PathBuf> {
     url::Url::parse(uri.as_str()).ok()?.to_file_path().ok()
 }
 
 /// Convert an absolute filesystem path to an LSP URI.
 ///
 /// Panics if `path` is not absolute.
-pub fn path_to_uri(path: &Path) -> lsp_types::Uri {
+pub(crate) fn path_to_uri(path: &Path) -> lsp_types::Uri {
     url::Url::from_file_path(path)
         .unwrap_or_else(|_| panic!("path_to_uri: path must be absolute, got: {}", path.display()))
         .as_str()
