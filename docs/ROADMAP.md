@@ -161,21 +161,7 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 ---
 
-## v0.6 — Hover Previews
-
-**Goal:** See note contents without switching files.
-
-| Story | Feature                                                                |
-| ----- | ---------------------------------------------------------------------- |
-| US-09 | Hover on a link → preview of the first N lines of the target note      |
-| US-10 | Hover on an image or external URL → inline summary                     |
-| US-23 | Frontmatter `title:` used as the display name in completions and hover |
-
-**LSP capabilities delivered:** `textDocument/hover`
-
----
-
-## v0.7 — Backlinks
+## v0.6 — Backlinks
 
 **Goal:** Surface connections to the current note passively.
 
@@ -187,6 +173,28 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 > Clicking the lens opens the references panel in VS Code. Zed support is
 > pending an upcoming Zed release that adds code lens rendering.
+
+---
+
+## v0.7 — Same-file Anchor Links
+
+**Goal:** Navigate within the current note using bare anchor links.
+
+`[see Appendix A](#appendix-a)` is valid Markdown but v0.3 only handled
+cross-file anchors (`note.md#section`). This release extends all anchor
+features to bare `#slug` links that target a heading in the same file.
+
+| Story | Feature                                                                                          |
+| ----- | ------------------------------------------------------------------------------------------------ |
+| US-48 | Go to Definition on `[text](#slug)` — navigates to the matching heading in the current file      |
+| US-49 | Find References on a heading — includes same-file bare anchor links alongside cross-file results |
+| US-50 | Diagnostic when a bare anchor doesn't match any heading in the current file                      |
+| US-51 | Anchor completions for `[text](#` — heading list scoped to the current file                      |
+
+**LSP capabilities delivered:** `textDocument/definition` (same-file anchors),
+`textDocument/references` (same-file anchors),
+`textDocument/publishDiagnostics` (same-file anchors),
+`textDocument/completion` (same-file anchor completions)
 
 ---
 
@@ -203,74 +211,50 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 ---
 
-## v0.9 — Diagnostics & Validation
-
-**Goal:** Every link and document structure in your notes is validated.
-
-| Story | Feature                                                                   |
-| ----- | ------------------------------------------------------------------------- |
-| US-32 | Duplicate heading diagnostic — warn when two headings share the same text |
-| US-34 | Self-link diagnostic — warn when a link points to the file it appears in  |
-
-**LSP capabilities delivered:** `textDocument/publishDiagnostics` (expanded)
-
----
-
-## v0.10 — Editor Experience
+## v0.9 — Editor Experience
 
 **Goal:** Editors treat Markdown as a first-class language with rich visual feedback.
 
-| Story | Feature                                                      |
-| ----- | ------------------------------------------------------------ |
-| US-35 | Semantic tokens — tags styled as a distinct token type       |
-| US-36 | Folding ranges — collapse heading sections and fenced blocks |
+| Story | Feature                                                                                                          |
+| ----- | ---------------------------------------------------------------------------------------------------------------- |
+| US-35 | Semantic tokens — tags styled as a distinct token type                                                           |
+| US-36 | Folding ranges — collapse heading sections and fenced blocks                                                     |
+| US-52 | Selection range — smart expand/contract: word → link → paragraph → heading section → document                   |
+| US-53 | Inlay hints — show the `title:` frontmatter of a linked note inline next to its path                            |
+| US-54 | Code lens on headings — `↑ N anchor links` on headings that are the target of one or more `#slug` links         |
 
 **LSP capabilities delivered:** `textDocument/semanticTokens`,
-`textDocument/foldingRange`
+`textDocument/foldingRange`, `textDocument/selectionRange`,
+`textDocument/inlayHint`, `textDocument/codeLens` (extended)
 
 ---
 
-## v0.11 — Inline Tags & Tag Refactoring
+## v0.10 — Tag Rename
 
-**Goal:** Your tag taxonomy spans the full document, not just frontmatter, and
-can be renamed safely.
+**Goal:** Rename a tag across the entire workspace without a find-and-replace.
 
-| Story | Feature                                                                                 |
-| ----- | --------------------------------------------------------------------------------------- |
-| US-40 | Inline `#tag` body syntax — included in the tag index, completions, and Find References |
-| US-37 | Rename tag — update all frontmatter and inline occurrences across the workspace         |
+| Story | Feature                                                                           |
+| ----- | --------------------------------------------------------------------------------- |
+| US-37 | Rename tag — update all frontmatter occurrences across the workspace atomically   |
 
-**LSP capabilities delivered:** `textDocument/rename` (extended),
-`textDocument/completion` (inline tags), `textDocument/references` (inline tags)
+**LSP capabilities delivered:** `textDocument/rename` (tags),
+`textDocument/prepareRename` (tags)
 
 ---
 
-## v0.12 — Workspace Insight
+## v0.11 — Extract to New Note
 
-**Goal:** Surface the health and connectivity of your knowledge base.
+**Goal:** Restructure notes without leaving your editor.
 
-| Story | Feature                                                                       |
-| ----- | ----------------------------------------------------------------------------- |
-| US-38 | Orphan note detection — hint-level diagnostic on notes with no incoming links |
-
-**LSP capabilities delivered:** `textDocument/publishDiagnostics` (hints)
-
----
-
-## v0.13 — Extract & Templates
-
-**Goal:** Restructure and scaffold notes without leaving your editor.
-
-| Story | Feature                                                                                      |
-| ----- | -------------------------------------------------------------------------------------------- |
-| US-19 | Extract selection to new note — code action replaces selection with a link to the new file   |
-| US-42 | Note templates — configurable `templateDir`; new notes expanded with `{{title}}`, `{{date}}` |
+| Story | Feature                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------ |
+| US-19 | Extract selection to new note — code action replaces selection with a link to the new file |
 
 **LSP capabilities delivered:** `textDocument/codeAction` (extended)
 
 ---
 
-## v0.14 — Daily Notes
+## v0.12 — Daily Notes
 
 **Goal:** Open today's journal entry with one command, creating it from a
 template if it doesn't exist.
@@ -292,6 +276,11 @@ template if it doesn't exist.
 
 Explicitly deferred — not scheduled:
 
+- **Hover Previews** (US-09, US-10, US-23) — hover on a link to preview note contents; `title:` frontmatter as display name
+- **Diagnostics & Validation** (US-32, US-34) — duplicate heading warnings; self-link warnings
+- **Inline Tags** (US-40) — `#tag` body syntax included in tag index and completions
+- **Orphan Note Detection** (US-38) — hint-level diagnostic on notes with no incoming links
+- **Note Templates** (US-42) — `templateDir` config; new notes expanded with `{{title}}`, `{{date}}`
 - Full Markdown formatting (bold, italic, tables) — handled by other tools
 - Git integration
 - Graph visualization
