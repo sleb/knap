@@ -209,6 +209,21 @@ fn heading_in_code_block_ignored() {
 }
 
 #[test]
+fn heading_with_inline_code() {
+    let result = headings("### `textDocument/didOpen`\n");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].text, "textDocument/didOpen");
+    assert_eq!(result[0].level, 3);
+}
+
+#[test]
+fn heading_mixed_text_and_inline_code() {
+    let result = headings("## The `initialize` request\n");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].text, "The initialize request");
+}
+
+#[test]
 fn heading_text_range() {
     // "## My Heading\n"
     //  0123456789012345

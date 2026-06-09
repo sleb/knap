@@ -486,7 +486,7 @@ fn extract_body_elements(
             }
 
             // ── Text (accumulated by whichever collector is active) ───────────
-            Event::Text(s) => {
+            Event::Text(s) | Event::Code(s) => {
                 if let Some((_, _, ref mut text, ref mut first_start)) = current_heading {
                     if first_start.is_none() {
                         *first_start = Some(byte_range.start);
