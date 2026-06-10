@@ -310,7 +310,6 @@ fn relative_path(from_dir: &Path, to: &Path) -> String {
 /// frontmatter value position (after the `:` on a key-value line).
 /// Returns `None` for the `tags:` key (handled by `check_tag_trigger`),
 /// for complex values (inline list, block scalar), or outside the frontmatter block.
-#[allow(dead_code)]
 fn check_frontmatter_value_trigger(content: &str, pos: Position) -> Option<(String, String, Range)> {
     let lines: Vec<&str> = content.lines().collect();
 
@@ -363,7 +362,6 @@ fn check_frontmatter_value_trigger(content: &str, pos: Position) -> Option<(Stri
 /// frontmatter key position (before or on the `:` of a key-value line, or on
 /// a blank frontmatter line). Returns `None` for list items, comment lines,
 /// value positions, or outside the frontmatter block.
-#[allow(dead_code)]
 fn check_frontmatter_key_trigger(content: &str, pos: Position) -> Option<(String, Range)> {
     let lines: Vec<&str> = content.lines().collect();
 
@@ -414,7 +412,7 @@ fn heading_completion_item(h: &parser::Heading) -> CompletionItem {
 }
 
 /// Handle `textDocument/completion`: link paths, anchors, and tag values.
-pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, _config: &crate::server::Config) -> Vec<CompletionItem> {
+pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, config: &crate::server::Config) -> Vec<CompletionItem> {
     let pos = params.text_document_position.position;
     let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
         return vec![];
@@ -445,6 +443,29 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, _co
             .collect();
     }
 
+    // Frontmatter value completion: cursor is in a scalar value position.
+    if let Some((key, partial, replace_range)) = check_frontmatter_value_trigger(&note.content, pos) {
+        let schema = &config.frontmatter_schema;
+        if let Some((_, sf)) = schema.fields.iter().find(|(k, _)| k.eq_ignore_ascii_case(&key))
+            && let Some(allowed) = &sf.values
+        {
+            return allowed
+                .iter()
+                .filter(|v| v.starts_with(&partial as &str))
+                .map(|v| CompletionItem {
+                    label: v.clone(),
+                    kind: Some(CompletionItemKind::VALUE),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: replace_range,
+                        new_text: v.clone(),
+                    })),
+                    ..Default::default()
+                })
+                .collect();
+        }
+        return vec![];
+    }
+
     // Anchor completion: `](path#` → list headings from target note,
     // or `](#` → list headings from the current note.
     if let Some(target_rel) = check_anchor_trigger(&note.content, pos) {
@@ -469,10 +490,7 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, _co
     }
 
     // Directory completion: `](` or `](partial/` → immediate children of base_dir.
-    let Some(partial) = check_dir_trigger(&note.content, pos) else {
-        return vec![];
-    };
-
+    if let Some(partial) = check_dir_trigger(&note.content, pos) {
     let note_dir = path.parent().expect("indexed path must have a parent");
     let base_dir = if partial.ends_with('/') || partial.is_empty() {
         index::normalize_path(&note_dir.join(&*partial))
@@ -597,7 +615,37 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, _co
         });
     }
 
-    items
+    return items;
+    } // end directory completion
+
+    // Frontmatter key completion: cursor is in a key position inside the frontmatter block.
+    if let Some((partial, replace_range)) = check_frontmatter_key_trigger(&note.content, pos) {
+        let schema = &config.frontmatter_schema;
+        if !schema.fields.is_empty() {
+            let used: HashSet<String> = note
+                .frontmatter
+                .as_ref()
+                .map(|fm| fm.fields.iter().map(|f| f.key.to_lowercase()).collect())
+                .unwrap_or_default();
+            return schema
+                .fields
+                .iter()
+                .filter(|(k, _)| !used.contains(&k.to_lowercase()))
+                .filter(|(k, _)| k.to_lowercase().starts_with(&partial.to_lowercase()))
+                .map(|(key, _)| CompletionItem {
+                    label: key.clone(),
+                    kind: Some(CompletionItemKind::FIELD),
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: replace_range,
+                        new_text: format!("{key}: "),
+                    })),
+                    ..Default::default()
+                })
+                .collect();
+        }
+    }
+
+    vec![]
 }
 
 // ─── Tag locations (shared by definition and references) ──────────────────────
@@ -2942,5 +2990,180 @@ mod tests {
         // cursor on the closing --- line (line 2)
         let result = check_frontmatter_key_trigger(content, Position { line: 2, character: 0 });
         assert!(result.is_none());
+    }
+
+    // ── Step 4: schema key completions ────────────────────────────────────────
+
+    fn make_schema_config(fields: Vec<(&str, Option<Vec<&str>>)>) -> crate::server::Config {
+        crate::server::Config {
+            frontmatter_schema: crate::server::FrontmatterSchema {
+                fields: fields
+                    .into_iter()
+                    .map(|(k, vs)| {
+                        (
+                            k.to_string(),
+                            crate::server::SchemaField {
+                                values: vs.map(|v| v.into_iter().map(String::from).collect()),
+                                required: false,
+                            },
+                        )
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn schema_key_completion_offers_all_unused_keys() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\n\n---\n"));
+        let config = make_schema_config(vec![
+            ("status", Some(vec!["draft", "published"])),
+            ("type", Some(vec!["note", "meeting"])),
+        ]);
+        // cursor on the blank frontmatter line (line 1, char 0)
+        let params = make_completion_params("/vault/a.md", 1, 0);
+        let items = handle_completion(params, &idx, &config);
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::FIELD)));
+        assert!(items.iter().any(|i| i.label == "status"));
+        assert!(items.iter().any(|i| i.label == "type"));
+    }
+
+    #[test]
+    fn schema_key_completion_excludes_used_keys() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nstatus: draft\n\n---\n"));
+        let config = make_schema_config(vec![
+            ("status", Some(vec!["draft"])),
+            ("type", Some(vec!["note"])),
+        ]);
+        // cursor on the blank second frontmatter line (line 2)
+        let params = make_completion_params("/vault/a.md", 2, 0);
+        let items = handle_completion(params, &idx, &config);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].label, "type");
+    }
+
+    #[test]
+    fn schema_key_completion_filters_by_partial() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nsta\n---\n"));
+        let config = make_schema_config(vec![
+            ("status", Some(vec!["draft"])),
+            ("type", Some(vec!["note"])),
+        ]);
+        // cursor at end of "sta" on line 1
+        let params = make_completion_params("/vault/a.md", 1, 3);
+        let items = handle_completion(params, &idx, &config);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].label, "status");
+    }
+
+    #[test]
+    fn schema_key_completion_insert_text_has_colon() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nsta\n---\n"));
+        let config = make_schema_config(vec![("status", None)]);
+        let params = make_completion_params("/vault/a.md", 1, 3);
+        let items = handle_completion(params, &idx, &config);
+        assert_eq!(items.len(), 1);
+        assert_eq!(text_edit_new_text(&items[0]), Some("status: "));
+    }
+
+    #[test]
+    fn schema_key_completion_empty_schema_returns_empty() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nsta\n---\n"));
+        let params = make_completion_params("/vault/a.md", 1, 3);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
+        assert!(items.is_empty());
+    }
+
+    // ── Step 4: schema value completions ──────────────────────────────────────
+
+    #[test]
+    fn schema_value_completion_offers_enum_values() {
+        let mut idx = NoteIndex::default();
+        // "status: " — cursor at char 8 (after the space)
+        idx.seed(note("/vault/a.md", "---\nstatus: \n---\n"));
+        let config = make_schema_config(vec![("status", Some(vec!["draft", "published"]))]);
+        let params = make_completion_params("/vault/a.md", 1, 8);
+        let items = handle_completion(params, &idx, &config);
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+        assert!(items.iter().any(|i| i.label == "draft"));
+        assert!(items.iter().any(|i| i.label == "published"));
+    }
+
+    #[test]
+    fn schema_value_completion_filters_by_partial() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nstatus: pub\n---\n"));
+        let config = make_schema_config(vec![("status", Some(vec!["draft", "published"]))]);
+        // cursor at end of "pub" — char 11
+        let params = make_completion_params("/vault/a.md", 1, 11);
+        let items = handle_completion(params, &idx, &config);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].label, "published");
+    }
+
+    #[test]
+    fn schema_value_completion_partial_is_case_sensitive() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nstatus: Pub\n---\n"));
+        let config = make_schema_config(vec![("status", Some(vec!["draft", "published"]))]);
+        // "Pub" does not match "published" (exact-case prefix)
+        let params = make_completion_params("/vault/a.md", 1, 11);
+        let items = handle_completion(params, &idx, &config);
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn schema_value_completion_empty_partial_returns_all() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nstatus: \n---\n"));
+        let config = make_schema_config(vec![("status", Some(vec!["draft", "published"]))]);
+        let params = make_completion_params("/vault/a.md", 1, 8);
+        let items = handle_completion(params, &idx, &config);
+        assert_eq!(items.len(), 2);
+    }
+
+    #[test]
+    fn schema_value_completion_no_values_list_returns_empty() {
+        let mut idx = NoteIndex::default();
+        // "title: " — cursor at char 7
+        idx.seed(note("/vault/a.md", "---\ntitle: \n---\n"));
+        let config = make_schema_config(vec![("title", None)]);
+        let params = make_completion_params("/vault/a.md", 1, 7);
+        let items = handle_completion(params, &idx, &config);
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn schema_value_completion_unknown_key_returns_empty() {
+        let mut idx = NoteIndex::default();
+        // "foobar: " — cursor at char 8
+        idx.seed(note("/vault/a.md", "---\nfoobar: \n---\n"));
+        let config = make_schema_config(vec![("status", Some(vec!["draft"]))]);
+        let params = make_completion_params("/vault/a.md", 1, 8);
+        let items = handle_completion(params, &idx, &config);
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn schema_value_completion_tags_key_skipped() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/other.md", "---\ntags: [rust]\n---\n"));
+        // "tags: " — cursor at char 6
+        idx.seed(note("/vault/a.md", "---\ntags: \n---\n"));
+        let config = make_schema_config(vec![("status", Some(vec!["draft"]))]);
+        let params = make_completion_params("/vault/a.md", 1, 6);
+        let items = handle_completion(params, &idx, &config);
+        // tag trigger fires first; results are VALUE items from the tag list
+        assert!(items.iter().any(|i| i.label == "rust"));
+        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
     }
 }
