@@ -3,7 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use lsp_types::{Position, Range as LspRange};
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag as PdTag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag as PdTag, TagEnd};
 
 #[cfg(test)]
 mod tests;
@@ -58,6 +58,7 @@ pub struct Note {
     pub content: String, // raw source text, retained for trigger checking in completion
     pub headings: Vec<Heading>,
     pub frontmatter: Option<Frontmatter>,
+    pub code_fences: Vec<CodeFence>,
 }
 
 /// An ATX heading found in a note file.
@@ -67,6 +68,13 @@ pub struct Heading {
     pub level: u8,           // ATX heading level 1–6
     pub range: LspRange,     // full heading line range (for navigation and DocumentSymbol)
     pub text_range: LspRange, // text-only range, excluding `## ` prefix (for rename)
+}
+
+/// A fenced code block found in a note file (``` … ``` or ~~~ … ~~~).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodeFence {
+    pub start_line: u32, // zero-based line of the opening fence
+    pub end_line: u32,   // zero-based line of the closing fence
 }
 
 /// Maps byte offsets (from pulldown-cmark) to LSP line/character positions.
@@ -118,8 +126,8 @@ pub fn parse(path: &Path, content: &str) -> Note {
     });
     let body_offset = frontmatter_body_offset(content);
     let body = &content[body_offset..];
-    let (md_links, headings) = extract_body_elements(body, body_offset, &line_index);
-    Note { path: path.to_path_buf(), md_links, content: content.to_string(), headings, frontmatter }
+    let (md_links, headings, code_fences) = extract_body_elements(body, body_offset, &line_index);
+    Note { path: path.to_path_buf(), md_links, content: content.to_string(), headings, frontmatter, code_fences }
 }
 
 /// Return the block of text between the frontmatter delimiters (`---`…`---`),
@@ -359,15 +367,18 @@ fn extract_body_elements(
     content: &str,
     offset: usize,
     line_index: &LineIndex,
-) -> (Vec<MarkdownLink>, Vec<Heading>) {
+) -> (Vec<MarkdownLink>, Vec<Heading>, Vec<CodeFence>) {
     let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
     let mut headings: Vec<Heading> = Vec::new();
     let mut md_links: Vec<MarkdownLink> = Vec::new();
+    let mut code_fences: Vec<CodeFence> = Vec::new();
 
     // (level, heading_byte_start, accumulated_text, first_text_byte)
     let mut current_heading: Option<(u8, usize, String, Option<usize>)> = None;
     // (dest_url, range_start_in_body, text_buf, is_image)
     let mut current_link: Option<(String, usize, String, bool)> = None;
+    // byte_start of the opening fence line
+    let mut fence_start_byte: Option<usize> = None;
 
     for (event, byte_range) in parser {
         match event {
@@ -485,6 +496,31 @@ fn extract_body_elements(
                 }
             }
 
+            // ── Fenced code blocks ────────────────────────────────────────────
+            Event::Start(PdTag::CodeBlock(CodeBlockKind::Fenced(_))) => {
+                fence_start_byte = Some(byte_range.start);
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some(start_byte) = fence_start_byte.take() {
+                    let start_pos = line_index.position(start_byte + offset);
+                    let end_pos = line_index.position(byte_range.end + offset);
+                    // end_pos.line may point past the closing fence if there's a trailing
+                    // newline; clamp to the closing-fence line (end_pos.line - 1 when the
+                    // last char is a newline, else end_pos.line).
+                    let end_line = if byte_range.end > 0
+                        && content.as_bytes().get(byte_range.end - 1) == Some(&b'\n')
+                    {
+                        end_pos.line.saturating_sub(1)
+                    } else {
+                        end_pos.line
+                    };
+                    code_fences.push(CodeFence {
+                        start_line: start_pos.line,
+                        end_line,
+                    });
+                }
+            }
+
             // ── Text (accumulated by whichever collector is active) ───────────
             Event::Text(s) | Event::Code(s) => {
                 if let Some((_, _, ref mut text, ref mut first_start)) = current_heading {
@@ -502,7 +538,7 @@ fn extract_body_elements(
         }
     }
 
-    (md_links, headings)
+    (md_links, headings, code_fences)
 }
 
 fn heading_level_to_u8(level: HeadingLevel) -> u8 {

@@ -9,7 +9,8 @@ use lsp_types::{
     CodeLens, CodeLensParams, Command,
     CompletionItem, CompletionItemKind, CompletionParams, CompletionTextEdit, CreateFile,
     CreateFileOptions, Diagnostic, DiagnosticSeverity, DocumentChangeOperation, DocumentChanges,
-    DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
+    DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeKind,
+    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse,
     Location, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
     RenameFilesParams, RenameParams, ResourceOp, SymbolInformation, SymbolKind,
     TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
@@ -1233,6 +1234,68 @@ pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec
         command: Some(command),
         data: None,
     }]
+}
+
+// ─── Folding Ranges ───────────────────────────────────────────────────────────
+
+/// Returns the zero-based line number of the last non-empty line in `content`.
+/// Returns 0 when `content` is empty or all-whitespace.
+#[allow(dead_code)] // wired up in Step 3 (server/mod.rs)
+fn last_content_line(content: &str) -> u32 {
+    content
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .map(|(i, _)| i as u32)
+        .last()
+        .unwrap_or(0)
+}
+
+/// Handle `textDocument/foldingRange`: heading sections and fenced code blocks.
+#[allow(dead_code)] // wired up in Step 3 (server/mod.rs)
+pub(crate) fn handle_folding_ranges(
+    params: FoldingRangeParams,
+    index: &NoteIndex,
+) -> Vec<FoldingRange> {
+    let Some(path) = uri_to_path(&params.text_document.uri) else {
+        return vec![];
+    };
+    let Some(note) = index.get_note(&path) else {
+        return vec![];
+    };
+
+    let mut ranges: Vec<FoldingRange> = Vec::new();
+
+    // ── Heading sections ──────────────────────────────────────────────────────
+    let last_line = last_content_line(&note.content);
+    for (i, heading) in note.headings.iter().enumerate() {
+        let start = heading.range.start.line;
+        let end = note.headings[i + 1..]
+            .iter()
+            .find(|h| h.level <= heading.level)
+            .map(|h| h.range.start.line.saturating_sub(1))
+            .unwrap_or(last_line);
+        if end > start {
+            ranges.push(FoldingRange {
+                start_line: start,
+                end_line: end,
+                kind: Some(FoldingRangeKind::Region),
+                ..Default::default()
+            });
+        }
+    }
+
+    // ── Code fences ───────────────────────────────────────────────────────────
+    for fence in &note.code_fences {
+        ranges.push(FoldingRange {
+            start_line: fence.start_line,
+            end_line: fence.end_line,
+            kind: Some(FoldingRangeKind::Region),
+            ..Default::default()
+        });
+    }
+
+    ranges
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
@@ -3391,5 +3454,110 @@ mod tests {
         // tag trigger fires first; results are VALUE items from the tag list
         assert!(items.iter().any(|i| i.label == "rust"));
         assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+    }
+
+    // ── handle_folding_ranges ─────────────────────────────────────────────────
+
+    fn make_folding_params(path: &str) -> FoldingRangeParams {
+        FoldingRangeParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    }
+
+    #[test]
+    fn folding_h2_section_spans_to_next_h2() {
+        // Line 0: ## First
+        // Line 1: content
+        // Line 2: ## Second
+        // Line 3: content
+        let content = "## First\ncontent\n## Second\ncontent\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_folding_params("/vault/a.md");
+        let ranges = handle_folding_ranges(params, &idx);
+        // First H2 (line 0) should end at line 1 (line before next H2 at line 2)
+        let first = ranges.iter().find(|r| r.start_line == 0).expect("range for first H2");
+        assert_eq!(first.end_line, 1);
+        assert_eq!(first.kind, Some(FoldingRangeKind::Region));
+    }
+
+    #[test]
+    fn folding_nested_h3_ends_before_parent() {
+        // Line 0: ## Parent
+        // Line 1: content
+        // Line 2: ### Child
+        // Line 3: child content
+        // Line 4: ## Sibling
+        let content = "## Parent\ncontent\n### Child\nchild content\n## Sibling\nend\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_folding_params("/vault/a.md");
+        let ranges = handle_folding_ranges(params, &idx);
+        // H3 at line 2 ends at line 3 (line before ## Sibling at line 4)
+        let h3 = ranges.iter().find(|r| r.start_line == 2).expect("range for H3");
+        assert_eq!(h3.end_line, 3);
+    }
+
+    #[test]
+    fn folding_last_heading_spans_to_doc_end() {
+        // Line 0: ## Only Heading
+        // Line 1: content
+        // Line 2: more content
+        let content = "## Only Heading\ncontent\nmore content\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_folding_params("/vault/a.md");
+        let ranges = handle_folding_ranges(params, &idx);
+        assert_eq!(ranges.len(), 1);
+        // last non-empty line is line 2
+        assert_eq!(ranges[0].end_line, 2);
+    }
+
+    #[test]
+    fn folding_single_line_section_omitted() {
+        // Line 0: ## Heading
+        // Line 1: ## Immediately next heading (so end == start for first heading)
+        let content = "## Heading\n## Next\ncontent\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_folding_params("/vault/a.md");
+        let ranges = handle_folding_ranges(params, &idx);
+        // First H2 at line 0: next H2 at line 1, so end = line 1 - 1 = 0 == start → skip
+        assert!(!ranges.iter().any(|r| r.start_line == 0 && r.end_line == 0));
+    }
+
+    #[test]
+    fn folding_code_fence_emitted() {
+        // Line 0: # Title
+        // Line 1: ```rust
+        // Line 2: let x = 1;
+        // Line 3: ```
+        let content = "# Title\n```rust\nlet x = 1;\n```\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_folding_params("/vault/a.md");
+        let ranges = handle_folding_ranges(params, &idx);
+        let fence = ranges.iter().find(|r| r.start_line == 1).expect("code fence range");
+        assert_eq!(fence.end_line, 3);
+        assert_eq!(fence.kind, Some(FoldingRangeKind::Region));
+    }
+
+    #[test]
+    fn folding_no_headings_returns_fences_only() {
+        // No headings, just a code fence
+        // Line 0: ```
+        // Line 1: code
+        // Line 2: ```
+        let content = "```\ncode\n```\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_folding_params("/vault/a.md");
+        let ranges = handle_folding_ranges(params, &idx);
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(ranges[0].start_line, 0);
+        assert_eq!(ranges[0].end_line, 2);
+        assert_eq!(ranges[0].kind, Some(FoldingRangeKind::Region));
     }
 }
