@@ -33,7 +33,7 @@ fn slug(text: &str) -> String {
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
 /// Compute LSP diagnostics for `path` against the current index state.
-pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, _config: &crate::server::Config) -> Vec<Diagnostic> {
+pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate::server::Config) -> Vec<Diagnostic> {
     let Some(note) = index.get_note(path) else {
         return vec![];
     };
@@ -90,6 +90,81 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, _config: &crat
                             source: Some("knap".to_string()),
                             ..Default::default()
                         });
+                    }
+                }
+            }
+        }
+    }
+
+    let schema = &config.frontmatter_schema;
+    if !schema.fields.is_empty() || schema.require_frontmatter || schema.warn_unknown_keys {
+        let zero = Range {
+            start: Position { line: 0, character: 0 },
+            end: Position { line: 0, character: 0 },
+        };
+        match &note.frontmatter {
+            None => {
+                if schema.require_frontmatter {
+                    for (key, sf) in &schema.fields {
+                        if sf.required {
+                            diagnostics.push(Diagnostic {
+                                range: zero,
+                                severity: Some(DiagnosticSeverity::WARNING),
+                                message: format!("Required frontmatter key missing: '{key}'"),
+                                source: Some("knap".to_string()),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
+            }
+            Some(fm) => {
+                for (key, sf) in &schema.fields {
+                    if sf.required
+                        && !fm.fields.iter().any(|f| f.key.eq_ignore_ascii_case(key))
+                    {
+                        diagnostics.push(Diagnostic {
+                            range: zero,
+                            severity: Some(DiagnosticSeverity::WARNING),
+                            message: format!("Required frontmatter key missing: '{key}'"),
+                            source: Some("knap".to_string()),
+                            ..Default::default()
+                        });
+                    }
+                }
+                for field in &fm.fields {
+                    match schema.fields.iter().find(|(k, _)| k.eq_ignore_ascii_case(&field.key)) {
+                        Some((_, sf)) => {
+                            if let (Some(allowed), Some(value), Some(value_range)) =
+                                (&sf.values, &field.value, field.value_range)
+                                && !allowed.iter().any(|v| v == value)
+                            {
+                                diagnostics.push(Diagnostic {
+                                    range: value_range,
+                                    severity: Some(DiagnosticSeverity::WARNING),
+                                    message: format!(
+                                        "Value '{value}' is not in the allowed list for '{}'",
+                                        field.key
+                                    ),
+                                    source: Some("knap".to_string()),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                        None => {
+                            if schema.warn_unknown_keys {
+                                diagnostics.push(Diagnostic {
+                                    range: field.key_range,
+                                    severity: Some(DiagnosticSeverity::WARNING),
+                                    message: format!(
+                                        "Unknown frontmatter key: '{}'",
+                                        field.key
+                                    ),
+                                    source: Some("knap".to_string()),
+                                    ..Default::default()
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -3080,6 +3155,159 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 1, 3);
         let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(items.is_empty());
+    }
+
+    // ── Step 5: schema diagnostics ───────────────────────────────────────────
+
+    fn make_schema_with_required(key: &str, values: Option<Vec<&str>>) -> crate::server::Config {
+        crate::server::Config {
+            frontmatter_schema: crate::server::FrontmatterSchema {
+                fields: vec![(
+                    key.to_string(),
+                    crate::server::SchemaField {
+                        values: values.map(|v| v.into_iter().map(String::from).collect()),
+                        required: true,
+                    },
+                )],
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn schema_diag_required_key_absent() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\ntitle: x\n---\n"));
+        let config = make_schema_with_required("status", None);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("status"), "message: {}", diags[0].message);
+        assert_eq!(diags[0].range.start, Position { line: 0, character: 0 });
+    }
+
+    #[test]
+    fn schema_diag_required_key_present_no_warning() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nstatus: draft\n---\n"));
+        let config = make_schema_with_required("status", None);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn schema_diag_value_match_is_exact_case() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nstatus: Draft\n---\n"));
+        let config = make_schema_config(vec![("status", Some(vec!["draft", "published"]))]);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert_eq!(diags.len(), 1, "case mismatch should produce a warning");
+        assert!(diags[0].message.contains("Draft"), "message: {}", diags[0].message);
+    }
+
+    #[test]
+    fn schema_diag_exact_value_match_no_warning() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nstatus: draft\n---\n"));
+        let config = make_schema_config(vec![("status", Some(vec!["draft", "published"]))]);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn schema_diag_no_frontmatter_require_off_no_warning() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "no frontmatter here\n"));
+        let config = make_schema_with_required("status", None);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert!(diags.is_empty(), "require_frontmatter=false should not warn when frontmatter absent");
+    }
+
+    #[test]
+    fn schema_diag_no_frontmatter_require_on_warns() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "no frontmatter here\n"));
+        let config = crate::server::Config {
+            frontmatter_schema: crate::server::FrontmatterSchema {
+                fields: vec![(
+                    "status".to_string(),
+                    crate::server::SchemaField { values: None, required: true },
+                )],
+                require_frontmatter: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("status"), "message: {}", diags[0].message);
+        assert_eq!(diags[0].range.start, Position { line: 0, character: 0 });
+    }
+
+    #[test]
+    fn schema_diag_unknown_key_warn_off_no_diagnostic() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nfoobar: x\n---\n"));
+        let config = make_schema_config(vec![("status", None)]);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert!(diags.is_empty(), "warn_unknown_keys=false should not warn");
+    }
+
+    #[test]
+    fn schema_diag_unknown_key_warn_on_warns() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nfoobar: x\n---\n"));
+        let config = crate::server::Config {
+            frontmatter_schema: crate::server::FrontmatterSchema {
+                fields: vec![("status".to_string(), crate::server::SchemaField { values: None, required: false })],
+                warn_unknown_keys: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].message.contains("foobar"), "message: {}", diags[0].message);
+    }
+
+    #[test]
+    fn schema_diag_complex_value_skipped() {
+        let mut idx = NoteIndex::default();
+        // Inline list → parser stores value=None; enum check must be skipped.
+        idx.seed(note("/vault/a.md", "---\nstatus: [a, b]\n---\n"));
+        let config = make_schema_config(vec![("status", Some(vec!["draft", "published"]))]);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert!(diags.is_empty(), "complex (list) value should not trigger enum diagnostic");
+    }
+
+    #[test]
+    fn schema_diag_key_match_is_case_insensitive() {
+        let mut idx = NoteIndex::default();
+        // Schema key is "Status" (capital); note field key is "status" (lowercase).
+        idx.seed(note("/vault/a.md", "---\nstatus: draft\n---\n"));
+        let config = crate::server::Config {
+            frontmatter_schema: crate::server::FrontmatterSchema {
+                fields: vec![(
+                    "Status".to_string(),
+                    crate::server::SchemaField {
+                        values: Some(vec!["draft".to_string(), "published".to_string()]),
+                        required: false,
+                    },
+                )],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert!(diags.is_empty(), "key lookup must be case-insensitive");
+    }
+
+    #[test]
+    fn schema_empty_no_diagnostics() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\narbitrary: value\nother: thing\n---\n"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
+        assert!(diags.is_empty(), "empty schema should produce no diagnostics");
     }
 
     // ── Step 4: schema value completions ──────────────────────────────────────
