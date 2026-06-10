@@ -306,6 +306,101 @@ fn relative_path(from_dir: &Path, to: &Path) -> String {
     result.to_string_lossy().into_owned()
 }
 
+/// Returns `Some((key, partial, replace_range))` when the cursor is inside a
+/// frontmatter value position (after the `:` on a key-value line).
+/// Returns `None` for the `tags:` key (handled by `check_tag_trigger`),
+/// for complex values (inline list, block scalar), or outside the frontmatter block.
+#[allow(dead_code)]
+fn check_frontmatter_value_trigger(content: &str, pos: Position) -> Option<(String, String, Range)> {
+    let lines: Vec<&str> = content.lines().collect();
+
+    if lines.first().copied() != Some("---") {
+        return None;
+    }
+    let closing_line = lines[1..].iter().position(|l| l.trim() == "---")? + 1;
+    if pos.line == 0 || pos.line as usize >= closing_line {
+        return None;
+    }
+
+    let line = lines[pos.line as usize];
+    let cursor_byte = utf16_to_byte_offset(line, pos.character);
+    let colon_byte = line.find(':')?;
+    if cursor_byte <= colon_byte {
+        return None;
+    }
+
+    let key = line[..colon_byte].trim().to_string();
+    if key.is_empty() || key.starts_with('#') {
+        return None;
+    }
+    if line.starts_with("tags:") {
+        return None;
+    }
+
+    let after_colon = &line[colon_byte + 1..];
+    let trimmed_value = after_colon.trim_start();
+    if trimmed_value.starts_with('[') || trimmed_value.starts_with('|') || trimmed_value.starts_with('>') {
+        return None;
+    }
+
+    let ws = after_colon.len() - after_colon.trim_start().len();
+    let value_start = colon_byte + 1 + ws;
+    let partial = if cursor_byte >= value_start {
+        line[value_start..cursor_byte].to_string()
+    } else {
+        String::new()
+    };
+
+    let start_char = byte_to_utf16_offset(line, value_start);
+    let replace_range = Range {
+        start: Position { line: pos.line, character: start_char },
+        end: pos,
+    };
+    Some((key, partial, replace_range))
+}
+
+/// Returns `Some((partial, replace_range))` when the cursor is inside a
+/// frontmatter key position (before or on the `:` of a key-value line, or on
+/// a blank frontmatter line). Returns `None` for list items, comment lines,
+/// value positions, or outside the frontmatter block.
+#[allow(dead_code)]
+fn check_frontmatter_key_trigger(content: &str, pos: Position) -> Option<(String, Range)> {
+    let lines: Vec<&str> = content.lines().collect();
+
+    if lines.first().copied() != Some("---") {
+        return None;
+    }
+    let closing_line = lines[1..].iter().position(|l| l.trim() == "---")? + 1;
+    if pos.line == 0 || pos.line as usize >= closing_line {
+        return None;
+    }
+
+    let line = lines[pos.line as usize];
+    let cursor_byte = utf16_to_byte_offset(line, pos.character);
+    let trimmed = line.trim_start();
+    if trimmed.starts_with('-') || trimmed.starts_with('#') {
+        return None;
+    }
+    if let Some(colon_byte) = line.find(':')
+        && cursor_byte > colon_byte
+    {
+        return None;
+    }
+
+    let leading_ws = line.len() - trimmed.len();
+    let partial = if cursor_byte >= leading_ws {
+        line[leading_ws..cursor_byte].to_string()
+    } else {
+        String::new()
+    };
+    let start_char = byte_to_utf16_offset(line, leading_ws);
+    let replace_range = Range {
+        start: Position { line: pos.line, character: start_char },
+        end: pos,
+    };
+    Some((partial, replace_range))
+}
+
 fn heading_completion_item(h: &parser::Heading) -> CompletionItem {
     let s = slug(&h.text);
     CompletionItem {
@@ -2731,5 +2826,121 @@ mod tests {
         let params = make_references_params("/vault/a.md", 0, 3);
         let locs = handle_references(params, &idx);
         assert!(locs.is_empty());
+    }
+
+    // ── check_frontmatter_value_trigger ───────────────────────────────────────
+
+    #[test]
+    fn check_frontmatter_value_trigger_basic() {
+        let content = "---\nstatus: dr\n---\n";
+        // "status: dr" — "dr" starts at byte 8, cursor after "dr" = character 10
+        let result = check_frontmatter_value_trigger(content, Position { line: 1, character: 10 });
+        assert!(result.is_some());
+        let (key, partial, _range) = result.unwrap();
+        assert_eq!(key, "status");
+        assert_eq!(partial, "dr");
+    }
+
+    #[test]
+    fn check_frontmatter_value_trigger_empty_partial() {
+        let content = "---\nstatus: \n---\n";
+        // "status: " — cursor right after the space, character 8
+        let result = check_frontmatter_value_trigger(content, Position { line: 1, character: 8 });
+        assert!(result.is_some());
+        let (key, partial, _range) = result.unwrap();
+        assert_eq!(key, "status");
+        assert_eq!(partial, "");
+    }
+
+    #[test]
+    fn check_frontmatter_value_trigger_before_colon() {
+        let content = "---\nstatus: draft\n---\n";
+        // cursor at character 3 — before the colon at position 6
+        let result = check_frontmatter_value_trigger(content, Position { line: 1, character: 3 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn check_frontmatter_value_trigger_no_frontmatter() {
+        let content = "status: draft\n";
+        let result = check_frontmatter_value_trigger(content, Position { line: 0, character: 13 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn check_frontmatter_value_trigger_outside_block() {
+        let content = "---\nstatus: ok\n---\nstatus: draft\n";
+        // cursor on line 3, which is after the closing ---
+        let result = check_frontmatter_value_trigger(content, Position { line: 3, character: 13 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn check_frontmatter_value_trigger_tags_key() {
+        let content = "---\ntags: \n---\n";
+        // cursor at character 6, after "tags: "
+        let result = check_frontmatter_value_trigger(content, Position { line: 1, character: 6 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn check_frontmatter_value_trigger_inline_list() {
+        let content = "---\nstatus: [a, b]\n---\n";
+        // cursor inside the brackets at character 12
+        let result = check_frontmatter_value_trigger(content, Position { line: 1, character: 12 });
+        assert!(result.is_none());
+    }
+
+    // ── check_frontmatter_key_trigger ─────────────────────────────────────────
+
+    #[test]
+    fn check_frontmatter_key_trigger_basic() {
+        let content = "---\nstat\n---\n";
+        // cursor after "stat" at character 4
+        let result = check_frontmatter_key_trigger(content, Position { line: 1, character: 4 });
+        assert!(result.is_some());
+        let (partial, _range) = result.unwrap();
+        assert_eq!(partial, "stat");
+    }
+
+    #[test]
+    fn check_frontmatter_key_trigger_blank_line() {
+        let content = "---\n\n---\n";
+        // cursor at line 1, character 0
+        let result = check_frontmatter_key_trigger(content, Position { line: 1, character: 0 });
+        assert!(result.is_some());
+        let (partial, _range) = result.unwrap();
+        assert_eq!(partial, "");
+    }
+
+    #[test]
+    fn check_frontmatter_key_trigger_on_list_item() {
+        let content = "---\n  - foo\n---\n";
+        // cursor on list item at character 6
+        let result = check_frontmatter_key_trigger(content, Position { line: 1, character: 6 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn check_frontmatter_key_trigger_in_value() {
+        let content = "---\nstatus: dr\n---\n";
+        // cursor after ": " on "status: dr" at character 10
+        let result = check_frontmatter_key_trigger(content, Position { line: 1, character: 10 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn check_frontmatter_key_trigger_no_frontmatter() {
+        let content = "stat\n";
+        let result = check_frontmatter_key_trigger(content, Position { line: 0, character: 4 });
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn check_frontmatter_key_trigger_on_closing_delimiter() {
+        let content = "---\nstatus: draft\n---\n";
+        // cursor on the closing --- line (line 2)
+        let result = check_frontmatter_key_trigger(content, Position { line: 2, character: 0 });
+        assert!(result.is_none());
     }
 }

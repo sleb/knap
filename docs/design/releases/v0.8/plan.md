@@ -15,7 +15,7 @@ untested code for the next step to build on.
 | -------------------------------------------- | ------ | ----- |
 | 1 — Config: FrontmatterSchema type + parsing | Done   |       |
 | 2 — Handler signatures: add config param     | Done   |       |
-| 3 — Trigger functions                        | Todo   |       |
+| 3 — Trigger functions                        | Done   |       |
 | 4 — Schema completions                       | Todo   |       |
 | 5 — Schema diagnostics                       | Todo   |       |
 | 6 — Integration tests                        | Todo   |       |
