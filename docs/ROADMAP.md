@@ -3,6 +3,26 @@
 Each release is designed to be independently useful. A writer should get value
 from v0.1 alone and accumulate more with each release.
 
+| Version                                                                   | Title                                | Status              |
+| ------------------------------------------------------------------------- | ------------------------------------ | ------------------- |
+| [v0.1](#v01--mvp-navigate-your-workspace-released-2026-05-09)             | MVP: Navigate your workspace         | Released 2026-05-09 |
+| [v0.2](#v02--rename--refactor-released-2026-05-10)                        | Rename & Refactor                    | Released 2026-05-10 |
+| [v0.3](#v03--heading-navigation--anchors-released-2026-05-16)             | Heading Navigation & Anchors         | Released 2026-05-16 |
+| [v0.3.1](#v031--smarter-path-completion-released-2026-05-16)              | Smarter Path Completion              | Released 2026-05-16 |
+| [v0.3.2](#v032--global-jump-in-completions-released-2026-05-17)           | Global Jump in Completions           | Released 2026-05-17 |
+| [v0.3.3](#v033--rename-for-unindexed-files-released-2026-05-18)           | Rename for Unindexed Files           | Released 2026-05-18 |
+| [v0.3.4](#v034--rename-dialog-for-formatted-headings-released-2026-05-18) | Rename Dialog for Formatted Headings | Released 2026-05-18 |
+| [v0.3.5](#v035--lsp-range-correctness-released-2026-05-18)                | LSP Range Correctness                | Released 2026-05-18 |
+| [v0.4](#v04--code-actions-released-2026-05-21)                            | Code Actions                         | Released 2026-05-21 |
+| [v0.5](#v05--tags-released-2026-06-06)                                    | Tags                                 | Released 2026-06-06 |
+| [v0.6](#v06--backlinks-released-2026-06-08)                               | Backlinks                            | Released 2026-06-08 |
+| [v0.7](#v07--same-file-anchor-links-released-2026-06-08)                  | Same-file Anchor Links               | Released 2026-06-08 |
+| [v0.8](#v08--frontmatter-schema)                                          | Frontmatter Schema                   | Planned             |
+| [v0.9](#v09--editor-experience)                                           | Editor Experience                    | Planned             |
+| [v0.10](#v010--tag-rename)                                                | Tag Rename                           | Planned             |
+| [v0.11](#v011--extract-to-new-note)                                       | Extract to New Note                  | Planned             |
+| [v0.12](#v012--daily-notes)                                               | Daily Notes                          | Planned             |
+
 ---
 
 ## v0.1 — MVP: Navigate your workspace _(released 2026-05-09)_
@@ -148,11 +168,11 @@ for headings with multi-byte characters (em dash) or trailing inline markup.
 
 **Goal:** Explore and maintain your topic taxonomy via frontmatter tags.
 
-| Story | Feature                                                                              |
-| ----- | ------------------------------------------------------------------------------------ |
-| US-14 | Frontmatter `tags:` completions from the workspace tag index                         |
-| US-15 | Find References on a tag value → all files using it                                  |
-| US-13 | Go to Definition on a tag value → all files using it                                 |
+| Story                                         | Feature                                                               |
+| --------------------------------------------- | --------------------------------------------------------------------- |
+| US-14                                         | Frontmatter `tags:` completions from the workspace tag index          |
+| US-15                                         | Find References on a tag value → all files using it                   |
+| US-13                                         | Go to Definition on a tag value → all files using it                  |
 | [#50](https://github.com/sleb/knap/issues/50) | Workspace Symbols include tags (`SymbolKind::KEY`) alongside headings |
 
 **LSP capabilities delivered:** `textDocument/completion` (frontmatter),
@@ -216,13 +236,13 @@ features to bare `#slug` links that target a heading in the same file.
 
 **Goal:** Editors treat Markdown as a first-class language with rich visual feedback.
 
-| Story | Feature                                                                                                          |
-| ----- | ---------------------------------------------------------------------------------------------------------------- |
-| US-35 | Semantic tokens — tags styled as a distinct token type                                                           |
-| US-36 | Folding ranges — collapse heading sections and fenced blocks                                                     |
-| US-52 | Selection range — smart expand/contract: word → link → paragraph → heading section → document                   |
-| US-53 | Inlay hints — show the `title:` frontmatter of a linked note inline next to its path                            |
-| US-54 | Code lens on headings — `↑ N anchor links` on headings that are the target of one or more `#slug` links         |
+| Story | Feature                                                                                                 |
+| ----- | ------------------------------------------------------------------------------------------------------- |
+| US-35 | Semantic tokens — tags styled as a distinct token type                                                  |
+| US-36 | Folding ranges — collapse heading sections and fenced blocks                                            |
+| US-52 | Selection range — smart expand/contract: word → link → paragraph → heading section → document           |
+| US-53 | Inlay hints — show the `title:` frontmatter of a linked note inline next to its path                    |
+| US-54 | Code lens on headings — `↑ N anchor links` on headings that are the target of one or more `#slug` links |
 
 **LSP capabilities delivered:** `textDocument/semanticTokens`,
 `textDocument/foldingRange`, `textDocument/selectionRange`,
@@ -234,9 +254,9 @@ features to bare `#slug` links that target a heading in the same file.
 
 **Goal:** Rename a tag across the entire workspace without a find-and-replace.
 
-| Story | Feature                                                                           |
-| ----- | --------------------------------------------------------------------------------- |
-| US-37 | Rename tag — update all frontmatter occurrences across the workspace atomically   |
+| Story | Feature                                                                         |
+| ----- | ------------------------------------------------------------------------------- |
+| US-37 | Rename tag — update all frontmatter occurrences across the workspace atomically |
 
 **LSP capabilities delivered:** `textDocument/rename` (tags),
 `textDocument/prepareRename` (tags)
