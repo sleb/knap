@@ -218,7 +218,7 @@ pub fn run(connection: Connection) -> Result<()> {
     let exts: Vec<&str> = config.extensions.iter().map(|s| s.as_str()).collect();
     let (mut index, initial_delta) = index::build(&config.index_roots, &exts);
     info!("index ready: {} notes", index.all_notes().count());
-    handlers::publish_diagnostics(&initial_delta.affected_paths, &index, &connection.sender);
+    handlers::publish_diagnostics(&initial_delta.affected_paths, &index, &config, &connection.sender);
 
     for msg in &connection.receiver {
         match msg {
@@ -232,7 +232,7 @@ pub fn run(connection: Connection) -> Result<()> {
             }
             Message::Notification(notif) => {
                 debug!("notification: method={}", notif.method);
-                dispatch_notification(notif, &mut index, &connection.sender, &config.extensions);
+                dispatch_notification(notif, &mut index, &connection.sender, &config);
             }
             Message::Response(_) => {
                 // Responses to our outbound requests (e.g. registerCapability) — ignored.
@@ -311,7 +311,7 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex, co
         "textDocument/completion" => {
             let items = serde_json::from_value::<CompletionParams>(req.params)
                 .ok()
-                .map(|params| handlers::handle_completion(params, index));
+                .map(|params| handlers::handle_completion(params, index, config));
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, items)))?;
@@ -387,20 +387,20 @@ fn dispatch_notification(
     notif: Notification,
     index: &mut NoteIndex,
     sender: &Sender<Message>,
-    extensions: &[String],
+    config: &Config,
 ) {
     match notif.method.as_str() {
-        "textDocument/didOpen" => on_did_open(notif, index, sender),
-        "textDocument/didChange" => on_did_change(notif, index, sender),
+        "textDocument/didOpen" => on_did_open(notif, index, sender, config),
+        "textDocument/didChange" => on_did_change(notif, index, sender, config),
         "textDocument/didClose" => {} // no-op: on-disk version already indexed
         "workspace/didChangeWatchedFiles" => {
-            on_did_change_watched_files(notif, index, sender, extensions)
+            on_did_change_watched_files(notif, index, sender, config)
         }
         _ => {}
     }
 }
 
-fn on_did_open(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>) {
+fn on_did_open(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>, config: &Config) {
     let params: DidOpenTextDocumentParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -411,10 +411,10 @@ fn on_did_open(notif: Notification, index: &mut NoteIndex, sender: &Sender<Messa
     let Some(path) = uri_to_path(&params.text_document.uri) else { return; };
     let note = parser::parse(&path, &params.text_document.text);
     let delta = index.index(note);
-    handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+    handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
 }
 
-fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>) {
+fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>, config: &Config) {
     let params: DidChangeTextDocumentParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -436,7 +436,7 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
     let Some(path) = uri_to_path(&params.text_document.uri) else { return; };
     let note = parser::parse(&path, &content);
     let delta = index.index(note);
-    handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+    handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
 }
 
 fn should_skip_path(path: &std::path::Path) -> bool {
@@ -450,8 +450,9 @@ fn on_did_change_watched_files(
     notif: Notification,
     index: &mut NoteIndex,
     sender: &Sender<Message>,
-    extensions: &[String],
+    config: &Config,
 ) {
+    let extensions = &config.extensions;
     let params: DidChangeWatchedFilesParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -475,7 +476,7 @@ fn on_did_change_watched_files(
                 match std::fs::read_to_string(&path) {
                     Ok(content) => {
                         let delta = index.index(parser::parse(&path, &content));
-                        handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+                        handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
                     }
                     Err(e) => {
                         warn!("cannot read {}: {e}", path.display());
@@ -483,16 +484,16 @@ fn on_did_change_watched_files(
                 }
             } else if event.typ == FileChangeType::DELETED {
                 let delta = index.remove(&path);
-                handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+                handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
             }
         } else {
             // Non-note file (attachment): update all_files only.
             if event.typ == FileChangeType::CREATED {
                 let delta = index.add_attachment(path);
-                handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+                handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
             } else if event.typ == FileChangeType::DELETED {
                 let delta = index.remove_attachment(&path);
-                handlers::publish_diagnostics(&delta.affected_paths, index, sender);
+                handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
             }
             // Changed → no-op for attachments
         }

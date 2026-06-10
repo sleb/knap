@@ -33,7 +33,7 @@ fn slug(text: &str) -> String {
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
 /// Compute LSP diagnostics for `path` against the current index state.
-pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic> {
+pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, _config: &crate::server::Config) -> Vec<Diagnostic> {
     let Some(note) = index.get_note(path) else {
         return vec![];
     };
@@ -100,9 +100,9 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnos
 }
 
 /// Publish `textDocument/publishDiagnostics` notifications for every path in `paths`.
-pub(crate) fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, sender: &Sender<Message>) {
+pub(crate) fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, config: &crate::server::Config, sender: &Sender<Message>) {
     for path in paths {
-        let diagnostics = compute_diagnostics(path, index);
+        let diagnostics = compute_diagnostics(path, index, config);
         let params = PublishDiagnosticsParams {
             uri: path_to_uri(path),
             diagnostics,
@@ -319,7 +319,7 @@ fn heading_completion_item(h: &parser::Heading) -> CompletionItem {
 }
 
 /// Handle `textDocument/completion`: link paths, anchors, and tag values.
-pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex) -> Vec<CompletionItem> {
+pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, _config: &crate::server::Config) -> Vec<CompletionItem> {
     let pos = params.text_document_position.position;
     let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
         return vec![];
@@ -1131,7 +1131,7 @@ mod tests {
     fn diagnostics_broken_link() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "[text](missing.md)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("missing.md"));
     }
@@ -1141,7 +1141,7 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/b.md", ""));
         idx.seed(note("/vault/a.md", "[text](b.md)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
         assert!(diags.is_empty());
     }
 
@@ -1150,7 +1150,7 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/b.md", "## Existing\n"));
         idx.seed(note("/vault/a.md", "[text](b.md#Missing)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("Missing"));
     }
@@ -1160,7 +1160,7 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/b.md", "## Existing\n"));
         idx.seed(note("/vault/a.md", "[text](b.md#Existing)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
         assert!(diags.is_empty());
     }
 
@@ -1168,7 +1168,7 @@ mod tests {
     fn diagnostics_anchor_only_skipped() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "[text](#)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
         assert!(diags.is_empty(), "empty anchor slug should not produce diagnostics");
     }
 
@@ -1176,7 +1176,7 @@ mod tests {
     fn diagnostics_external_url_with_anchor_no_warning() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "[text](https://example.com/page#section)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
         assert!(diags.is_empty(), "external URLs with # fragments should not produce diagnostics");
     }
 
@@ -1187,7 +1187,7 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "hello world"));
         let params = make_completion_params("/vault/a.md", 0, 5);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(items.is_empty());
     }
 
@@ -1205,7 +1205,7 @@ mod tests {
         // "[link](" → cursor at position 7 (after the `(`)
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(!items.is_empty());
         // b.md is a sibling — appears as a FILE item via text_edit
         assert!(items.iter().any(|i| text_edit_new_text(i) == Some("b.md")));
@@ -1217,7 +1217,7 @@ mod tests {
         idx.seed(note("/vault/sub/b.md", ""));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         // sub/ appears as a FOLDER item for drilling in
         assert!(items.iter().any(|i| {
             i.kind == Some(CompletionItemKind::FOLDER) && i.label == "sub/"
@@ -1232,7 +1232,7 @@ mod tests {
         idx.seed(note("/vault/b.md", "---\ntitle: My Note\n---\n"));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         // b.md is a sibling — appears with title as label, filename as filter_text
         let item = items.iter().find(|i| text_edit_new_text(i) == Some("b.md")).unwrap();
         assert_eq!(item.label, "My Note");
@@ -1245,7 +1245,7 @@ mod tests {
         let _ = idx.add_attachment(std::path::PathBuf::from("/vault/img.png"));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         // img.png is a sibling attachment — appears as a FILE item
         assert!(items.iter().any(|i| text_edit_new_text(i) == Some("img.png")));
     }
@@ -1257,7 +1257,7 @@ mod tests {
         let _ = idx.add_attachment(std::path::PathBuf::from("/vault/report.pdf"));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         let item = items
             .iter()
             .find(|i| text_edit_new_text(i) == Some("report.pdf"))
@@ -1972,7 +1972,7 @@ mod tests {
         // "[link](b.md#" — cursor at character 12 (right after `#`)
         idx.seed(note("/vault/a.md", "[link](b.md#"));
         let params = make_completion_params("/vault/a.md", 0, 12);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(!items.is_empty(), "should return heading completions");
         assert_eq!(items.len(), 2);
     }
@@ -1983,7 +1983,7 @@ mod tests {
         idx.seed(note("/vault/b.md", "## My Section\n"));
         idx.seed(note("/vault/a.md", "[link](b.md#"));
         let params = make_completion_params("/vault/a.md", 0, 12);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert_eq!(items[0].label, "My Section");
     }
 
@@ -1993,7 +1993,7 @@ mod tests {
         idx.seed(note("/vault/b.md", "## My Section\n"));
         idx.seed(note("/vault/a.md", "[link](b.md#"));
         let params = make_completion_params("/vault/a.md", 0, 12);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert_eq!(items[0].insert_text.as_deref(), Some("my-section"));
         assert_eq!(items[0].detail.as_deref(), Some("#my-section"));
         assert_eq!(items[0].filter_text.as_deref(), Some("My Section"));
@@ -2005,7 +2005,7 @@ mod tests {
         // "[link](missing.md#" — cursor at character 18
         idx.seed(note("/vault/a.md", "[link](missing.md#"));
         let params = make_completion_params("/vault/a.md", 0, 18);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(items.is_empty(), "unresolvable path should yield no completions");
     }
 
@@ -2015,7 +2015,7 @@ mod tests {
         idx.seed(note("/vault/b.md", "no headings here"));
         idx.seed(note("/vault/a.md", "[link](b.md#"));
         let params = make_completion_params("/vault/a.md", 0, 12);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(items.is_empty(), "file with no headings should yield no completions");
     }
 
@@ -2027,7 +2027,7 @@ mod tests {
         idx.seed(note("/vault/a.md", "some text # not a trigger"));
         // cursor at character 11, right after `#`
         let params = make_completion_params("/vault/a.md", 0, 11);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(items.is_empty(), "hash in prose should not trigger anchor completion");
     }
 
@@ -2069,7 +2069,7 @@ mod tests {
         idx.seed(note("/vault/b.md", ""));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(
             items.iter().any(|i| {
                 i.kind == Some(CompletionItemKind::FILE) && text_edit_new_text(i) == Some("b.md")
@@ -2084,7 +2084,7 @@ mod tests {
         idx.seed(note("/vault/subdir/c.md", ""));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(
             items.iter().any(|i| {
                 i.kind == Some(CompletionItemKind::FOLDER) && i.label == "subdir/"
@@ -2098,7 +2098,7 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(items.is_empty(), "current note must not appear in its own completions");
     }
 
@@ -2108,7 +2108,7 @@ mod tests {
         idx.seed(note("/vault/b.md", ""));
         idx.seed(note("/vault/sub/a.md", "[link]("));
         let params = make_completion_params("/vault/sub/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(
             items.iter().any(|i| {
                 i.kind == Some(CompletionItemKind::FOLDER)
@@ -2125,7 +2125,7 @@ mod tests {
         // content has the partial path already typed
         idx.seed(note("/vault/a.md", "[link](subdir/"));
         let params = make_completion_params("/vault/a.md", 0, 14);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(
             items.iter().any(|i| {
                 i.kind == Some(CompletionItemKind::FILE)
@@ -2142,7 +2142,7 @@ mod tests {
         idx.seed(note("/vault/subdir/b.md", ""));
         idx.seed(note("/vault/a.md", "[link](subdir/"));
         let params = make_completion_params("/vault/a.md", 0, 14);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         let item = items
             .iter()
             .find(|i| text_edit_new_text(i) == Some("subdir/b.md"))
@@ -2163,7 +2163,7 @@ mod tests {
         idx.seed(note("/vault/b.md", "---\ntitle: My Note\n---\n"));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         let item = items
             .iter()
             .find(|i| text_edit_new_text(i) == Some("b.md"))
@@ -2179,7 +2179,7 @@ mod tests {
         let _ = idx.add_attachment(std::path::PathBuf::from("/vault/img.png"));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         let item = items
             .iter()
             .find(|i| text_edit_new_text(i) == Some("img.png"))
@@ -2302,7 +2302,7 @@ mod tests {
         // cursor is in a.md at `tags: ` position
         idx.seed(note("/vault/a.md", "---\ntags: \n---\n"));
         let params = make_completion_params("/vault/a.md", 1, 6);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(items.iter().any(|i| i.label == "rust"));
     }
 
@@ -2313,7 +2313,7 @@ mod tests {
         // a.md already has "rust" — should not appear again
         idx.seed(note("/vault/a.md", "---\ntags: [rust, \n---\n"));
         let params = make_completion_params("/vault/a.md", 1, 15);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(!items.iter().any(|i| i.label == "rust"), "rust already used, must be excluded");
         assert!(items.iter().any(|i| i.label == "web"), "web should appear");
     }
@@ -2325,7 +2325,7 @@ mod tests {
         // cursor in a.md after "re" — only "review" should match
         idx.seed(note("/vault/a.md", "---\ntags: re\n---\n"));
         let params = make_completion_params("/vault/a.md", 1, 8);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].label, "review");
     }
@@ -2336,7 +2336,7 @@ mod tests {
         idx.seed(note("/vault/b.md", "---\ntags: rust\n---\n"));
         idx.seed(note("/vault/a.md", "---\ntags: \n---\n"));
         let params = make_completion_params("/vault/a.md", 1, 6);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
     }
 
@@ -2347,7 +2347,7 @@ mod tests {
         // a.md has "ru" typed — replace range should cover "ru"
         idx.seed(note("/vault/a.md", "---\ntags: ru\n---\n"));
         let params = make_completion_params("/vault/a.md", 1, 8);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         let item = items.iter().find(|i| i.label == "rust").unwrap();
         let edit = match item.text_edit.as_ref().unwrap() {
             CompletionTextEdit::Edit(te) => te,
@@ -2365,7 +2365,7 @@ mod tests {
         // tags: appears in the body, not frontmatter
         idx.seed(note("/vault/a.md", "prose\ntags: \n"));
         let params = make_completion_params("/vault/a.md", 1, 6);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         // Should return path-completion items (no trigger context), not tag items
         assert!(!items.iter().any(|i| i.kind == Some(CompletionItemKind::VALUE)));
     }
@@ -2377,7 +2377,7 @@ mod tests {
         idx.seed(note("/vault/a.md", "---\ntags:\n  - \n---\n"));
         // cursor after "  - " on line 2 (character 4)
         let params = make_completion_params("/vault/a.md", 2, 4);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(items.iter().any(|i| i.label == "rust"));
     }
 
@@ -2605,7 +2605,7 @@ mod tests {
         // line 0: "## Alpha", line 1: "## Beta", line 2: "", line 3: "[see](#"
         idx.seed(note("/vault/a.md", "## Alpha\n## Beta\n\n[see](#"));
         let params = make_completion_params("/vault/a.md", 3, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert_eq!(items.len(), 2);
         let slugs: Vec<_> = items.iter().filter_map(|i| i.insert_text.as_deref()).collect();
         assert!(slugs.contains(&"alpha"));
@@ -2617,7 +2617,7 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "no headings\n\n[see](#"));
         let params = make_completion_params("/vault/a.md", 2, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert!(items.is_empty());
     }
 
@@ -2627,7 +2627,7 @@ mod tests {
         idx.seed(note("/vault/b.md", "## Other Note Heading\n"));
         idx.seed(note("/vault/a.md", "## My Heading\n\n[see](#"));
         let params = make_completion_params("/vault/a.md", 2, 7);
-        let items = handle_completion(params, &idx);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].label, "My Heading");
     }
@@ -2661,7 +2661,7 @@ mod tests {
     fn diagnostics_bare_anchor_valid() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "## Existing\n\n[text](#existing)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
         assert!(diags.is_empty());
     }
 
@@ -2669,7 +2669,7 @@ mod tests {
     fn diagnostics_bare_anchor_broken() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "## Existing\n\n[text](#missing)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("#missing"));
     }
@@ -2678,7 +2678,7 @@ mod tests {
     fn diagnostics_bare_anchor_no_headings() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "[text](#anything)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
         assert_eq!(diags.len(), 1);
     }
 
@@ -2686,7 +2686,7 @@ mod tests {
     fn diagnostics_bare_anchor_empty_slug_no_diagnostic() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "[text](#)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::server::Config::default());
         assert!(diags.is_empty());
     }
 
