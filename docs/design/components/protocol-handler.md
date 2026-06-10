@@ -42,6 +42,8 @@ struct Config {
     extensions: Vec<String>,
     /// Inbox folder for Quick Fix "Create note"; relative to index_roots[0].
     new_note_dir: Option<String>,
+    /// Frontmatter key/value constraints. Default: empty (no validation).
+    frontmatter_schema: FrontmatterSchema,
 }
 ```
 

@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.7.0-blue)
+![Version](https://img.shields.io/badge/version-0.8.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -36,6 +36,16 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 - **Document Symbols** — outline of every heading in the current file, jumpable
   from your editor's symbol panel
 - **Workspace Symbols** — fuzzy-search headings across the entire vault
+
+### Frontmatter schema
+
+- **Key completions** — define allowed keys in `frontmatterSchema`; typing in
+  a frontmatter key position offers unused schema keys as `FIELD` items
+- **Value completions** — when a key has a `values` list, typing after the `:`
+  offers allowed values as `VALUE` items with prefix filtering
+- **Schema diagnostics** — warnings for required keys that are absent, values
+  outside the allowed list (exact-case), and unknown keys (opt-in via
+  `warnOnUnknownKeys`)
 
 ### Tags
 
@@ -78,8 +88,9 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 ### Workspace
 
 - Incremental index — stays live as files change, no restart needed
-- Configurable file extensions (e.g. `.md`, `.mdx`) and new-note inbox folder
-  (`newNoteDir`) via `initializationOptions`
+- Configurable file extensions (e.g. `.md`, `.mdx`), new-note inbox folder
+  (`newNoteDir`), and frontmatter schema (`frontmatterSchema`) via
+  `initializationOptions`
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 Dedicated extensions are available for [VS Code](https://github.com/sleb/vscode-knap) and [Zed](https://github.com/sleb/zed-knap).
@@ -96,7 +107,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.7.0 — Same-file Anchor Links. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.8.0 — Frontmatter Schema. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

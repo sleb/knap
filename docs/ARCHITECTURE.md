@@ -73,6 +73,7 @@ Config {
   index_roots: PathBuf[]       // workspace folders from the initialize request
   extensions: string[]         // default: ["md"]
   new_note_dir: Option<string> // inbox folder for Quick Fix "Create note"; relative to index_roots[0]
+  frontmatter_schema: FrontmatterSchema // key/value constraints; default: empty (no validation)
 }
 ```
 

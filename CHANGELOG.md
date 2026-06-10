@@ -5,6 +5,21 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.8.0] — 2026-06-09
+
+### Added
+
+- **Frontmatter schema** — define allowed keys and values for your notes'
+  YAML frontmatter via `frontmatterSchema` in `initializationOptions`. knap
+  uses the schema to offer key completions (`FIELD` items) and value completions
+  (`VALUE` items) in the frontmatter block. (US-24)
+- **Schema diagnostics** — warnings for required keys that are absent, values
+  that are not in the allowed list (exact-case match), and unknown keys. Each
+  check is opt-in: `required` per field, `requireFrontmatter` and
+  `warnOnUnknownKeys` at the schema level. (US-24)
+
+---
+
 ## [0.7.0] — 2026-06-08
 
 ### Added

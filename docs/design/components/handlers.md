@@ -43,6 +43,7 @@ are dispatched:
 pub fn handle_completion(
     params: CompletionParams,
     index: &NoteIndex,
+    config: &Config,
 ) -> Vec<CompletionItem>
 ```
 
@@ -85,6 +86,28 @@ Every item uses `text_edit: CompletionTextEdit::Edit(TextEdit { range, new_text
 `sub/` for a folder item, `sub/b.md` for a file). This ensures that
 re-triggering after selecting a folder item, or selecting a global item while a
 partial prefix is typed, replaces the prefix cleanly.
+
+### Frontmatter value completion
+
+When `check_frontmatter_value_trigger` detects the cursor is after the `:` on a
+frontmatter key line, the handler looks up the key (case-insensitive) in
+`config.frontmatter_schema.fields`. If the matching `SchemaField` has a `values`
+list, it returns one `VALUE` item per allowed value whose string starts with the
+typed partial (exact-case prefix match). Returns `vec![]` when the key is absent
+from the schema or has no `values` list.
+
+### Frontmatter key completion
+
+When `check_frontmatter_key_trigger` detects the cursor is in key position inside
+the frontmatter block, the handler returns one `FIELD` item per schema key that:
+
+- is not already present in the note's frontmatter (case-insensitive), and
+- starts with the typed partial (case-insensitive prefix match).
+
+Each item's `new_text` is `"key: "` (key name followed by colon-space). Returns
+`vec![]` when `config.frontmatter_schema.fields` is empty.
+
+**Priority order** within `handle_completion`: tag trigger → frontmatter value trigger → anchor trigger → directory trigger → frontmatter key trigger.
 
 ---
 
@@ -145,6 +168,7 @@ Protocol Handler whenever the index changes. The Protocol Handler calls
 pub fn publish_diagnostics(
     paths: &HashSet<PathBuf>,
     index: &NoteIndex,
+    config: &Config,
     sender: &Sender<Message>,
 )
 ```
@@ -152,22 +176,39 @@ pub fn publish_diagnostics(
 ### compute_diagnostics()
 
 ```rust
-pub fn compute_diagnostics(path: &Path, index: &NoteIndex) -> Vec<Diagnostic>
+pub fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &Config) -> Vec<Diagnostic>
 ```
 
 For each Markdown link in the note:
 
-| Link type                                             | Diagnostic range               | Message                                    |
-| ----------------------------------------------------- | ------------------------------ | ------------------------------------------ |
-| Bare anchor `[text](#slug)` — slug not in this file   | `link.anchor_range` (or range) | `Heading not found: '#slug'`               |
-| Bare anchor `[text](#)` — empty slug (`anchor = None`)| —                              | No diagnostic                              |
-| Cross-file — `Broken` target                          | `link.target_range`            | `Link target not found: 'path/to/note.md'` |
-| Cross-file — `Found` + anchor not matching any heading| `link.anchor_range`            | `Heading not found: '#anchor'`             |
-| Cross-file — `Found` + no anchor (or valid anchor)    | —                              | No diagnostic                              |
+| Link type                                              | Diagnostic range               | Message                                    |
+| ------------------------------------------------------ | ------------------------------ | ------------------------------------------ |
+| Bare anchor `[text](#slug)` — slug not in this file    | `link.anchor_range` (or range) | `Heading not found: '#slug'`               |
+| Bare anchor `[text](#)` — empty slug (`anchor = None`) | —                              | No diagnostic                              |
+| Cross-file — `Broken` target                           | `link.target_range`            | `Link target not found: 'path/to/note.md'` |
+| Cross-file — `Found` + anchor not matching any heading | `link.anchor_range`            | `Heading not found: '#anchor'`             |
+| Cross-file — `Found` + no anchor (or valid anchor)     | —                              | No diagnostic                              |
 
 Bare anchor-only links (`target = ""`) are validated against the current note's
 headings (via GFM slug comparison). A link `[text](#)` with an empty anchor
 (`link.anchor = None`) produces no diagnostic.
+
+### Schema diagnostics
+
+When `config.frontmatter_schema` is non-empty (has fields, `require_frontmatter`,
+or `warn_unknown_keys` set), an additional validation pass runs after the
+link-diagnostics loop:
+
+| Condition                                                                   | Diagnostic range    | Message                                          |
+| --------------------------------------------------------------------------- | ------------------- | ------------------------------------------------ |
+| Note has no frontmatter + `require_frontmatter: true` + field is `required` | `(0,0)`             | `Required frontmatter key missing: 'key'`        |
+| Note has frontmatter + required schema key absent (case-insensitive match)  | `(0,0)`             | `Required frontmatter key missing: 'key'`        |
+| Field value not in schema `values` list (exact-case equality)               | `field.value_range` | `Value 'X' is not in the allowed list for 'key'` |
+| Key not in schema + `warn_unknown_keys: true`                               | `field.key_range`   | `Unknown frontmatter key: 'key'`                 |
+| Field has no scalar value (`value: None`) or schema has no `values` list    | —                   | No diagnostic                                    |
+
+Key matching is case-insensitive (`eq_ignore_ascii_case`). Value matching is
+exact-case.
 
 ---
 

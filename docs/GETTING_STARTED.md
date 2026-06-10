@@ -119,10 +119,11 @@ knap works with zero configuration for a standard single-folder Markdown
 workspace. The following options can be passed via `initializationOptions`
 when you need to customise behaviour:
 
-| Option       | Type       | Default  | Description                                                                                                                                         |
-| ------------ | ---------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `extensions` | `string[]` | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments.                                                           |
-| `newNoteDir` | `string`   | —        | Folder path relative to workspace root where Quick Fix "Create note" places new files. When absent, new files are created next to the linking note. |
+| Option              | Type       | Default  | Description                                                                                                                                         |
+| ------------------- | ---------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extensions`        | `string[]` | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments.                                                           |
+| `newNoteDir`        | `string`   | —        | Folder path relative to workspace root where Quick Fix "Create note" places new files. When absent, new files are created next to the linking note. |
+| `frontmatterSchema` | `object`   | —        | Defines allowed keys and values for note frontmatter. Enables key/value completions and diagnostics. See below.                                     |
 
 **Example — multi-extension vault with inbox:**
 
@@ -132,6 +133,41 @@ when you need to customise behaviour:
   "newNoteDir": "0-Inbox"
 }
 ```
+
+### Frontmatter schema
+
+`frontmatterSchema` lets you define the structure of your notes' YAML frontmatter.
+knap uses it to offer key and value completions and to publish diagnostics for
+constraint violations.
+
+```json
+{
+  "frontmatterSchema": {
+    "requireFrontmatter": false,
+    "warnOnUnknownKeys": false,
+    "fields": {
+      "status": {
+        "required": true,
+        "values": ["draft", "published", "archived"]
+      },
+      "type": {
+        "values": ["note", "project", "reference"]
+      }
+    }
+  }
+}
+```
+
+| Field                | Type      | Default | Description                                                                         |
+| -------------------- | --------- | ------- | ----------------------------------------------------------------------------------- |
+| `requireFrontmatter` | `boolean` | `false` | Warn on notes that have no `---` frontmatter block at all when required keys exist. |
+| `warnOnUnknownKeys`  | `boolean` | `false` | Warn on frontmatter keys not listed in `fields`.                                    |
+| `fields`             | `object`  | `{}`    | Map of key names to field constraints (`required` and/or `values`).                 |
+
+Each field object may have:
+
+- `required` (`boolean`, default `false`) — warn when the key is absent from the note's frontmatter.
+- `values` (`string[]`) — warn when the key's value is not in this list (exact-case match). Omit to allow any value.
 
 ### Schema (Zed / JSON-aware editors)
 
@@ -188,13 +224,13 @@ target file.
 
 Supported link forms:
 
-| Syntax                       | Behaviour                                              |
-| ---------------------------- | ------------------------------------------------------ |
-| `[text](note.md)`            | Navigate to `note.md`                                  |
-| `[text](note.md#my-section)` | Navigate to the matching heading line in `note.md`     |
+| Syntax                       | Behaviour                                                |
+| ---------------------------- | -------------------------------------------------------- |
+| `[text](note.md)`            | Navigate to `note.md`                                    |
+| `[text](note.md#my-section)` | Navigate to the matching heading line in `note.md`       |
 | `[text](#my-section)`        | Navigate to the matching heading in the **current** file |
-| `[text](../folder/note.md)`  | Relative paths resolved from the current file          |
-| `![alt](image.png)`          | Navigate to `image.png` in the workspace               |
+| `[text](../folder/note.md)`  | Relative paths resolved from the current file            |
+| `![alt](image.png)`          | Navigate to `image.png` in the workspace                 |
 
 ### Find References
 

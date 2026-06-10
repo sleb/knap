@@ -17,7 +17,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.5](#v05--tags-released-2026-06-06)                                    | Tags                                 | Released 2026-06-06 |
 | [v0.6](#v06--backlinks-released-2026-06-08)                               | Backlinks                            | Released 2026-06-08 |
 | [v0.7](#v07--same-file-anchor-links-released-2026-06-08)                  | Same-file Anchor Links               | Released 2026-06-08 |
-| [v0.8](#v08--frontmatter-schema)                                          | Frontmatter Schema                   | Planned             |
+| [v0.8](#v08--frontmatter-schema-released-2026-06-09)                      | Frontmatter Schema                   | Released 2026-06-09 |
 | [v0.9](#v09--editor-experience)                                           | Editor Experience                    | Planned             |
 | [v0.10](#v010--tag-rename)                                                | Tag Rename                           | Planned             |
 | [v0.11](#v011--extract-to-new-note)                                       | Extract to New Note                  | Planned             |
@@ -219,7 +219,7 @@ features to bare `#slug` links that target a heading in the same file.
 
 ---
 
-## v0.8 — Frontmatter Schema
+## v0.8 — Frontmatter Schema _(released 2026-06-09)_
 
 **Goal:** Enforce structure in notes that need it.
 
