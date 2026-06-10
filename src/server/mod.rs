@@ -1,6 +1,7 @@
 // LSP lifecycle, message loop, request/notification routing.
 // See docs/design/components/protocol-handler.md
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -24,10 +25,42 @@ use crate::handlers::{self, uri_to_path};
 use crate::index::{self, NoteIndex};
 use crate::parser;
 
+#[allow(dead_code)]
+pub(crate) struct SchemaField {
+    pub(crate) values: Option<Vec<String>>,
+    pub(crate) required: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Default)]
+pub(crate) struct FrontmatterSchema {
+    pub(crate) fields: Vec<(String, SchemaField)>,
+    pub(crate) require_frontmatter: bool,
+    pub(crate) warn_unknown_keys: bool,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct SchemaFieldOpts {
+    values: Option<Vec<String>>,
+    required: bool,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct FrontmatterSchemaOpts {
+    fields: HashMap<String, SchemaFieldOpts>,
+    require_frontmatter: bool,
+    warn_on_unknown_keys: bool,
+}
+
+#[derive(Default)]
 pub(crate) struct Config {
     pub(crate) index_roots: Vec<PathBuf>,
     pub(crate) extensions: Vec<String>,
     pub(crate) new_note_dir: Option<String>,
+    #[allow(dead_code)]
+    pub(crate) frontmatter_schema: FrontmatterSchema,
 }
 
 /// Mirrors the shape of `initializationOptions` sent by the editor.
@@ -36,6 +69,7 @@ pub(crate) struct Config {
 struct InitOptions {
     extensions: Option<Vec<String>>,
     new_note_dir: Option<String>,
+    frontmatter_schema: Option<FrontmatterSchemaOpts>,
 }
 
 impl Config {
@@ -64,10 +98,28 @@ impl Config {
             })
             .unwrap_or_default();
 
+        let frontmatter_schema = match opts.frontmatter_schema {
+            Some(schema_opts) => {
+                let mut fields: Vec<(String, SchemaField)> = schema_opts
+                    .fields
+                    .into_iter()
+                    .map(|(k, v)| (k, SchemaField { values: v.values, required: v.required }))
+                    .collect();
+                fields.sort_by(|a, b| a.0.cmp(&b.0));
+                FrontmatterSchema {
+                    fields,
+                    require_frontmatter: schema_opts.require_frontmatter,
+                    warn_unknown_keys: schema_opts.warn_on_unknown_keys,
+                }
+            }
+            None => FrontmatterSchema::default(),
+        };
+
         Config {
             index_roots,
             extensions: opts.extensions.unwrap_or_else(|| vec!["md".to_string()]),
             new_note_dir: opts.new_note_dir,
+            frontmatter_schema,
         }
     }
 }
