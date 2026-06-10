@@ -1606,3 +1606,293 @@ fn test_code_lens_updates_after_index_change() {
 
     do_shutdown(&client, 4);
 }
+
+// ─── Schema (v0.8) ────────────────────────────────────────────────────────────
+
+/// Schema key completions: blank frontmatter line with schema configured → FIELD items.
+#[test]
+fn test_schema_key_completion() {
+    let client = spawn_server();
+    do_initialize_with_options(
+        &client,
+        "file:///vault",
+        json!({
+            "frontmatterSchema": {
+                "fields": {
+                    "status": { "values": ["draft", "published"], "required": true },
+                    "type": { "values": ["note", "meeting"] }
+                }
+            }
+        }),
+    );
+
+    // blank frontmatter line; cursor at line 1, char 0
+    did_open(&client, "file:///vault/a.md", "---\n\n---\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/completion",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 1, "character": 0 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: Option<CompletionResponse> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let items = match result.expect("expected completion result") {
+        CompletionResponse::Array(items) => items,
+        CompletionResponse::List(list) => list.items,
+    };
+
+    assert!(!items.is_empty(), "expected schema key items");
+    assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::FIELD)));
+    assert!(items.iter().any(|i| i.label == "status"));
+    assert!(items.iter().any(|i| i.label == "type"));
+
+    do_shutdown(&client, 3);
+}
+
+/// Schema value completions: `status: ` position with enum schema → VALUE items.
+#[test]
+fn test_schema_value_completion() {
+    let client = spawn_server();
+    do_initialize_with_options(
+        &client,
+        "file:///vault",
+        json!({
+            "frontmatterSchema": {
+                "fields": {
+                    "status": { "values": ["draft", "published"] }
+                }
+            }
+        }),
+    );
+
+    // "status: " — cursor at char 8 (right after the space)
+    did_open(&client, "file:///vault/a.md", "---\nstatus: \n---\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/completion",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 1, "character": 8 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: Option<CompletionResponse> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+    let items = match result.expect("expected completion result") {
+        CompletionResponse::Array(items) => items,
+        CompletionResponse::List(list) => list.items,
+    };
+
+    assert_eq!(items.len(), 2, "expected exactly two enum values");
+    assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+    assert!(items.iter().any(|i| i.label == "draft"));
+    assert!(items.iter().any(|i| i.label == "published"));
+
+    do_shutdown(&client, 3);
+}
+
+/// Required key missing from frontmatter → WARNING diagnostic at (0,0).
+#[test]
+fn test_schema_required_key_missing_diagnostic() {
+    let client = spawn_server();
+    do_initialize_with_options(
+        &client,
+        "file:///vault",
+        json!({
+            "frontmatterSchema": {
+                "fields": {
+                    "status": { "required": true }
+                }
+            }
+        }),
+    );
+
+    did_open(&client, "file:///vault/a.md", "---\ntitle: My Note\n---\n");
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .last()
+        .expect("no diagnostics published for a.md");
+    assert_eq!(file_diags.diagnostics.len(), 1);
+    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert!(
+        file_diags.diagnostics[0].message.contains("status"),
+        "unexpected message: {}",
+        file_diags.diagnostics[0].message
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// Value not in enum → WARNING diagnostic.
+#[test]
+fn test_schema_invalid_value_diagnostic() {
+    let client = spawn_server();
+    do_initialize_with_options(
+        &client,
+        "file:///vault",
+        json!({
+            "frontmatterSchema": {
+                "fields": {
+                    "status": { "values": ["draft", "published"] }
+                }
+            }
+        }),
+    );
+
+    did_open(&client, "file:///vault/a.md", "---\nstatus: Draft\n---\n");
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .last()
+        .expect("no diagnostics published for a.md");
+    assert_eq!(file_diags.diagnostics.len(), 1);
+    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert!(
+        file_diags.diagnostics[0].message.contains("Draft"),
+        "unexpected message: {}",
+        file_diags.diagnostics[0].message
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// Note satisfying all schema rules → no schema warnings.
+#[test]
+fn test_schema_valid_note_no_diagnostic() {
+    let client = spawn_server();
+    do_initialize_with_options(
+        &client,
+        "file:///vault",
+        json!({
+            "frontmatterSchema": {
+                "fields": {
+                    "status": { "values": ["draft", "published"], "required": true }
+                }
+            }
+        }),
+    );
+
+    did_open(&client, "file:///vault/a.md", "---\nstatus: draft\n---\n");
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .collect();
+    let last = file_diags.last().expect("no diagnostics published for a.md");
+    assert!(
+        last.diagnostics.is_empty(),
+        "valid note should have no warnings, got {:?}",
+        last.diagnostics
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// `requireFrontmatter: true` + note without frontmatter block → WARNING at (0,0).
+#[test]
+fn test_schema_require_frontmatter_warns_on_missing_block() {
+    let client = spawn_server();
+    do_initialize_with_options(
+        &client,
+        "file:///vault",
+        json!({
+            "frontmatterSchema": {
+                "fields": {
+                    "status": { "required": true }
+                },
+                "requireFrontmatter": true
+            }
+        }),
+    );
+
+    did_open(&client, "file:///vault/a.md", "just prose, no frontmatter\n");
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .last()
+        .expect("no diagnostics published for a.md");
+    assert_eq!(file_diags.diagnostics.len(), 1);
+    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(
+        file_diags.diagnostics[0].range.start,
+        lsp_types::Position { line: 0, character: 0 }
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// `warnOnUnknownKeys: true` + note with unrecognised key → WARNING on that key.
+#[test]
+fn test_schema_warn_unknown_keys() {
+    let client = spawn_server();
+    do_initialize_with_options(
+        &client,
+        "file:///vault",
+        json!({
+            "frontmatterSchema": {
+                "fields": {
+                    "status": {}
+                },
+                "warnOnUnknownKeys": true
+            }
+        }),
+    );
+
+    did_open(&client, "file:///vault/a.md", "---\nfoobar: x\n---\n");
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .last()
+        .expect("no diagnostics published for a.md");
+    assert_eq!(file_diags.diagnostics.len(), 1);
+    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert!(
+        file_diags.diagnostics[0].message.contains("foobar"),
+        "unexpected message: {}",
+        file_diags.diagnostics[0].message
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// No schema configured → no extra diagnostics for any frontmatter content.
+#[test]
+fn test_no_schema_no_extra_diagnostics() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/a.md", "---\narbitrary: value\nother: thing\n---\n");
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let file_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .collect();
+    let last = file_diags.last().expect("no diagnostics published for a.md");
+    assert!(
+        last.diagnostics.is_empty(),
+        "no schema should produce no diagnostics, got {:?}",
+        last.diagnostics
+    );
+
+    do_shutdown(&client, 3);
+}

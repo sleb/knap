@@ -18,7 +18,7 @@ untested code for the next step to build on.
 | 3 — Trigger functions                        | Done   |       |
 | 4 — Schema completions                       | Done   |       |
 | 5 — Schema diagnostics                       | Done   |       |
-| 6 — Integration tests                        | Todo   |       |
+| 6 — Integration tests                        | Done   |       |
 
 ---
 
