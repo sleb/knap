@@ -11,7 +11,8 @@ use lsp_types::{
     CreateFileOptions, Diagnostic, DiagnosticSeverity, DocumentChangeOperation, DocumentChanges,
     DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse,
     Location, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
-    RenameFilesParams, RenameParams, ResourceOp, SymbolInformation, SymbolKind,
+    RenameFilesParams, RenameParams, ResourceOp, SelectionRange, SelectionRangeParams,
+    SymbolInformation, SymbolKind,
     TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
 };
 
@@ -1233,6 +1234,262 @@ pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec
         command: Some(command),
         data: None,
     }]
+}
+
+// ─── Selection Range ──────────────────────────────────────────────────────────
+
+/// Returns the UTF-16 range of the word (maximal run of `\w`-like chars:
+/// alphanumeric + underscore) at `cursor_char` on `line`.
+/// Returns `None` if the cursor is on whitespace or punctuation.
+#[allow(dead_code)] // called from handle_selection_range; wired to server in Step 3
+fn word_range_at(line: &str, cursor_char: u32, line_num: u32) -> Option<Range> {
+    // Convert cursor UTF-16 offset to byte offset.
+    let cursor_byte = utf16_to_byte_offset(line, cursor_char);
+
+    // Check the character at the cursor position is a word character.
+    let ch = line[cursor_byte..].chars().next()?;
+    if !ch.is_alphanumeric() && ch != '_' {
+        return None;
+    }
+
+    // Scan backward to find the start of the word.
+    let mut start_byte = cursor_byte;
+    for (byte_idx, c) in line[..cursor_byte].char_indices().rev() {
+        if c.is_alphanumeric() || c == '_' {
+            start_byte = byte_idx;
+        } else {
+            break;
+        }
+    }
+
+    // Scan forward to find the end of the word.
+    let mut end_byte = cursor_byte;
+    for (byte_idx, c) in line[cursor_byte..].char_indices() {
+        if c.is_alphanumeric() || c == '_' {
+            end_byte = cursor_byte + byte_idx + c.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    let start_char = byte_to_utf16_offset(line, start_byte);
+    let end_char = byte_to_utf16_offset(line, end_byte);
+
+    Some(Range {
+        start: Position { line: line_num, character: start_char },
+        end: Position { line: line_num, character: end_char },
+    })
+}
+
+/// Scans backward/forward from `cursor_line` to the nearest blank lines or
+/// document boundaries, returning the range of the enclosing paragraph.
+#[allow(dead_code)] // called from handle_selection_range; wired to server in Step 3
+fn paragraph_range(content: &str, cursor_line: u32) -> Range {
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len() as u32;
+
+    if total == 0 {
+        return Range {
+            start: Position { line: 0, character: 0 },
+            end: Position { line: 0, character: 0 },
+        };
+    }
+
+    let cursor_line = cursor_line.min(total - 1);
+
+    // Scan backward to find the first non-blank line of the paragraph.
+    let mut para_start = cursor_line;
+    if para_start > 0 {
+        let mut scan = cursor_line;
+        loop {
+            if lines[scan as usize].trim().is_empty() {
+                // This line is blank; paragraph starts at scan+1.
+                para_start = scan + 1;
+                break;
+            }
+            if scan == 0 {
+                para_start = 0;
+                break;
+            }
+            scan -= 1;
+        }
+    }
+
+    // Scan forward to find the last non-blank line of the paragraph.
+    let mut para_end = cursor_line;
+    for scan in cursor_line..total {
+        if lines[scan as usize].trim().is_empty() {
+            break;
+        }
+        para_end = scan;
+    }
+
+    let end_line_text = lines[para_end as usize];
+    let end_char = byte_to_utf16_offset(end_line_text, end_line_text.len());
+
+    Range {
+        start: Position { line: para_start, character: 0 },
+        end: Position { line: para_end, character: end_char },
+    }
+}
+
+/// Compute the heading section range for the heading at or before `cursor_line`.
+/// Section extends from the heading line down to the line before the next
+/// heading at the same or shallower level, or end of document.
+/// Returns `None` if the cursor is not within any heading section.
+#[allow(dead_code)] // called from handle_selection_range; wired to server in Step 3
+fn heading_section_range(content: &str, headings: &[crate::parser::Heading], cursor_line: u32) -> Option<Range> {
+    // Find the innermost heading that starts at or before cursor_line.
+    let heading = headings
+        .iter()
+        .rfind(|h| h.range.start.line <= cursor_line)?;
+
+    let section_start = heading.range.start.line;
+    let heading_level = heading.level;
+
+    // Find the next heading at same or shallower level.
+    let section_end_line = headings
+        .iter()
+        .filter(|h| h.range.start.line > section_start && h.level <= heading_level)
+        .map(|h| h.range.start.line)
+        .next();
+
+    let lines: Vec<&str> = content.lines().collect();
+    let total = lines.len() as u32;
+
+    let end_line = match section_end_line {
+        Some(next_heading_line) => {
+            // Section ends at the line before the next heading.
+            if next_heading_line > 0 {
+                // Walk backward from next_heading_line-1 to skip blank lines.
+                let mut end = next_heading_line - 1;
+                while end > section_start && end < total && lines[end as usize].trim().is_empty() {
+                    if end == 0 { break; }
+                    end -= 1;
+                }
+                end
+            } else {
+                section_start
+            }
+        }
+        None => {
+            // Section extends to end of document.
+            if total == 0 { 0 } else { total - 1 }
+        }
+    };
+
+    // The cursor must actually be within the section.
+    if cursor_line < section_start || cursor_line > end_line {
+        return None;
+    }
+
+    let end_line_text = lines.get(end_line as usize).copied().unwrap_or("");
+    let end_char = byte_to_utf16_offset(end_line_text, end_line_text.len());
+
+    Some(Range {
+        start: Position { line: section_start, character: 0 },
+        end: Position { line: end_line, character: end_char },
+    })
+}
+
+/// Build a `SelectionRange` chain (innermost → outermost) for a single cursor
+/// position. The chain is: word? → link? → paragraph → section? → document.
+/// Adjacent duplicate ranges are collapsed.
+#[allow(dead_code)] // called from handle_selection_range; wired to server in Step 3
+fn build_selection_chain(
+    pos: Position,
+    note: &crate::parser::Note,
+) -> SelectionRange {
+    let lines: Vec<&str> = note.content.lines().collect();
+    let total_lines = lines.len() as u32;
+
+    // ── Document range (always outermost) ────────────────────────────────────
+    let doc_end = if total_lines == 0 {
+        Position { line: 0, character: 0 }
+    } else {
+        let last_line = lines[(total_lines - 1) as usize];
+        Position {
+            line: total_lines - 1,
+            character: byte_to_utf16_offset(last_line, last_line.len()),
+        }
+    };
+    let doc_range = Range {
+        start: Position { line: 0, character: 0 },
+        end: doc_end,
+    };
+
+    // Collect candidate ranges from innermost to outermost.
+    let mut ranges: Vec<Range> = Vec::new();
+
+    // Word range.
+    if let Some(line_text) = lines.get(pos.line as usize)
+        && let Some(wr) = word_range_at(line_text, pos.character, pos.line)
+    {
+        ranges.push(wr);
+    }
+
+    // Link range.
+    if let Some(link) = note.md_links.iter().find(|l| contains(l.range, pos)) {
+        ranges.push(link.range);
+    }
+
+    // Paragraph range.
+    let para = paragraph_range(&note.content, pos.line);
+    ranges.push(para);
+
+    // Heading section range.
+    if let Some(section) = heading_section_range(&note.content, &note.headings, pos.line) {
+        ranges.push(section);
+    }
+
+    // Document range.
+    ranges.push(doc_range);
+
+    // Deduplicate adjacent equal ranges (keep the outer one — i.e., remove
+    // the earlier duplicate and keep the later).
+    let mut deduped: Vec<Range> = Vec::new();
+    for r in ranges {
+        if deduped.last() == Some(&r) {
+            // Same as previous: skip (outer will be added when we encounter it again).
+        } else {
+            deduped.push(r);
+        }
+    }
+
+    // Build the chain from outermost to innermost, linking parent pointers.
+    let mut chain: Option<SelectionRange> = None;
+    for r in deduped.into_iter().rev() {
+        chain = Some(SelectionRange {
+            range: r,
+            parent: chain.map(Box::new),
+        });
+    }
+
+    chain.unwrap_or(SelectionRange {
+        range: doc_range,
+        parent: None,
+    })
+}
+
+/// Handle `textDocument/selectionRange`: for each position, compute a nested
+/// selection range chain from innermost to outermost.
+#[allow(dead_code)] // wired to server dispatcher in Step 3
+pub(crate) fn handle_selection_range(
+    params: SelectionRangeParams,
+    index: &NoteIndex,
+) -> Vec<SelectionRange> {
+    let Some(path) = uri_to_path(&params.text_document.uri) else {
+        return params.positions.iter().map(|_| SelectionRange::default()).collect();
+    };
+    let Some(note) = index.get_note(&path) else {
+        return params.positions.iter().map(|_| SelectionRange::default()).collect();
+    };
+
+    params
+        .positions
+        .iter()
+        .map(|&pos| build_selection_chain(pos, note))
+        .collect()
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
@@ -3391,5 +3648,166 @@ mod tests {
         // tag trigger fires first; results are VALUE items from the tag list
         assert!(items.iter().any(|i| i.label == "rust"));
         assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+    }
+
+    // ── handle_selection_range ────────────────────────────────────────────────
+
+    fn make_selection_range_params(path: &str, positions: Vec<Position>) -> SelectionRangeParams {
+        SelectionRangeParams {
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            positions,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    }
+
+    /// Walk the SelectionRange chain and collect all ranges (innermost first).
+    fn collect_ranges(sr: &SelectionRange) -> Vec<Range> {
+        let mut ranges = vec![sr.range];
+        let mut cur = sr.parent.as_deref();
+        while let Some(p) = cur {
+            ranges.push(p.range);
+            cur = p.parent.as_deref();
+        }
+        ranges
+    }
+
+    #[test]
+    fn selection_range_word_at_cursor() {
+        // Content: "hello world"
+        // Cursor in the middle of "hello" → word range should be [0,0..0,5)
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "hello world\n"));
+        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 0, character: 2 }]);
+        let result = handle_selection_range(params, &idx);
+        assert_eq!(result.len(), 1);
+        let ranges = collect_ranges(&result[0]);
+        // Innermost should be the word "hello"
+        assert_eq!(ranges[0], Range {
+            start: Position { line: 0, character: 0 },
+            end: Position { line: 0, character: 5 },
+        }, "innermost range should be the word 'hello'");
+    }
+
+    #[test]
+    fn selection_range_no_word_on_whitespace() {
+        // Content: "hello world"
+        // Cursor on the space between words → no word range level
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "hello world\n"));
+        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 0, character: 5 }]);
+        let result = handle_selection_range(params, &idx);
+        assert_eq!(result.len(), 1);
+        let ranges = collect_ranges(&result[0]);
+        // Innermost should be paragraph (not a word) — it spans the whole line.
+        // Verify no range is a single word (i.e. the 5-char "hello" range is absent).
+        let word_range = Range {
+            start: Position { line: 0, character: 0 },
+            end: Position { line: 0, character: 5 },
+        };
+        assert!(!ranges.contains(&word_range), "word range should be absent when cursor is on whitespace");
+    }
+
+    #[test]
+    fn selection_range_cursor_inside_link() {
+        // "[hello](b.md)" on line 0; cursor on "hello" (char 1) → word < link < para < doc
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[hello](b.md)\n"));
+        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 0, character: 1 }]);
+        let result = handle_selection_range(params, &idx);
+        assert_eq!(result.len(), 1);
+        let ranges = collect_ranges(&result[0]);
+        // Should contain word range for "hello" [0,1..0,6)
+        let word_range = Range {
+            start: Position { line: 0, character: 1 },
+            end: Position { line: 0, character: 6 },
+        };
+        assert!(ranges.contains(&word_range), "word range for 'hello' should be present; got: {ranges:?}");
+        // Should also contain the full link range [0,0..0,13)
+        let parsed = crate::test_helpers::note("/vault/a.md", "[hello](b.md)\n");
+        let link_range = parsed.md_links[0].range;
+        assert!(ranges.contains(&link_range), "link range should be present; got: {ranges:?}");
+        // word range must come before (inner to) link range
+        let word_idx = ranges.iter().position(|r| r == &word_range).unwrap();
+        let link_idx = ranges.iter().position(|r| r == &link_range).unwrap();
+        assert!(word_idx < link_idx, "word should be inner to link");
+    }
+
+    #[test]
+    fn selection_range_paragraph_bounds() {
+        // Three paragraphs separated by blank lines.
+        // Cursor in the middle paragraph — paragraph range should span exactly those lines.
+        let content = "line one\nline two\n\nmiddle para line A\nmiddle para line B\n\nlast para\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        // Cursor on "middle para line A" (line 3)
+        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 3, character: 0 }]);
+        let result = handle_selection_range(params, &idx);
+        assert_eq!(result.len(), 1);
+        let ranges = collect_ranges(&result[0]);
+        let expected_para = Range {
+            start: Position { line: 3, character: 0 },
+            end: Position { line: 4, character: "middle para line B".len() as u32 },
+        };
+        assert!(ranges.contains(&expected_para), "paragraph range should span lines 3-4; got: {ranges:?}");
+    }
+
+    #[test]
+    fn selection_range_section_range() {
+        // Two sibling ## sections; cursor in body of the first ##.
+        // The ## First section ends before ## Second (same level), so its range
+        // differs from the document range.
+        let content = "## First\n\nsome text here\n\n## Second\n\nother text\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        // Cursor on "some text here" (line 2, char 0) — inside "## First" section.
+        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 2, character: 0 }]);
+        let result = handle_selection_range(params, &idx);
+        assert_eq!(result.len(), 1);
+        let ranges = collect_ranges(&result[0]);
+        // The section range for "## First" should start at line 0 and end
+        // before "## Second" (line 4). Trailing blank (line 3) is trimmed,
+        // so end should be line 2 ("some text here").
+        let section_start = Position { line: 0, character: 0 };
+        let has_section = ranges.iter().any(|r| r.start == section_start && r.end.line < 4);
+        assert!(has_section, "section range should be present starting at heading; got: {ranges:?}");
+        // Section range should not be the full document range.
+        let doc_range = *ranges.last().unwrap();
+        let section_range = ranges.iter().find(|r| r.start == section_start && *r != &doc_range);
+        assert!(section_range.is_some(), "section range should differ from document range; got: {ranges:?}");
+    }
+
+    #[test]
+    fn selection_range_document_always_outermost() {
+        let content = "# Hello\n\nsome text\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 2, character: 0 }]);
+        let result = handle_selection_range(params, &idx);
+        assert_eq!(result.len(), 1);
+        let ranges = collect_ranges(&result[0]);
+        let outermost = ranges.last().unwrap();
+        assert_eq!(outermost.start, Position { line: 0, character: 0 }, "outermost start must be (0,0)");
+        // End must be at the last character of the document.
+        let lines: Vec<&str> = content.lines().collect();
+        let last_line = lines.last().unwrap();
+        assert_eq!(outermost.end.line, (lines.len() - 1) as u32, "outermost end line must be last line");
+        assert_eq!(outermost.end.character, last_line.len() as u32, "outermost end char must be end of last line");
+    }
+
+    #[test]
+    fn selection_range_multiple_positions() {
+        let content = "# Hello\n\nsome text\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let positions = vec![
+            Position { line: 0, character: 2 },
+            Position { line: 2, character: 0 },
+            Position { line: 2, character: 4 },
+        ];
+        let params = make_selection_range_params("/vault/a.md", positions.clone());
+        let result = handle_selection_range(params, &idx);
+        assert_eq!(result.len(), positions.len(), "result vec must match positions length");
     }
 }
