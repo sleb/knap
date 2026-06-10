@@ -141,6 +141,21 @@ one.
 in the current file using my editor's folding controls, so I can focus on the
 section I'm working on in long notes.
 
+**US-52** — As a writer, I can use my editor's expand/contract selection command
+to grow or shrink my selection through the Markdown structure of the current note
+— from the word under the cursor outward to link, paragraph, heading section, and
+finally the whole document — so I can select exactly the text I need without
+reaching for the mouse.
+
+**US-53** — As a writer, when I have a link to a note that includes a `title:`
+frontmatter key, I see that title displayed inline next to the link path (as an
+inlay hint), so I know where the link leads without opening the target file.
+
+**US-54** — As a writer, headings that are the target of one or more bare anchor
+links (`[text](#slug)` same-file or `[text](note.md#slug)` cross-file) show an
+`↑ N anchor links` code lens, so I know which headings are referenced and can
+jump directly to those references.
+
 ---
 
 ## Workspace Awareness

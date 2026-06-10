@@ -3,7 +3,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use lsp_types::{Position, Range as LspRange};
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag as PdTag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag as PdTag, TagEnd};
 
 #[cfg(test)]
 mod tests;
@@ -50,6 +50,13 @@ pub struct MarkdownLink {
     pub anchor_range: Option<LspRange>,   // anchor text only (None when absent)
 }
 
+/// A fenced code block found in the document body.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CodeFence {
+    pub start_line: u32, // line of the opening ``` marker
+    pub end_line: u32,   // line of the closing ``` marker
+}
+
 /// The parsed representation of a single note file.
 #[derive(Debug)]
 pub struct Note {
@@ -58,6 +65,7 @@ pub struct Note {
     pub content: String, // raw source text, retained for trigger checking in completion
     pub headings: Vec<Heading>,
     pub frontmatter: Option<Frontmatter>,
+    pub code_fences: Vec<CodeFence>,
 }
 
 /// An ATX heading found in a note file.
@@ -118,8 +126,8 @@ pub fn parse(path: &Path, content: &str) -> Note {
     });
     let body_offset = frontmatter_body_offset(content);
     let body = &content[body_offset..];
-    let (md_links, headings) = extract_body_elements(body, body_offset, &line_index);
-    Note { path: path.to_path_buf(), md_links, content: content.to_string(), headings, frontmatter }
+    let (md_links, headings, code_fences) = extract_body_elements(body, body_offset, &line_index);
+    Note { path: path.to_path_buf(), md_links, content: content.to_string(), headings, frontmatter, code_fences }
 }
 
 /// Return the block of text between the frontmatter delimiters (`---`…`---`),
@@ -359,15 +367,17 @@ fn extract_body_elements(
     content: &str,
     offset: usize,
     line_index: &LineIndex,
-) -> (Vec<MarkdownLink>, Vec<Heading>) {
+) -> (Vec<MarkdownLink>, Vec<Heading>, Vec<CodeFence>) {
     let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
     let mut headings: Vec<Heading> = Vec::new();
     let mut md_links: Vec<MarkdownLink> = Vec::new();
+    let mut code_fences: Vec<CodeFence> = Vec::new();
 
     // (level, heading_byte_start, accumulated_text, first_text_byte)
     let mut current_heading: Option<(u8, usize, String, Option<usize>)> = None;
     // (dest_url, range_start_in_body, text_buf, is_image)
     let mut current_link: Option<(String, usize, String, bool)> = None;
+    let mut current_fence_start: Option<u32> = None;
 
     for (event, byte_range) in parser {
         match event {
@@ -407,6 +417,22 @@ fn extract_body_elements(
                         range,
                         text_range,
                     });
+                }
+            }
+
+            // ── Fenced code blocks ────────────────────────────────────────────
+            Event::Start(PdTag::CodeBlock(CodeBlockKind::Fenced(_))) => {
+                current_fence_start = Some(line_index.position(offset + byte_range.start).line);
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                if let Some(start_line) = current_fence_start.take() {
+                    // byte_range covers the whole block; .end points just past the last
+                    // content byte (before the trailing newline if any), so position()
+                    // on it lands on the closing ``` line.
+                    let end_line = line_index.position(offset + byte_range.end).line;
+                    if end_line > start_line {
+                        code_fences.push(CodeFence { start_line, end_line });
+                    }
                 }
             }
 
@@ -502,7 +528,7 @@ fn extract_body_elements(
         }
     }
 
-    (md_links, headings)
+    (md_links, headings, code_fences)
 }
 
 fn heading_level_to_u8(level: HeadingLevel) -> u8 {

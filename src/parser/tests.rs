@@ -2,8 +2,8 @@ use std::path::Path;
 
 use lsp_types::{Position, Range};
 use super::{
-    extract_frontmatter, Frontmatter, FrontmatterField, Heading, LineIndex, MarkdownLink, parse,
-    Tag,
+    extract_frontmatter, CodeFence, Frontmatter, FrontmatterField, Heading, LineIndex,
+    MarkdownLink, parse, Tag,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -507,6 +507,37 @@ fn fields_title_and_status_both_extracted() {
     let keys: Vec<&str> = result.iter().map(|f| f.key.as_str()).collect();
     assert!(keys.contains(&"title"), "expected title in fields");
     assert!(keys.contains(&"status"), "expected status in fields");
+}
+
+// ── code fences ───────────────────────────────────────────────────────────────
+
+fn code_fences(content: &str) -> Vec<CodeFence> {
+    parse(Path::new("note.md"), content).code_fences
+}
+
+#[test]
+fn code_fence_start_end_lines() {
+    // "```\nfoo\n```\n" — opening ``` on line 0, closing ``` on line 2
+    let result = code_fences("```\nfoo\n```\n");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].start_line, 0);
+    assert_eq!(result[0].end_line, 2);
+}
+
+#[test]
+fn code_fence_indented_block_skipped() {
+    // Indented code blocks (4-space prefix) are not fenced blocks and produce no entry.
+    let result = code_fences("    fn main() {}\n");
+    assert!(result.is_empty());
+}
+
+#[test]
+fn code_fence_language_annotation() {
+    // Fenced blocks with a language tag are treated the same as plain fences.
+    let result = code_fences("```rust\nfn foo() {}\n```\n");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].start_line, 0);
+    assert_eq!(result[0].end_line, 2);
 }
 
 #[test]
