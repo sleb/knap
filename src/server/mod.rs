@@ -25,13 +25,11 @@ use crate::handlers::{self, uri_to_path};
 use crate::index::{self, NoteIndex};
 use crate::parser;
 
-#[allow(dead_code)]
 pub(crate) struct SchemaField {
     pub(crate) values: Option<Vec<String>>,
     pub(crate) required: bool,
 }
 
-#[allow(dead_code)]
 #[derive(Default)]
 pub(crate) struct FrontmatterSchema {
     pub(crate) fields: Vec<(String, SchemaField)>,
@@ -59,7 +57,6 @@ pub(crate) struct Config {
     pub(crate) index_roots: Vec<PathBuf>,
     pub(crate) extensions: Vec<String>,
     pub(crate) new_note_dir: Option<String>,
-    #[allow(dead_code)]
     pub(crate) frontmatter_schema: FrontmatterSchema,
 }
 

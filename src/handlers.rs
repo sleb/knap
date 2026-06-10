@@ -32,6 +32,8 @@ fn slug(text: &str) -> String {
 
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
 
+const DIAG_SOURCE: &str = "knap";
+
 /// Compute LSP diagnostics for `path` against the current index state.
 pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate::server::Config) -> Vec<Diagnostic> {
     let Some(note) = index.get_note(path) else {
@@ -52,7 +54,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
                     range,
                     severity: Some(DiagnosticSeverity::WARNING),
                     message: format!("Heading not found: '#{anchor}'"),
-                    source: Some("knap".to_string()),
+                    source: Some(DIAG_SOURCE.to_owned()),
                     ..Default::default()
                 });
             }
@@ -64,7 +66,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
                     range: link.target_range,
                     severity: Some(DiagnosticSeverity::WARNING),
                     message: format!("Link target not found: '{}'", link.target),
-                    source: Some("knap".to_string()),
+                    source: Some(DIAG_SOURCE.to_owned()),
                     ..Default::default()
                 });
             }
@@ -87,7 +89,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
                             range,
                             severity: Some(DiagnosticSeverity::WARNING),
                             message: format!("Heading not found: '#{anchor}'"),
-                            source: Some("knap".to_string()),
+                            source: Some(DIAG_SOURCE.to_owned()),
                             ..Default::default()
                         });
                     }
@@ -111,7 +113,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
                                 range: zero,
                                 severity: Some(DiagnosticSeverity::WARNING),
                                 message: format!("Required frontmatter key missing: '{key}'"),
-                                source: Some("knap".to_string()),
+                                source: Some(DIAG_SOURCE.to_owned()),
                                 ..Default::default()
                             });
                         }
@@ -127,7 +129,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
                             range: zero,
                             severity: Some(DiagnosticSeverity::WARNING),
                             message: format!("Required frontmatter key missing: '{key}'"),
-                            source: Some("knap".to_string()),
+                            source: Some(DIAG_SOURCE.to_owned()),
                             ..Default::default()
                         });
                     }
@@ -146,7 +148,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
                                         "Value '{value}' is not in the allowed list for '{}'",
                                         field.key
                                     ),
-                                    source: Some("knap".to_string()),
+                                    source: Some(DIAG_SOURCE.to_owned()),
                                     ..Default::default()
                                 });
                             }
@@ -160,7 +162,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
                                         "Unknown frontmatter key: '{}'",
                                         field.key
                                     ),
-                                    source: Some("knap".to_string()),
+                                    source: Some(DIAG_SOURCE.to_owned()),
                                     ..Default::default()
                                 });
                             }
@@ -381,13 +383,12 @@ fn relative_path(from_dir: &Path, to: &Path) -> String {
     result.to_string_lossy().into_owned()
 }
 
-/// Returns `Some((key, partial, replace_range))` when the cursor is inside a
-/// frontmatter value position (after the `:` on a key-value line).
-/// Returns `None` for the `tags:` key (handled by `check_tag_trigger`),
-/// for complex values (inline list, block scalar), or outside the frontmatter block.
-fn check_frontmatter_value_trigger(content: &str, pos: Position) -> Option<(String, String, Range)> {
+/// Returns the line text and cursor byte offset when `pos` falls inside a
+/// frontmatter block (between the opening and closing `---` delimiters,
+/// exclusive). Returns `None` when the file has no frontmatter, or the cursor
+/// is on a delimiter line, or the closing delimiter is absent.
+fn frontmatter_cursor_line(content: &str, pos: Position) -> Option<(&str, usize)> {
     let lines: Vec<&str> = content.lines().collect();
-
     if lines.first().copied() != Some("---") {
         return None;
     }
@@ -395,9 +396,17 @@ fn check_frontmatter_value_trigger(content: &str, pos: Position) -> Option<(Stri
     if pos.line == 0 || pos.line as usize >= closing_line {
         return None;
     }
-
     let line = lines[pos.line as usize];
     let cursor_byte = utf16_to_byte_offset(line, pos.character);
+    Some((line, cursor_byte))
+}
+
+/// Returns `Some((key, partial, replace_range))` when the cursor is inside a
+/// frontmatter value position (after the `:` on a key-value line).
+/// Returns `None` for the `tags:` key (handled by `check_tag_trigger`),
+/// for complex values (inline list, block scalar), or outside the frontmatter block.
+fn check_frontmatter_value_trigger(content: &str, pos: Position) -> Option<(String, String, Range)> {
+    let (line, cursor_byte) = frontmatter_cursor_line(content, pos)?;
     let colon_byte = line.find(':')?;
     if cursor_byte <= colon_byte {
         return None;
@@ -438,18 +447,7 @@ fn check_frontmatter_value_trigger(content: &str, pos: Position) -> Option<(Stri
 /// a blank frontmatter line). Returns `None` for list items, comment lines,
 /// value positions, or outside the frontmatter block.
 fn check_frontmatter_key_trigger(content: &str, pos: Position) -> Option<(String, Range)> {
-    let lines: Vec<&str> = content.lines().collect();
-
-    if lines.first().copied() != Some("---") {
-        return None;
-    }
-    let closing_line = lines[1..].iter().position(|l| l.trim() == "---")? + 1;
-    if pos.line == 0 || pos.line as usize >= closing_line {
-        return None;
-    }
-
-    let line = lines[pos.line as usize];
-    let cursor_byte = utf16_to_byte_offset(line, pos.character);
+    let (line, cursor_byte) = frontmatter_cursor_line(content, pos)?;
     let trimmed = line.trim_start();
     if trimmed.starts_with('-') || trimmed.starts_with('#') {
         return None;
@@ -691,7 +689,7 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, con
     }
 
     return items;
-    } // end directory completion
+    }
 
     // Frontmatter key completion: cursor is in a key position inside the frontmatter block.
     if let Some((partial, replace_range)) = check_frontmatter_key_trigger(&note.content, pos) {
