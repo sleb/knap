@@ -1030,6 +1030,12 @@ pub(crate) fn handle_prepare_rename(
         }
     };
     let pos = params.position;
+    if let Some(tag) = find_tag_at_position(note, pos) {
+        return Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range: tag.range,
+            placeholder: tag.name.clone(),
+        });
+    }
     let heading = note.headings.iter().find(|h| {
         h.range.start.line <= pos.line && pos.line <= h.range.end.line
     })?;
@@ -2258,6 +2264,116 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "just prose\n"));
         let params = make_prepare_rename_params("/vault/a.md", 0, 3);
+        assert!(handle_prepare_rename(params, &idx).is_none());
+    }
+
+    // ── handle_prepare_rename — tag cases (US-37) ─────────────────────────────
+
+    #[test]
+    fn prepare_rename_tag_returns_range_and_placeholder() {
+        // bare scalar `tags: rust`; cursor inside the tag word
+        let content = "---\ntags: rust\n---\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_prepare_rename_params("/vault/a.md", 1, 7);
+        let resp = handle_prepare_rename(params, &idx);
+        match resp.expect("expected Some") {
+            PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } => {
+                assert_eq!(placeholder, "rust");
+                assert_eq!(range.start, Position { line: 1, character: 6 });
+                assert_eq!(range.end, Position { line: 1, character: 10 });
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn prepare_rename_tag_bare_scalar() {
+        let content = "---\ntags: productivity\n---\n";
+        let parsed = note("/vault/a.md", content);
+        let tag_range = parsed.frontmatter.as_ref().unwrap().tags[0].range;
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        // cursor in the middle of "productivity"
+        let mid = tag_range.start.character + 3;
+        let params = make_prepare_rename_params("/vault/a.md", 1, mid);
+        let resp = handle_prepare_rename(params, &idx);
+        match resp.expect("expected Some") {
+            PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } => {
+                assert_eq!(placeholder, "productivity");
+                assert_eq!(range, tag_range);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn prepare_rename_tag_inline_list() {
+        // `tags: [rust, go]`; cursor on the second tag `go`
+        let content = "---\ntags: [rust, go]\n---\n";
+        let parsed = note("/vault/a.md", content);
+        let fm = parsed.frontmatter.as_ref().unwrap();
+        assert_eq!(fm.tags.len(), 2);
+        let go_range = fm.tags[1].range;
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_prepare_rename_params("/vault/a.md", go_range.start.line, go_range.start.character);
+        let resp = handle_prepare_rename(params, &idx);
+        match resp.expect("expected Some") {
+            PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } => {
+                assert_eq!(placeholder, "go");
+                assert_eq!(range, go_range);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn prepare_rename_tag_block_list() {
+        // block-list form: `tags:\n  - rust`; cursor on `rust`
+        let content = "---\ntags:\n  - rust\n---\n";
+        let parsed = note("/vault/a.md", content);
+        let tag_range = parsed.frontmatter.as_ref().unwrap().tags[0].range;
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_prepare_rename_params("/vault/a.md", tag_range.start.line, tag_range.start.character);
+        let resp = handle_prepare_rename(params, &idx);
+        match resp.expect("expected Some") {
+            PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } => {
+                assert_eq!(placeholder, "rust");
+                assert_eq!(range, tag_range);
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn prepare_rename_tag_heading_unchanged() {
+        // note has both a tag and a heading; cursor on the heading → heading rename still works
+        let content = "---\ntags: rust\n---\n\n# My Heading\n";
+        let parsed = note("/vault/a.md", content);
+        let heading_text_range = parsed.headings[0].text_range;
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        // line 4 is `# My Heading`
+        let params = make_prepare_rename_params("/vault/a.md", 4, 5);
+        let resp = handle_prepare_rename(params, &idx);
+        match resp.expect("expected Some") {
+            PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } => {
+                assert_eq!(range, heading_text_range);
+                assert_eq!(placeholder, "My Heading");
+            }
+            other => panic!("unexpected variant: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn prepare_rename_outside_tag_returns_none() {
+        // cursor is on prose body, not on any tag or heading
+        let content = "---\ntags: rust\n---\n\nsome prose\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_prepare_rename_params("/vault/a.md", 4, 3);
         assert!(handle_prepare_rename(params, &idx).is_none());
     }
 
