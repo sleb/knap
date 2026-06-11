@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.8.0-blue)
+![Version](https://img.shields.io/badge/version-0.9.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -59,10 +59,21 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 - **Workspace Symbols includes tags** — tags appear alongside headings in the
   symbol search with `SymbolKind::KEY` so editors can style them distinctly
 
-### Backlinks
+### Editor experience
+
+- **Folding ranges** — heading sections and fenced code blocks fold in any
+  editor that supports `textDocument/foldingRange`
+- **Selection range** — smart expand/contract grows the selection through
+  word → link → paragraph → heading section → document
+- **Inlay hints** — linked notes with a `title:` frontmatter field show the
+  title inline next to the link path (e.g. `-> My Note`)
+
+### Backlinks & code lens
 
 - **Backlinks code lens** — a `↑ N backlinks` annotation above the first line
   of any note with incoming links; click to open the References panel in VS Code
+- **Heading anchor-link lens** — headings that are anchor targets show
+  `↑ N anchor link(s)` counting both same-file and cross-file `#slug` references
 
 ### Finding references
 
@@ -107,7 +118,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.8.0 — Frontmatter Schema. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.9.0 — Editor Experience. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

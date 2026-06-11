@@ -15,7 +15,7 @@ pulldown-cmark = "0.13"
 
 ## Types
 
-```rust
+````rust
 /// The parsed representation of a single note file.
 pub struct Note {
     pub path: PathBuf,
@@ -23,6 +23,13 @@ pub struct Note {
     pub content: String,          // raw source text, retained for trigger checking in completion
     pub headings: Vec<Heading>,
     pub frontmatter: Option<Frontmatter>,
+    pub code_fences: Vec<CodeFence>,
+}
+
+/// A fenced code block found in the file body.
+pub struct CodeFence {
+    pub start_line: u32, // zero-based line of the opening ```
+    pub end_line: u32,   // zero-based line of the closing ```
 }
 
 /// A standard Markdown link or image found in the file.
@@ -70,7 +77,7 @@ pub struct FrontmatterField {
     pub value: Option<String>,
     pub value_range: Option<LspRange>,
 }
-```
+````
 
 `LspRange` is `lsp_types::Range` (zero-indexed line/character positions).
 
@@ -138,10 +145,10 @@ pub fn parse(path: &Path, content: &str) -> Note {
     });
     let body_offset = frontmatter_body_offset(content);
     let body = &content[body_offset..];
-    let (md_links, headings) = extract_body_elements(body, body_offset, &line_index);
+    let (md_links, headings, code_fences) = extract_body_elements(body, body_offset, &line_index);
 
     Note { path: path.to_path_buf(), md_links, content: content.to_string(),
-           headings, frontmatter }
+           headings, frontmatter, code_fences }
 }
 ```
 
@@ -225,8 +232,17 @@ fn extract_body_elements(
     content: &str,
     offset: usize,
     line_index: &LineIndex,
-) -> (Vec<MarkdownLink>, Vec<Heading>)
+) -> (Vec<MarkdownLink>, Vec<Heading>, Vec<CodeFence>)
 ```
+
+### Code fence extraction
+
+In the same pass, the function collects fenced code blocks. It watches for
+`Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_)))` to record `start_line`
+and `Event::End(TagEnd::CodeBlock)` to record `end_line` (using
+`byte_range.end` on the End event to land on the closing ` ``` ` line).
+`CodeBlockKind::Indented` blocks are skipped — only fenced blocks produce a
+`CodeFence`.
 
 ### Link extraction
 

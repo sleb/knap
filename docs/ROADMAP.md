@@ -18,7 +18,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.6](#v06--backlinks-released-2026-06-08)                               | Backlinks                            | Released 2026-06-08 |
 | [v0.7](#v07--same-file-anchor-links-released-2026-06-08)                  | Same-file Anchor Links               | Released 2026-06-08 |
 | [v0.8](#v08--frontmatter-schema-released-2026-06-09)                      | Frontmatter Schema                   | Released 2026-06-09 |
-| [v0.9](#v09--editor-experience)                                           | Editor Experience                    | Planned             |
+| [v0.9](#v09--editor-experience-released-2026-06-10)                       | Editor Experience                    | Released 2026-06-10 |
 | [v0.10](#v010--tag-rename)                                                | Tag Rename                           | Planned             |
 | [v0.11](#v011--extract-to-new-note)                                       | Extract to New Note                  | Planned             |
 | [v0.12](#v012--daily-notes)                                               | Daily Notes                          | Planned             |
@@ -232,21 +232,20 @@ features to bare `#slug` links that target a heading in the same file.
 
 ---
 
-## v0.9 — Editor Experience
+## v0.9 — Editor Experience _(released 2026-06-10)_
 
 **Goal:** Editors treat Markdown as a first-class language with rich visual feedback.
 
 | Story | Feature                                                                                                 |
 | ----- | ------------------------------------------------------------------------------------------------------- |
-| US-35 | Semantic tokens — tags styled as a distinct token type                                                  |
 | US-36 | Folding ranges — collapse heading sections and fenced blocks                                            |
 | US-52 | Selection range — smart expand/contract: word → link → paragraph → heading section → document           |
 | US-53 | Inlay hints — show the `title:` frontmatter of a linked note inline next to its path                    |
 | US-54 | Code lens on headings — `↑ N anchor links` on headings that are the target of one or more `#slug` links |
 
-**LSP capabilities delivered:** `textDocument/semanticTokens`,
-`textDocument/foldingRange`, `textDocument/selectionRange`,
-`textDocument/inlayHint`, `textDocument/codeLens` (extended)
+**LSP capabilities delivered:** `textDocument/foldingRange`,
+`textDocument/selectionRange`, `textDocument/inlayHint`,
+`textDocument/codeLens` (extended)
 
 ---
 
@@ -263,19 +262,7 @@ features to bare `#slug` links that target a heading in the same file.
 
 ---
 
-## v0.11 — Extract to New Note
-
-**Goal:** Restructure notes without leaving your editor.
-
-| Story | Feature                                                                                    |
-| ----- | ------------------------------------------------------------------------------------------ |
-| US-19 | Extract selection to new note — code action replaces selection with a link to the new file |
-
-**LSP capabilities delivered:** `textDocument/codeAction` (extended)
-
----
-
-## v0.12 — Daily Notes
+## v0.11 — Daily Notes
 
 **Goal:** Open today's journal entry with one command, creating it from a
 template if it doesn't exist.
@@ -290,6 +277,18 @@ template if it doesn't exist.
 > a registered extension command; Neovim via `vim.lsp.buf.execute_command`. Zed
 > does not currently support registering arbitrary command palette actions from
 > an extension; Zed support depends on future extension API expansion.
+
+---
+
+## v0.12 — Extract to New Note
+
+**Goal:** Restructure notes without leaving your editor.
+
+| Story | Feature                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------ |
+| US-19 | Extract selection to new note — code action replaces selection with a link to the new file |
+
+**LSP capabilities delivered:** `textDocument/codeAction` (extended)
 
 ---
 

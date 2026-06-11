@@ -156,6 +156,7 @@ pure — given the same source text it always returns the same result.
   optional heading anchor _(v0.1)_
 - Extracting all headings with their level and text _(v0.3)_
 - Extracting YAML frontmatter (title, tags, arbitrary keys) _(v0.1, extended v0.3)_
+- Extracting fenced code block positions as `CodeFence` entries _(v0.9)_
 
 **Contract:**
 
@@ -253,6 +254,9 @@ by the Protocol Handler.
 | Rename           | `textDocument/rename`             | v0.3    |
 | CodeAction       | `textDocument/codeAction`         | v0.4    |
 | CodeLens         | `textDocument/codeLens`           | v0.6    |
+| FoldingRanges    | `textDocument/foldingRange`       | v0.9    |
+| SelectionRange   | `textDocument/selectionRange`     | v0.9    |
+| InlayHints       | `textDocument/inlayHint`          | v0.9    |
 
 ---
 

@@ -5,6 +5,28 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.9.0] — 2026-06-10
+
+### Added
+
+- **Folding ranges** — heading sections and fenced code blocks are now
+  collapsible in editors that support `textDocument/foldingRange`. Each heading
+  folds its section down to the line before the next same-or-higher-level
+  heading; fenced blocks fold from the opening ` ``` ` to the closing ` ``` `.
+  (US-36)
+- **Selection range** — smart expand/contract (`Shift+Alt+→` in VS Code, `C-a`
+  in Helix) grows the selection through a chain of word → link → paragraph →
+  heading section → document. (US-52)
+- **Inlay hints** — when a link target has a `title:` frontmatter field, the
+  title appears inline next to the link path (e.g. `-> My Note`). Suppressed
+  for external URLs and broken links. (US-53)
+- **Heading anchor-link lenses** — headings that are the target of one or more
+  `#slug` anchor links now show a `↑ N anchor link(s)` code lens alongside the
+  existing backlinks lens. Counts both same-file bare anchors
+  (`[text](#slug)`) and cross-file anchors (`[text](file.md#slug)`). (US-54)
+
+---
+
 ## [0.8.0] — 2026-06-09
 
 ### Added

@@ -367,15 +367,86 @@ fn new_note_path(link_target: &str, source: &Path, config: &Config) -> PathBuf {
 pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec<CodeLens>
 ```
 
-Returns a single `↑ N backlink(s)` code lens anchored at line 0, character 0.
-Returns an empty vec when the file is not indexed or has no incoming links —
-no lens is shown for orphan notes.
+Returns two classes of lenses:
 
-The lens command is `editor.action.showReferences` with three arguments: the
-document URI, the anchor position `{line:0,char:0}`, and the pre-computed list
-of `Location` values (one per backlink). VS Code opens the references panel
-with these locations immediately on click, without issuing a second
-`textDocument/references` request.
+1. **Backlinks lens** — a single `↑ N backlink(s)` lens anchored at line 0,
+   character 0. Omitted when the file has no incoming links. Uses
+   `editor.action.showReferences` with the pre-computed `Location` list so VS
+   Code opens the references panel on click without a second request.
+
+2. **Heading anchor-link lenses** — one `↑ N anchor link(s)` lens per heading
+   that is the target of one or more `#slug` anchor links. Includes same-file
+   bare anchors (`[text](#slug)` in the current file) and cross-file anchors
+   (`[text](this.md#slug)` from any note in the workspace). Headings with no
+   incoming anchor links produce no lens. The lens `range.start` equals the
+   heading's `range.start`.
+
+---
+
+## Folding Ranges (`textDocument/foldingRange`)
+
+```rust
+pub(crate) fn handle_folding_ranges(params: FoldingRangeParams, index: &NoteIndex) -> Vec<FoldingRange>
+```
+
+Returns fold regions for heading sections and fenced code blocks.
+
+- **Heading sections** — one region per heading, from the heading's line to the
+  line before the next peer-or-higher-level heading (or the last content line of
+  the document). Single-line sections (end equals start) are omitted.
+- **Code fences** — one `FoldingRangeKind::Region` per `CodeFence` in
+  `note.code_fences`.
+
+Private helper: `fn last_content_line(content: &str) -> u32` — returns the
+zero-based line number of the last non-empty line in the document.
+
+---
+
+## Selection Range (`textDocument/selectionRange`)
+
+```rust
+pub(crate) fn handle_selection_range(params: SelectionRangeParams, index: &NoteIndex) -> Vec<SelectionRange>
+```
+
+Returns one `SelectionRange` per position in `params.positions`, each
+describing a chain of nested ranges for smart expand/contract:
+
+**word → link → paragraph → heading section → document**
+
+Levels are deduplicated — if two consecutive levels would have the same range,
+the inner one is omitted. The outermost range always covers the full document.
+
+Private helpers:
+
+- `fn word_range_at(line: &str, cursor_char: u32, line_num: u32) -> Option<Range>` —
+  returns the UTF-16 range of the word under the cursor; `None` on whitespace.
+- `fn paragraph_range(content: &str, cursor_line: u32) -> Range` — scans
+  backward and forward from `cursor_line` to the nearest blank lines.
+- `fn heading_section_range(content: &str, headings: &[Heading], cursor_line: u32) -> Option<Range>` —
+  the section from the enclosing heading to just before the next peer-level
+  heading.
+- `fn build_selection_chain(pos: Position, note: &Note) -> SelectionRange` —
+  assembles the full chain for one position.
+
+---
+
+## Inlay Hints (`textDocument/inlayHint`)
+
+```rust
+pub(crate) fn handle_inlay_hints(params: InlayHintParams, index: &NoteIndex) -> Vec<InlayHint>
+```
+
+For each Markdown link in the visible range (`params.range`), if the link
+resolves to an indexed note with a `title:` frontmatter field, emits one inlay
+hint positioned at the end of the link's `target_range`:
+
+- `label`: `InlayHintLabel::String(format!("-> {title}"))`
+- `kind`: `None` (neither TYPE nor PARAMETER fits a linked-note title)
+
+External URL targets and broken links produce no hint. Links outside
+`params.range` are excluded via `range_contains_position`.
+
+Private helper: `fn range_contains_position(range: &Range, pos: Position) -> bool`.
 
 ---
 

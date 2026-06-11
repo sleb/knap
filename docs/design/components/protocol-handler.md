@@ -76,6 +76,9 @@ ServerCapabilities {
     code_lens_provider: Some(CodeLensOptions { resolve_provider: Some(false) }),
     definition_provider: Some(OneOf::Left(true)),
     references_provider: Some(OneOf::Left(true)),
+    folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+    selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+    inlay_hint_provider: Some(OneOf::Left(true)),
     workspace: Some(WorkspaceServerCapabilities {
         file_operations: Some(WorkspaceFileOperationsServerCapabilities {
             will_rename: Some(FileOperationRegistrationOptions {
@@ -167,6 +170,9 @@ fn dispatch_request(req: Request, ...) {
         "textDocument/rename"           => handle_rename(req, ...),
         "textDocument/codeAction"       => handle_code_actions(req, ...),
         "textDocument/codeLens"         => handle_code_lens(req, ...),
+        "textDocument/foldingRange"     => handle_folding_ranges(req, ...),
+        "textDocument/selectionRange"   => handle_selection_range(req, ...),
+        "textDocument/inlayHint"        => handle_inlay_hints(req, ...),
         _                               => respond_with_null(req, ...),
     }
 }
