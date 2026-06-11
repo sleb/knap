@@ -285,10 +285,17 @@ pub fn handle_prepare_rename(
 ```
 
 Returns `Some(PrepareRenameResponse::RangeWithPlaceholder { range, placeholder
-})` when the cursor is on a heading line, where `range` is the heading
-text range (excluding the `## ` prefix) and `placeholder` is the heading text.
-Returns `None` when the cursor is not on a heading — the editor shows no rename
-UI in that case.
+})` when the cursor is on a frontmatter tag or a heading line. Returns `None`
+otherwise — the editor shows no rename UI in that case.
+
+**Priority order:** tag check first, then heading check.
+
+- **Tag at cursor** — `range` covers the tag text only (not surrounding YAML
+  punctuation); `placeholder` is the tag name. Works for all three YAML tag
+  forms: bare scalar (`tags: rust`), inline list (`tags: [rust, go]`), and
+  block list (`- rust` under `tags:`). Uses `find_tag_at_position`.
+- **Heading at cursor** — `range` is the heading text range (excluding the
+  `## ` prefix); `placeholder` is the heading text.
 
 The handler uses the indexed note when available. If the file is absent from the
 index (e.g. the server started without workspace folders configured and no
@@ -306,11 +313,29 @@ pub fn handle_rename(
 ) -> Option<WorkspaceEdit>
 ```
 
-Renames a heading and all anchor links that point to it. The cursor must be on
-a heading line (same check as `prepareRename`); returns `None` otherwise.
-Applies the same indexed-note / disk-parse fallback as `handle_prepare_rename`.
+Renames a tag across the workspace, or renames a heading and all anchor links
+that point to it. Applies the same indexed-note / disk-parse fallback as
+`handle_prepare_rename`. Returns `None` when the cursor is on neither a tag
+nor a heading.
 
-For the heading at the cursor:
+**Priority order:** tag check first, then heading check.
+
+### Tag rename
+
+When the cursor is on a frontmatter tag, collects `TextEdit`s for every
+occurrence of that tag name (case-insensitive) across the workspace:
+
+1. **Current note** — always handled directly (covers both the indexed case and
+   the disk-parse fallback). Iterates `note.frontmatter.tags`, matches via
+   `eq_ignore_ascii_case`, pushes one `TextEdit` per matching tag.
+2. **Other indexed notes** — iterates `index.notes_by_tag(&old_name)`, skipping
+   `current_path`. For each note, iterates its frontmatter tags and pushes edits
+   for case-insensitive matches.
+
+The replacement text is exactly the string the user typed — casing is not
+normalised.
+
+### Heading rename
 
 1. **Heading text edit** — rewrites the heading text in place (preserving the
    `## ` prefix) to the new name.

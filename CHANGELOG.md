@@ -5,6 +5,19 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.10.0] — 2026-06-10
+
+### Added
+
+- **Tag rename** — place the cursor on any frontmatter tag and trigger rename
+  (F2 / `textDocument/rename`). Every note in the workspace that carries that
+  tag is updated atomically. The rename dialog pre-fills with the tag text so
+  you never type from scratch. All three YAML tag forms are handled: bare scalar
+  (`tags: rust`), inline list (`tags: [rust, go]`), and block list (`- rust`
+  under `tags:`). Matching is case-insensitive. (US-37)
+
+---
+
 ## [0.9.0] — 2026-06-10
 
 ### Added

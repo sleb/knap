@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.9.0-blue)
+![Version](https://img.shields.io/badge/version-0.10.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A
@@ -87,6 +87,9 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
   `workspace/willRenameFiles`
 - **Rename a heading** — all `[text](note.md#old-slug)` anchor links updated in
   place to the new slug
+- **Rename a tag** — every frontmatter occurrence of the tag across the workspace
+  updated atomically; rename dialog pre-fills with the current tag text; all
+  three YAML tag forms supported (bare scalar, inline list, block list)
 
 ### Diagnostics & fixes
 
@@ -118,7 +121,7 @@ native LSP settings, using `initializationOptions`.
 
 ## Status
 
-v0.9.0 — Editor Experience. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.10.0 — Tag Rename. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

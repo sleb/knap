@@ -76,6 +76,12 @@ ServerCapabilities {
     code_lens_provider: Some(CodeLensOptions { resolve_provider: Some(false) }),
     definition_provider: Some(OneOf::Left(true)),
     references_provider: Some(OneOf::Left(true)),
+    document_symbol_provider: Some(OneOf::Left(true)),
+    workspace_symbol_provider: Some(OneOf::Left(true)),
+    rename_provider: Some(OneOf::Right(RenameOptions {
+        prepare_provider: Some(true),
+        work_done_progress_options: Default::default(),
+    })),
     folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
     selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
     inlay_hint_provider: Some(OneOf::Left(true)),
