@@ -1063,6 +1063,41 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
         }
     };
     let pos = params.text_document_position.position;
+
+    if let Some(tag) = find_tag_at_position(note, pos) {
+        let old_name = tag.name.clone();
+        let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
+
+        // Current note first (handles disk-parse fallback where note is not indexed).
+        let uri = path_to_uri(&path);
+        for t in note.frontmatter.iter().flat_map(|fm| &fm.tags) {
+            if t.name.eq_ignore_ascii_case(&old_name) {
+                changes.entry(uri.clone()).or_default().push(TextEdit {
+                    range: t.range,
+                    new_text: params.new_name.clone(),
+                });
+            }
+        }
+
+        // All other indexed notes carrying this tag.
+        for other in index.notes_by_tag(&old_name) {
+            if other.path == path {
+                continue;
+            }
+            let other_uri = path_to_uri(&other.path);
+            for t in other.frontmatter.iter().flat_map(|fm| &fm.tags) {
+                if t.name.eq_ignore_ascii_case(&old_name) {
+                    changes
+                        .entry(other_uri.clone())
+                        .or_default()
+                        .push(TextEdit { range: t.range, new_text: params.new_name.clone() });
+                }
+            }
+        }
+
+        return Some(WorkspaceEdit { changes: Some(changes), ..Default::default() });
+    }
+
     let heading = note
         .headings
         .iter()
@@ -2467,6 +2502,116 @@ mod tests {
         idx.seed(note("/vault/a.md", "# Old Heading\n\nsome prose\n"));
         let params = make_rename_heading_params("/vault/a.md", 2, 0, "New Heading");
         assert!(handle_rename(params, &idx).is_none());
+    }
+
+    // ── rename_tag ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn rename_tag_updates_all_notes() {
+        // Two notes each carrying `tags: rust`; rename should produce edits for both.
+        let content_a = "---\ntags: rust\n---\n";
+        let content_b = "---\ntags: rust\n---\n";
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content_a));
+        idx.seed(note("/vault/b.md", content_b));
+        // cursor on `rust` in a.md (line 1, char 6)
+        let params = make_rename_heading_params("/vault/a.md", 1, 7, "systems");
+        let edit = handle_rename(params, &idx).expect("expected Some");
+        let changes = edit.changes.unwrap();
+        assert!(changes.contains_key(&file_uri("/vault/a.md")), "a.md missing");
+        assert!(changes.contains_key(&file_uri("/vault/b.md")), "b.md missing");
+    }
+
+    #[test]
+    fn rename_tag_case_insensitive_match() {
+        // Notes with different casings of the same tag are all included.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\ntags: rust\n---\n"));
+        idx.seed(note("/vault/b.md", "---\ntags: Rust\n---\n"));
+        idx.seed(note("/vault/c.md", "---\ntags: RUST\n---\n"));
+        let params = make_rename_heading_params("/vault/a.md", 1, 7, "systems");
+        let edit = handle_rename(params, &idx).expect("expected Some");
+        let changes = edit.changes.unwrap();
+        assert!(changes.contains_key(&file_uri("/vault/a.md")), "a.md missing");
+        assert!(changes.contains_key(&file_uri("/vault/b.md")), "b.md missing");
+        assert!(changes.contains_key(&file_uri("/vault/c.md")), "c.md missing");
+    }
+
+    #[test]
+    fn rename_tag_replaces_correct_range() {
+        // The TextEdit range must match the tag's parsed range, not a heading range.
+        let content = "---\ntags: rust\n---\n";
+        let tag_range = note("/vault/a.md", content)
+            .frontmatter.as_ref().unwrap().tags[0].range;
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let params = make_rename_heading_params("/vault/a.md", 1, 7, "systems");
+        let edit = handle_rename(params, &idx).expect("expected Some");
+        let changes = edit.changes.unwrap();
+        let edits = &changes[&file_uri("/vault/a.md")];
+        assert!(
+            edits.iter().any(|e| e.range == tag_range && e.new_text == "systems"),
+            "expected edit at tag range"
+        );
+    }
+
+    #[test]
+    fn rename_tag_only_matching_tag_edited() {
+        // A sibling tag `go` in the same file must not be included in the edits.
+        let content = "---\ntags: [rust, go]\n---\n";
+        let parsed = note("/vault/a.md", content);
+        let fm = parsed.frontmatter.as_ref().unwrap();
+        let go_range = fm.tags[1].range;
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        // cursor on `rust` (first tag, line 1, char 7)
+        let params = make_rename_heading_params("/vault/a.md", 1, 7, "systems");
+        let edit = handle_rename(params, &idx).expect("expected Some");
+        let changes = edit.changes.unwrap();
+        let edits = &changes[&file_uri("/vault/a.md")];
+        assert!(
+            !edits.iter().any(|e| e.range == go_range),
+            "sibling tag `go` must not be edited"
+        );
+    }
+
+    #[test]
+    fn rename_tag_current_note_always_included() {
+        // When the current note is not in the index (disk-only), it is still updated.
+        let content = "---\ntags: rust\n---\n";
+        let path = write_temp("knap_test_rn_tag_disk.md", content);
+        let tag_range = note(path.to_str().unwrap(), content)
+            .frontmatter.as_ref().unwrap().tags[0].range;
+        let idx = NoteIndex::default(); // empty index
+        let params = make_rename_heading_params(path.to_str().unwrap(), 1, 7, "systems");
+        let edit = handle_rename(params, &idx).expect("expected Some");
+        std::fs::remove_file(&path).ok();
+        let changes = edit.changes.unwrap();
+        let uri = path_to_uri(&path);
+        let edits = changes.get(&uri).expect("expected edits for disk-only note");
+        assert!(
+            edits.iter().any(|e| e.range == tag_range && e.new_text == "systems"),
+            "disk-only note must be updated"
+        );
+    }
+
+    #[test]
+    fn rename_heading_unchanged_by_tag_branch() {
+        // Cursor on a heading in a note that also has tags — heading rename must still work.
+        let content = "---\ntags: rust\n---\n\n# Old Heading\n";
+        let parsed = note("/vault/a.md", content);
+        let heading_text_range = parsed.headings[0].text_range;
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        // heading is on line 4 (0-based); cursor on the heading text
+        let params = make_rename_heading_params("/vault/a.md", 4, 5, "New Heading");
+        let edit = handle_rename(params, &idx).expect("expected Some");
+        let changes = edit.changes.unwrap();
+        let edits = &changes[&file_uri("/vault/a.md")];
+        assert!(
+            edits.iter().any(|e| e.range == heading_text_range && e.new_text == "New Heading"),
+            "heading text edit missing"
+        );
     }
 
     // ── disk-fallback (issue #2) ──────────────────────────────────────────────

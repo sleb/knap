@@ -13,8 +13,8 @@ untested code for the next step to build on.
 
 | Step                       | Status | Notes |
 | -------------------------- | ------ | ----- |
-| 1 — Extend `prepareRename` | Todo   |       |
-| 2 — Extend `rename`        | Todo   |       |
+| 1 — Extend `prepareRename` | Done   |       |
+| 2 — Extend `rename`        | Done   |       |
 | 3 — Integration tests      | Todo   |       |
 
 ---
