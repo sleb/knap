@@ -14,9 +14,11 @@ use lsp_types::{
     DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWatchedFilesRegistrationOptions, DidOpenTextDocumentParams, DocumentSymbolParams,
     FileChangeType, FileOperationFilter, FileOperationPattern, FileOperationRegistrationOptions,
-    FileSystemWatcher, GlobPattern, GotoDefinitionParams, InitializeParams, InitializeResult,
-    OneOf, ReferenceParams, Registration, RegistrationParams, RelativePattern, RenameFilesParams,
-    RenameOptions, RenameParams, ServerCapabilities, ServerInfo, TextDocumentPositionParams,
+    FileSystemWatcher, FoldingRangeParams, FoldingRangeProviderCapability, GlobPattern,
+    GotoDefinitionParams, InlayHintParams, InlayHintServerCapabilities, InitializeParams,
+    InitializeResult, OneOf, ReferenceParams, Registration, RegistrationParams, RelativePattern,
+    RenameFilesParams, RenameOptions, RenameParams, SelectionRangeParams,
+    SelectionRangeProviderCapability, ServerCapabilities, ServerInfo, TextDocumentPositionParams,
     TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
     WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
@@ -168,6 +170,11 @@ pub fn run(connection: Connection) -> Result<()> {
         }),
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
         code_lens_provider: Some(CodeLensOptions { resolve_provider: Some(false) }),
+        folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+        selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+        inlay_hint_provider: Some(OneOf::Right(InlayHintServerCapabilities::Options(
+            Default::default(),
+        ))),
         definition_provider: Some(OneOf::Left(true)),
         references_provider: Some(OneOf::Left(true)),
         document_symbol_provider: Some(OneOf::Left(true)),
@@ -295,6 +302,33 @@ fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex, co
             connection
                 .sender
                 .send(Message::Response(Response::new_ok(req.id, lenses)))?;
+        }
+        "textDocument/foldingRange" => {
+            let ranges = serde_json::from_value::<FoldingRangeParams>(req.params)
+                .ok()
+                .map(|params| handlers::handle_folding_ranges(params, index))
+                .unwrap_or_default();
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, ranges)))?;
+        }
+        "textDocument/selectionRange" => {
+            let ranges = serde_json::from_value::<SelectionRangeParams>(req.params)
+                .ok()
+                .map(|params| handlers::handle_selection_range(params, index))
+                .unwrap_or_default();
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, ranges)))?;
+        }
+        "textDocument/inlayHint" => {
+            let hints = serde_json::from_value::<InlayHintParams>(req.params)
+                .ok()
+                .map(|params| handlers::handle_inlay_hints(params, index))
+                .unwrap_or_default();
+            connection
+                .sender
+                .send(Message::Response(Response::new_ok(req.id, hints)))?;
         }
         "textDocument/codeAction" => {
             let actions = serde_json::from_value::<CodeActionParams>(req.params)
