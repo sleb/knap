@@ -1197,45 +1197,94 @@ fn new_note_path(link_target: &str, source: &Path, config: &crate::server::Confi
 
 // ─── Code Lens ────────────────────────────────────────────────────────────────
 
-/// Returns a single `↑ N backlinks` code lens at line 0 for any note that has
-/// at least one incoming link. Returns an empty vec for orphan notes.
+/// Returns a `↑ N backlinks` code lens at line 0 (when there are backlinks) and
+/// per-heading `↑ N anchor links` lenses for headings that have incoming anchor
+/// references.
 pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec<CodeLens> {
     let Some(path) = uri_to_path(&params.text_document.uri) else {
         return vec![];
     };
-    if index.get_note(&path).is_none() {
+    let Some(note) = index.get_note(&path) else {
         return vec![];
-    }
-    let backlinks = index.links_to(&path);
-    if backlinks.is_empty() {
-        return vec![];
-    }
-
-    let count = backlinks.len();
-    let locations: Vec<Location> = backlinks
-        .iter()
-        .map(|l| Location {
-            uri: path_to_uri(&l.source_path),
-            range: l.md_link.range,
-        })
-        .collect();
-
-    let anchor = Position { line: 0, character: 0 };
-    let command = Command {
-        title: format!("↑ {} backlink{}", count, if count == 1 { "" } else { "s" }),
-        command: "editor.action.showReferences".to_string(),
-        arguments: Some(vec![
-            serde_json::to_value(path_to_uri(&path)).expect("URI is serializable"),
-            serde_json::to_value(anchor).expect("Position is serializable"),
-            serde_json::to_value(&locations).expect("Locations are serializable"),
-        ]),
     };
 
-    vec![CodeLens {
-        range: Range { start: anchor, end: anchor },
-        command: Some(command),
-        data: None,
-    }]
+    let mut lenses: Vec<CodeLens> = Vec::new();
+
+    // ── Backlinks lens at line 0 ─────────────────────────────────────────────
+    let backlinks = index.links_to(&path);
+    if !backlinks.is_empty() {
+        let count = backlinks.len();
+        let locations: Vec<Location> = backlinks
+            .iter()
+            .map(|l| Location {
+                uri: path_to_uri(&l.source_path),
+                range: l.md_link.range,
+            })
+            .collect();
+
+        let anchor = Position { line: 0, character: 0 };
+        let command = Command {
+            title: format!("↑ {} backlink{}", count, if count == 1 { "" } else { "s" }),
+            command: "editor.action.showReferences".to_string(),
+            arguments: Some(vec![
+                serde_json::to_value(path_to_uri(&path)).expect("URI is serializable"),
+                serde_json::to_value(anchor).expect("Position is serializable"),
+                serde_json::to_value(&locations).expect("Locations are serializable"),
+            ]),
+        };
+        lenses.push(CodeLens {
+            range: Range { start: anchor, end: anchor },
+            command: Some(command),
+            data: None,
+        });
+    }
+
+    // ── Per-heading anchor-link lenses ───────────────────────────────────────
+    for heading in &note.headings {
+        let heading_slug = slug(&heading.text);
+
+        // Same-file bare anchor links targeting this heading.
+        let same_file_locs: Vec<Location> = note.md_links.iter()
+            .filter(|l| {
+                l.target.is_empty()
+                    && l.anchor.as_deref().map(slug).as_deref()
+                        == Some(heading_slug.as_str())
+            })
+            .map(|l| Location { uri: path_to_uri(&path), range: l.range })
+            .collect();
+
+        // Cross-file anchor links targeting this heading.
+        let cross_file_locs: Vec<Location> = index.links_to(&path).iter()
+            .filter(|l| {
+                l.md_link.anchor.as_deref().map(slug).as_deref()
+                    == Some(heading_slug.as_str())
+            })
+            .map(|l| Location { uri: path_to_uri(&l.source_path), range: l.md_link.range })
+            .collect();
+
+        let all_locs: Vec<Location> = same_file_locs.into_iter().chain(cross_file_locs).collect();
+        if all_locs.is_empty() {
+            continue;
+        }
+
+        let count = all_locs.len();
+        let command = Command {
+            title: format!("↑ {} anchor link{}", count, if count == 1 { "" } else { "s" }),
+            command: "editor.action.showReferences".to_string(),
+            arguments: Some(vec![
+                serde_json::to_value(path_to_uri(&path)).expect("URI serializable"),
+                serde_json::to_value(heading.range.start).expect("Position serializable"),
+                serde_json::to_value(&all_locs).expect("Locations serializable"),
+            ]),
+        };
+        lenses.push(CodeLens {
+            range: Range { start: heading.range.start, end: heading.range.start },
+            command: Some(command),
+            data: None,
+        });
+    }
+
+    lenses
 }
 
 // ─── Folding Ranges ───────────────────────────────────────────────────────────
@@ -3191,6 +3240,106 @@ mod tests {
         let lenses = handle_code_lens(make_code_lens_params("/vault/b.md"), &idx);
         let cmd = lenses[0].command.as_ref().unwrap();
         assert_eq!(cmd.command, "editor.action.showReferences");
+    }
+
+    // ── per-heading anchor-link lenses ────────────────────────────────────────
+
+    #[test]
+    fn code_lens_heading_same_file_anchors() {
+        // a.md has a heading and a bare anchor link pointing to it in the same file.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# My Section\n\n[link](#my-section)\n"));
+        let lenses = handle_code_lens(make_code_lens_params("/vault/a.md"), &idx);
+        // Expect one heading lens (no backlinks, so no backlinks lens)
+        assert_eq!(lenses.len(), 1, "should have one heading lens for the same-file anchor");
+        let cmd = lenses[0].command.as_ref().unwrap();
+        assert_eq!(cmd.title, "↑ 1 anchor link");
+        let args = cmd.arguments.as_ref().unwrap();
+        let locations: Vec<Location> = serde_json::from_value(args[2].clone()).unwrap();
+        assert_eq!(locations.len(), 1);
+        assert!(locations[0].uri.as_str().ends_with("a.md"));
+    }
+
+    #[test]
+    fn code_lens_heading_cross_file_anchors() {
+        // b.md has a heading; a.md links to it cross-file with an anchor.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "# My Section\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md#my-section)\n"));
+        let lenses = handle_code_lens(make_code_lens_params("/vault/b.md"), &idx);
+        // Expect a backlinks lens (a.md links to b.md) AND a heading lens.
+        let heading_lens = lenses
+            .iter()
+            .find(|l| {
+                l.command
+                    .as_ref()
+                    .map(|c| c.title.contains("anchor link"))
+                    .unwrap_or(false)
+            })
+            .expect("should have a heading anchor-link lens");
+        let cmd = heading_lens.command.as_ref().unwrap();
+        assert_eq!(cmd.title, "↑ 1 anchor link");
+        let args = cmd.arguments.as_ref().unwrap();
+        let locations: Vec<Location> = serde_json::from_value(args[2].clone()).unwrap();
+        assert_eq!(locations.len(), 1);
+        assert!(locations[0].uri.as_str().ends_with("a.md"));
+    }
+
+    #[test]
+    fn code_lens_heading_no_anchors_no_lens() {
+        // a.md has a heading but no anchor links pointing to it.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# My Section\n\nsome prose\n"));
+        let lenses = handle_code_lens(make_code_lens_params("/vault/a.md"), &idx);
+        // No backlinks and no anchor links → no lenses at all.
+        assert!(lenses.is_empty(), "heading with no anchor links should produce no lens");
+    }
+
+    #[test]
+    fn code_lens_heading_lens_at_heading_line() {
+        // The heading lens range.start should equal the heading's range.start.
+        let content = "# My Section\n\n[link](#my-section)\n";
+        let heading_start = note("/vault/a.md", content).headings[0].range.start;
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", content));
+        let lenses = handle_code_lens(make_code_lens_params("/vault/a.md"), &idx);
+        let heading_lens = lenses
+            .iter()
+            .find(|l| {
+                l.command
+                    .as_ref()
+                    .map(|c| c.title.contains("anchor link"))
+                    .unwrap_or(false)
+            })
+            .expect("should have a heading lens");
+        assert_eq!(
+            heading_lens.range.start, heading_start,
+            "heading lens range.start should equal the heading's range.start"
+        );
+    }
+
+    #[test]
+    fn code_lens_backlinks_lens_still_present() {
+        // b.md has a heading; a.md links to b.md (backlink) and b.md has a self-anchor.
+        // Both the backlinks lens and the heading anchor-link lens must be returned.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "# Section\n\n[self](#section)\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md)\n"));
+        let lenses = handle_code_lens(make_code_lens_params("/vault/b.md"), &idx);
+        let has_backlinks = lenses.iter().any(|l| {
+            l.command
+                .as_ref()
+                .map(|c| c.title.contains("backlink"))
+                .unwrap_or(false)
+        });
+        let has_anchor = lenses.iter().any(|l| {
+            l.command
+                .as_ref()
+                .map(|c| c.title.contains("anchor link"))
+                .unwrap_or(false)
+        });
+        assert!(has_backlinks, "backlinks lens must still be present");
+        assert!(has_anchor, "heading anchor-link lens must also be present");
     }
 
     // ── same-file anchor completions (US-51) ──────────────────────────────────
