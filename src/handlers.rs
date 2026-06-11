@@ -11,6 +11,7 @@ use lsp_types::{
     CreateFileOptions, Diagnostic, DiagnosticSeverity, DocumentChangeOperation, DocumentChanges,
     DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeKind,
     FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse,
+    InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams,
     Location, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
     RenameFilesParams, RenameParams, ResourceOp, SelectionRange, SelectionRangeParams,
     SymbolInformation, SymbolKind,
@@ -1553,6 +1554,65 @@ pub(crate) fn handle_selection_range(
         .iter()
         .map(|&pos| build_selection_chain(pos, note))
         .collect()
+}
+
+// ─── Inlay Hints ──────────────────────────────────────────────────────────────
+
+#[allow(dead_code)] // wired up in Step 3 (src/server/mod.rs)
+fn range_contains_position(range: &Range, pos: Position) -> bool {
+    (pos.line > range.start.line
+        || (pos.line == range.start.line && pos.character >= range.start.character))
+        && (pos.line < range.end.line
+            || (pos.line == range.end.line && pos.character <= range.end.character))
+}
+
+/// Handle `textDocument/inlayHint`: show the resolved note title after each
+/// link target within the requested visible range.
+#[allow(dead_code)] // wired up in Step 3 (src/server/mod.rs)
+pub(crate) fn handle_inlay_hints(params: InlayHintParams, index: &NoteIndex) -> Vec<InlayHint> {
+    let Some(path) = uri_to_path(&params.text_document.uri) else {
+        return vec![];
+    };
+    let Some(note) = index.get_note(&path) else {
+        return vec![];
+    };
+
+    let mut hints = Vec::new();
+
+    for link in &note.md_links {
+        if link.target.is_empty() {
+            continue;
+        }
+        if index::is_url_like(&link.target) {
+            continue;
+        }
+        let ResolvedLink::Found(target_path) = index.resolve(&path, &link.target) else {
+            continue;
+        };
+        let Some(title) = index
+            .get_note(&target_path)
+            .and_then(|n| n.frontmatter.as_ref())
+            .and_then(|fm| fm.title.as_deref())
+        else {
+            continue;
+        };
+        let position = link.target_range.end;
+        if !range_contains_position(&params.range, position) {
+            continue;
+        }
+        hints.push(InlayHint {
+            position,
+            label: InlayHintLabel::String(format!("-> {title}")),
+            kind: Some(InlayHintKind::TYPE),
+            text_edits: None,
+            tooltip: None,
+            padding_left: None,
+            padding_right: None,
+            data: None,
+        });
+    }
+
+    hints
 }
 
 // ─── URI utilities ────────────────────────────────────────────────────────────
@@ -3734,6 +3794,23 @@ mod tests {
         }
     }
 
+    // ── handle_inlay_hints ────────────────────────────────────────────────────
+
+    fn make_inlay_hint_params(path: &str, range: Range) -> InlayHintParams {
+        InlayHintParams {
+            work_done_progress_params: Default::default(),
+            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            range,
+        }
+    }
+
+    fn full_range() -> Range {
+        Range {
+            start: Position { line: 0, character: 0 },
+            end: Position { line: 9999, character: 9999 },
+        }
+    }
+
     #[test]
     fn folding_h2_section_spans_to_next_h2() {
         // Line 0: ## First
@@ -3977,5 +4054,74 @@ mod tests {
         let params = make_selection_range_params("/vault/a.md", positions.clone());
         let result = handle_selection_range(params, &idx);
         assert_eq!(result.len(), positions.len(), "result vec must match positions length");
+    }
+
+    #[test]
+    fn inlay_hint_shows_title() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntitle: My Note\n---\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md)"));
+        let target_range = note("/vault/a.md", "[link](b.md)").md_links[0].target_range;
+        let params = make_inlay_hint_params("/vault/a.md", full_range());
+        let hints = handle_inlay_hints(params, &idx);
+        assert_eq!(hints.len(), 1);
+        assert_eq!(hints[0].position, target_range.end);
+    }
+
+    #[test]
+    fn inlay_hint_label_is_title_string() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntitle: My Note\n---\n"));
+        idx.seed(note("/vault/a.md", "[link](b.md)"));
+        let params = make_inlay_hint_params("/vault/a.md", full_range());
+        let hints = handle_inlay_hints(params, &idx);
+        assert_eq!(hints.len(), 1);
+        match &hints[0].label {
+            InlayHintLabel::String(s) => assert_eq!(s, "-> My Note"),
+            _ => panic!("expected InlayHintLabel::String"),
+        }
+    }
+
+    #[test]
+    fn inlay_hint_omits_note_without_title() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "no frontmatter here"));
+        idx.seed(note("/vault/a.md", "[link](b.md)"));
+        let params = make_inlay_hint_params("/vault/a.md", full_range());
+        let hints = handle_inlay_hints(params, &idx);
+        assert!(hints.is_empty(), "note without title should produce no hints");
+    }
+
+    #[test]
+    fn inlay_hint_omits_broken_link() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](missing.md)"));
+        let params = make_inlay_hint_params("/vault/a.md", full_range());
+        let hints = handle_inlay_hints(params, &idx);
+        assert!(hints.is_empty(), "broken link should produce no hints");
+    }
+
+    #[test]
+    fn inlay_hint_omits_url() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](https://example.com)"));
+        let params = make_inlay_hint_params("/vault/a.md", full_range());
+        let hints = handle_inlay_hints(params, &idx);
+        assert!(hints.is_empty(), "external URL link should produce no hints");
+    }
+
+    #[test]
+    fn inlay_hint_filtered_by_range() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "---\ntitle: My Note\n---\n"));
+        // The link is on line 0; request only line 1+
+        idx.seed(note("/vault/a.md", "[link](b.md)"));
+        let narrow_range = Range {
+            start: Position { line: 1, character: 0 },
+            end: Position { line: 9999, character: 9999 },
+        };
+        let params = make_inlay_hint_params("/vault/a.md", narrow_range);
+        let hints = handle_inlay_hints(params, &idx);
+        assert!(hints.is_empty(), "hint outside requested range should be excluded");
     }
 }
