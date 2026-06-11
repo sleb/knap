@@ -1254,7 +1254,7 @@ pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec
             .collect();
 
         // Cross-file anchor links targeting this heading.
-        let cross_file_locs: Vec<Location> = index.links_to(&path).iter()
+        let cross_file_locs: Vec<Location> = backlinks.iter()
             .filter(|l| {
                 l.md_link.anchor.as_deref().map(slug).as_deref()
                     == Some(heading_slug.as_str())
@@ -1291,7 +1291,6 @@ pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec
 
 /// Returns the zero-based line number of the last non-empty line in `content`.
 /// Returns 0 when `content` is empty or all-whitespace.
-#[allow(dead_code)] // wired up in Step 3 (server/mod.rs)
 fn last_content_line(content: &str) -> u32 {
     content
         .lines()
@@ -1303,7 +1302,6 @@ fn last_content_line(content: &str) -> u32 {
 }
 
 /// Handle `textDocument/foldingRange`: heading sections and fenced code blocks.
-#[allow(dead_code)] // wired up in Step 3 (server/mod.rs)
 pub(crate) fn handle_folding_ranges(
     params: FoldingRangeParams,
     index: &NoteIndex,
@@ -1354,7 +1352,6 @@ pub(crate) fn handle_folding_ranges(
 /// Returns the UTF-16 range of the word (maximal run of `\w`-like chars:
 /// alphanumeric + underscore) at `cursor_char` on `line`.
 /// Returns `None` if the cursor is on whitespace or punctuation.
-#[allow(dead_code)] // called from handle_selection_range; wired to server in Step 3
 fn word_range_at(line: &str, cursor_char: u32, line_num: u32) -> Option<Range> {
     // Convert cursor UTF-16 offset to byte offset.
     let cursor_byte = utf16_to_byte_offset(line, cursor_char);
@@ -1396,7 +1393,6 @@ fn word_range_at(line: &str, cursor_char: u32, line_num: u32) -> Option<Range> {
 
 /// Scans backward/forward from `cursor_line` to the nearest blank lines or
 /// document boundaries, returning the range of the enclosing paragraph.
-#[allow(dead_code)] // called from handle_selection_range; wired to server in Step 3
 fn paragraph_range(content: &str, cursor_line: u32) -> Range {
     let lines: Vec<&str> = content.lines().collect();
     let total = lines.len() as u32;
@@ -1450,7 +1446,6 @@ fn paragraph_range(content: &str, cursor_line: u32) -> Range {
 /// Section extends from the heading line down to the line before the next
 /// heading at the same or shallower level, or end of document.
 /// Returns `None` if the cursor is not within any heading section.
-#[allow(dead_code)] // called from handle_selection_range; wired to server in Step 3
 fn heading_section_range(content: &str, headings: &[crate::parser::Heading], cursor_line: u32) -> Option<Range> {
     // Find the innermost heading that starts at or before cursor_line.
     let heading = headings
@@ -1508,7 +1503,6 @@ fn heading_section_range(content: &str, headings: &[crate::parser::Heading], cur
 /// Build a `SelectionRange` chain (innermost → outermost) for a single cursor
 /// position. The chain is: word? → link? → paragraph → section? → document.
 /// Adjacent duplicate ranges are collapsed.
-#[allow(dead_code)] // called from handle_selection_range; wired to server in Step 3
 fn build_selection_chain(
     pos: Position,
     note: &crate::parser::Note,
@@ -1586,7 +1580,6 @@ fn build_selection_chain(
 
 /// Handle `textDocument/selectionRange`: for each position, compute a nested
 /// selection range chain from innermost to outermost.
-#[allow(dead_code)] // wired to server dispatcher in Step 3
 pub(crate) fn handle_selection_range(
     params: SelectionRangeParams,
     index: &NoteIndex,
@@ -1607,7 +1600,6 @@ pub(crate) fn handle_selection_range(
 
 // ─── Inlay Hints ──────────────────────────────────────────────────────────────
 
-#[allow(dead_code)] // wired up in Step 3 (src/server/mod.rs)
 fn range_contains_position(range: &Range, pos: Position) -> bool {
     (pos.line > range.start.line
         || (pos.line == range.start.line && pos.character >= range.start.character))
@@ -1617,7 +1609,6 @@ fn range_contains_position(range: &Range, pos: Position) -> bool {
 
 /// Handle `textDocument/inlayHint`: show the resolved note title after each
 /// link target within the requested visible range.
-#[allow(dead_code)] // wired up in Step 3 (src/server/mod.rs)
 pub(crate) fn handle_inlay_hints(params: InlayHintParams, index: &NoteIndex) -> Vec<InlayHint> {
     let Some(path) = uri_to_path(&params.text_document.uri) else {
         return vec![];
