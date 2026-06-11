@@ -2044,3 +2044,86 @@ fn code_lens_heading_round_trip() {
 
     do_shutdown(&client, 3);
 }
+
+// ─── v0.10 Integration tests ─────────────────────────────────────────────────
+
+/// `textDocument/prepareRename` on a frontmatter tag returns the tag's range
+/// and name as placeholder.
+#[test]
+fn prepare_rename_tag_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // Line 0: ---
+    // Line 1: tags: rust
+    // Line 2: ---
+    did_open(&client, "file:///vault/a.md", "---\ntags: rust\n---\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/prepareRename",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 1, "character": 7 }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+
+    assert!(!result.is_null(), "expected non-null prepareRename for tag");
+    assert!(result.get("range").is_some(), "expected 'range' field");
+    assert_eq!(
+        result["placeholder"].as_str(),
+        Some("rust"),
+        "placeholder should be the tag name"
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/rename` on a frontmatter tag returns a workspace edit
+/// covering every file that carries that tag.
+#[test]
+fn rename_tag_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // Two notes each carrying the tag "rust".
+    // Line 0: ---
+    // Line 1: tags: rust
+    // Line 2: ---
+    did_open(&client, "file:///vault/a.md", "---\ntags: rust\n---\n");
+    did_open(&client, "file:///vault/b.md", "---\ntags: rust\n---\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/rename",
+        json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "position": { "line": 1, "character": 7 },
+            "newName": "systems"
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: serde_json::Value =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+
+    let a_edits = result["changes"]["file:///vault/a.md"]
+        .as_array()
+        .expect("expected edits for a.md");
+    assert_eq!(a_edits.len(), 1);
+    assert_eq!(a_edits[0]["newText"].as_str(), Some("systems"));
+
+    let b_edits = result["changes"]["file:///vault/b.md"]
+        .as_array()
+        .expect("expected edits for b.md");
+    assert_eq!(b_edits.len(), 1);
+    assert_eq!(b_edits[0]["newText"].as_str(), Some("systems"));
+
+    do_shutdown(&client, 3);
+}

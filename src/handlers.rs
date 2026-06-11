@@ -1066,6 +1066,7 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
 
     if let Some(tag) = find_tag_at_position(note, pos) {
         let old_name = tag.name.clone();
+        let new_name = params.new_name.clone();
         let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
 
         // Current note first (handles disk-parse fallback where note is not indexed).
@@ -1074,7 +1075,7 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
             if t.name.eq_ignore_ascii_case(&old_name) {
                 changes.entry(uri.clone()).or_default().push(TextEdit {
                     range: t.range,
-                    new_text: params.new_name.clone(),
+                    new_text: new_name.clone(),
                 });
             }
         }
@@ -1090,7 +1091,7 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
                     changes
                         .entry(other_uri.clone())
                         .or_default()
-                        .push(TextEdit { range: t.range, new_text: params.new_name.clone() });
+                        .push(TextEdit { range: t.range, new_text: new_name.clone() });
                 }
             }
         }

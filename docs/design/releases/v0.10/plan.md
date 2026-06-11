@@ -15,7 +15,7 @@ untested code for the next step to build on.
 | -------------------------- | ------ | ----- |
 | 1 — Extend `prepareRename` | Done   |       |
 | 2 — Extend `rename`        | Done   |       |
-| 3 — Integration tests      | Todo   |       |
+| 3 — Integration tests      | Done   |       |
 
 ---
 
