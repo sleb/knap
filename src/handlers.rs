@@ -11,7 +11,7 @@ use lsp_types::{
     CreateFileOptions, Diagnostic, DiagnosticSeverity, DocumentChangeOperation, DocumentChanges,
     DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeKind,
     FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse,
-    InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams,
+    InlayHint, InlayHintLabel, InlayHintParams,
     Location, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
     RenameFilesParams, RenameParams, ResourceOp, SelectionRange, SelectionRangeParams,
     SymbolInformation, SymbolKind,
@@ -1643,7 +1643,7 @@ pub(crate) fn handle_inlay_hints(params: InlayHintParams, index: &NoteIndex) -> 
         hints.push(InlayHint {
             position,
             label: InlayHintLabel::String(format!("-> {title}")),
-            kind: Some(InlayHintKind::TYPE),
+            kind: None,
             text_edits: None,
             tooltip: None,
             padding_left: None,
