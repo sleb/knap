@@ -20,8 +20,8 @@ from v0.1 alone and accumulate more with each release.
 | [v0.8](#v08--frontmatter-schema-released-2026-06-09)                      | Frontmatter Schema                   | Released 2026-06-09 |
 | [v0.9](#v09--editor-experience-released-2026-06-10)                       | Editor Experience                    | Released 2026-06-10 |
 | [v0.10](#v010--tag-rename)                                                | Tag Rename                           | Planned             |
-| [v0.11](#v011--extract-to-new-note)                                       | Extract to New Note                  | Planned             |
-| [v0.12](#v012--daily-notes)                                               | Daily Notes                          | Planned             |
+| [v0.11](#v011--daily-notes)                                               | Daily Notes                          | Planned             |
+| [v0.12](#v012--extract-to-new-note)                                       | Extract to New Note                  | Planned             |
 
 ---
 

@@ -47,7 +47,7 @@ from the code.
 
 ## Architecture
 
-See `docs/ARCHITECTURE.md` for the full component design, data flows, and
+See [ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full component design, data flows, and
 invariants.
 
 ## Testing
