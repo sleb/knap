@@ -1896,3 +1896,151 @@ fn test_no_schema_no_extra_diagnostics() {
 
     do_shutdown(&client, 3);
 }
+
+// ─── v0.9 Integration tests ───────────────────────────────────────────────────
+
+/// `textDocument/foldingRange` returns fold regions for headings and fenced blocks.
+#[test]
+fn folding_ranges_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // Line 0: ## First, Line 1: content, Line 2: ## Second, Line 3: ``` (fence start),
+    // Line 4: code, Line 5: ``` (fence end)
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "## First\ncontent\n## Second\n```\ncode\n```\n",
+    );
+
+    send_request(
+        &client,
+        2,
+        "textDocument/foldingRange",
+        serde_json::json!({ "textDocument": { "uri": "file:///vault/a.md" } }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let ranges: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+
+    assert!(!ranges.is_empty(), "expected at least one fold region");
+    // ## First (line 0) ends at line 1 (before ## Second at line 2)
+    let first = ranges.iter().find(|r| r["startLine"] == 0);
+    assert!(first.is_some(), "expected a fold starting at line 0");
+    assert_eq!(first.unwrap()["endLine"], 1, "## First section should end at line 1");
+    // Code fence (line 3..5) should appear
+    let fence = ranges.iter().find(|r| r["startLine"] == 3);
+    assert!(fence.is_some(), "expected a fold for the code fence at line 3");
+    assert_eq!(fence.unwrap()["endLine"], 5, "code fence should end at line 5");
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/selectionRange` returns a correct selection chain for a given cursor.
+#[test]
+fn selection_range_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // Line 0: ## Heading, Line 1: (blank), Line 2: hello world
+    did_open(&client, "file:///vault/a.md", "## Heading\n\nhello world\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/selectionRange",
+        serde_json::json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "positions": [{ "line": 2, "character": 2 }]
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let result: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+
+    assert_eq!(result.len(), 1, "one position → one selection range chain");
+    // Outermost range must start at (0, 0)
+    let mut node = &result[0];
+    loop {
+        if node.get("parent").map(|p| !p.is_null()).unwrap_or(false) {
+            node = &node["parent"];
+        } else {
+            break;
+        }
+    }
+    assert_eq!(node["range"]["start"]["line"], 0, "outermost range must start at line 0");
+    assert_eq!(node["range"]["start"]["character"], 0);
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/inlayHint` returns hints for links whose targets have a `title:`.
+#[test]
+fn inlay_hints_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    did_open(&client, "file:///vault/b.md", "---\ntitle: My Note\n---\n");
+    did_open(&client, "file:///vault/a.md", "[link](b.md)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/inlayHint",
+        serde_json::json!({
+            "textDocument": { "uri": "file:///vault/a.md" },
+            "range": {
+                "start": { "line": 0, "character": 0 },
+                "end": { "line": 9999, "character": 9999 }
+            }
+        }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let hints: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+
+    assert_eq!(hints.len(), 1, "expected one inlay hint for the titled link");
+    let label = hints[0]["label"].as_str().unwrap_or("");
+    assert_eq!(label, "-> My Note");
+
+    do_shutdown(&client, 3);
+}
+
+/// `textDocument/codeLens` returns heading lenses alongside the backlinks lens.
+#[test]
+fn code_lens_heading_round_trip() {
+    let client = spawn_server();
+    do_initialize(&client);
+
+    // a.md has a heading "## Target" that b.md links to via bare anchor from the same file,
+    // and c.md links via cross-file anchor.
+    did_open(&client, "file:///vault/a.md", "## Target\ncontent\n[same](#target)\n");
+    did_open(&client, "file:///vault/b.md", "[link](a.md#target)\n");
+
+    send_request(
+        &client,
+        2,
+        "textDocument/codeLens",
+        serde_json::json!({ "textDocument": { "uri": "file:///vault/a.md" } }),
+    );
+
+    let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
+    let lenses: Vec<serde_json::Value> =
+        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+
+    // There should be a heading lens for "## Target" (2 anchor links total)
+    let heading_lens = lenses.iter().find(|l| {
+        l["command"]["title"]
+            .as_str()
+            .map(|t| t.contains("anchor"))
+            .unwrap_or(false)
+    });
+    assert!(heading_lens.is_some(), "expected a heading anchor lens; got: {lenses:?}");
+    let title = heading_lens.unwrap()["command"]["title"].as_str().unwrap_or("");
+    assert!(title.contains('2'), "heading lens should count 2 anchor links; got: {title}");
+
+    do_shutdown(&client, 3);
+}
