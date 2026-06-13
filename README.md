@@ -9,14 +9,12 @@ server for Markdown. It brings IDE-quality linking and navigation to any
 LSP-compatible editor — using standard Markdown syntax, no proprietary
 extensions.
 
-## Philosophy
+## What it does
 
 knap uses plain `[text](path/to/note.md)` links. Notes stay valid Markdown that
 renders correctly anywhere — GitHub, static site generators, other editors —
 without knap present. The tooling provides the convenience; the files stay clean.
 See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
-
-## What it does
 
 ### Linking & completions
 
