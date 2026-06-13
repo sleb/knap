@@ -42,8 +42,9 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 - **Value completions** — when a key has a `values` list, typing after the `:`
   offers allowed values as `VALUE` items with prefix filtering
 - **Schema diagnostics** — warnings for required keys that are absent, values
-  outside the allowed list (exact-case), and unknown keys (opt-in via
-  `warnOnUnknownKeys`)
+  outside the allowed list (exact-case), unknown keys (opt-in via
+  `warnOnUnknownKeys`), and notes missing a frontmatter block entirely (opt-in
+  via `requireFrontmatter`)
 
 ### Tags
 
@@ -100,9 +101,9 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 ### Workspace
 
 - Incremental index — stays live as files change, no restart needed
-- Configurable file extensions (e.g. `.md`, `.mdx`), new-note inbox folder
-  (`newNoteDir`), and frontmatter schema (`frontmatterSchema`) via
-  `initializationOptions`
+- Configurable via `initializationOptions`: file extensions (`extensions`,
+  e.g. `["md", "mdx"]`), new-note inbox folder (`newNoteDir`), and frontmatter
+  schema (`frontmatterSchema`)
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 Dedicated extensions are available for [VS Code](https://github.com/sleb/vscode-knap) and [Zed](https://github.com/sleb/zed-knap).
