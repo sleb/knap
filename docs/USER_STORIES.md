@@ -277,6 +277,10 @@ without a running editor.
 index built from a directory, including which links are found, broken, or
 unresolvable, so I can verify link resolution without a running editor.
 
+**US-D03** — As a developer, I can run `knap version` to print the version of
+the installed binary, so I can confirm which release is active without starting
+the LSP server.
+
 ---
 
 ## Deferred / Out of Scope

@@ -20,6 +20,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.8](#v08--frontmatter-schema-released-2026-06-09)                      | Frontmatter Schema                   | Released 2026-06-09 |
 | [v0.9](#v09--editor-experience-released-2026-06-10)                       | Editor Experience                    | Released 2026-06-10 |
 | [v0.10](#v010--tag-rename-released-2026-06-10)                            | Tag Rename                           | Released 2026-06-10 |
+| [v0.10.1](#v0101--version-subcommand-released-2026-06-14)                 | Version Subcommand                   | Released 2026-06-14 |
 | [v0.11](#v011--daily-notes)                                               | Daily Notes                          | Planned             |
 | [v0.12](#v012--extract-to-new-note)                                       | Extract to New Note                  | Planned             |
 
@@ -259,6 +260,16 @@ features to bare `#slug` links that target a heading in the same file.
 
 **LSP capabilities delivered:** `textDocument/rename` (tags),
 `textDocument/prepareRename` (tags)
+
+---
+
+## v0.10.1 — Version Subcommand _(released 2026-06-14)_
+
+**Goal:** Let users confirm the installed binary version without starting the LSP server.
+
+| Story  | Feature                                                        |
+| ------ | -------------------------------------------------------------- |
+| US-D03 | `knap version` — prints `knap <version>` and exits immediately |
 
 ---
 

@@ -222,6 +222,7 @@ LSP server startup.
 | `parse`    | `knap parse <file>` | v0.1           |
 | `index`    | `knap index <dir>`  | v0.1           |
 | `check`    | `knap check`        | v0.2           |
+| `version`  | `knap version`      | v0.10.1        |
 
 The CLI shares the same library crate as the server — `cmd_parse` calls
 `parser::parse` directly; `cmd_index` calls `index::build` directly; `cmd_check`

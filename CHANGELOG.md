@@ -5,6 +5,16 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.10.1] — 2026-06-14
+
+### Added
+
+- **`knap version` subcommand** — prints the installed version (`knap 0.10.1`)
+  without starting the LSP server, so you can confirm which release is active
+  from any terminal. (US-D03)
+
+---
+
 ## [0.10.0] — 2026-06-10
 
 ### Added

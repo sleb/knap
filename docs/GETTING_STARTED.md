@@ -41,11 +41,12 @@ cp target/release/knap ~/.local/bin/
 ### Verify
 
 ```bash
+knap version
 knap check
 ```
 
-Runs a built-in LSP smoke test. All checks should pass if the server is
-installed correctly.
+`knap version` prints the installed version. `knap check` runs a built-in LSP
+smoke test — all checks should pass if the server is installed correctly.
 
 ---
 
