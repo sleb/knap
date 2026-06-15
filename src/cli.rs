@@ -1,6 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::thread;
 
+pub fn cmd_version() {
+    println!("knap {}", env!("CARGO_PKG_VERSION"));
+}
+
 use crate::index::{self, ResolvedLink};
 use crate::parser;
 

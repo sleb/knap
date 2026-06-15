@@ -14,6 +14,10 @@ fn main() -> anyhow::Result<()> {
     if args.len() >= 2 && args[1] == "check" {
         return knap::cli::cmd_check();
     }
+    if args.len() >= 2 && args[1] == "version" {
+        knap::cli::cmd_version();
+        return Ok(());
+    }
 
     let (connection, io_threads) = lsp_server::Connection::stdio();
     knap::server::run(connection)?;
