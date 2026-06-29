@@ -4,7 +4,7 @@ version = "0.10.1"
 edition = "2024"
 
 [dependencies]
-lsp-server  = "0.7"
+lsp-server  = "0.8"
 lsp-types   = "0.97"
 pulldown-cmark = "0.13"
 serde       = { version = "1", features = ["derive"] }
