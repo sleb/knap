@@ -101,6 +101,79 @@ fn md_link_in_fenced_code_ignored() {
     assert!(md_links(content).is_empty());
 }
 
+// ── Markdown links — fallback for bare space-containing destinations ──────────
+//
+// pulldown-cmark never emits a Link event for a bare (unwrapped) destination
+// containing whitespace or parentheses — CommonMark requires such a
+// destination to be wrapped in `<...>`. knap's writers escape on insertion
+// (see `escape_link_target()` in src/handlers.rs), but users can still type
+// `[text](My File)` by hand; the fallback scanner in `find_fallback_links()`
+// recovers these as ordinary (likely broken) links instead of silently
+// dropping them as plain text.
+
+#[test]
+fn md_link_fallback_bare_space_target() {
+    let result = md_links("[link](My File)");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].text, "link");
+    assert_eq!(result[0].target, "My File");
+    assert_eq!(result[0].anchor, None);
+    assert!(!result[0].is_image);
+    assert_eq!(result[0].range, range((0, 0), (0, 15)));
+    assert_eq!(result[0].target_range, range((0, 7), (0, 14)));
+}
+
+#[test]
+fn md_link_fallback_bare_paren_target() {
+    let result = md_links("[link](file (1).md)");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].target, "file (1).md");
+}
+
+#[test]
+fn md_link_fallback_image_with_space() {
+    let result = md_links("![alt](My Image.png)");
+    assert_eq!(result.len(), 1);
+    assert!(result[0].is_image);
+    assert_eq!(result[0].target, "My Image.png");
+}
+
+#[test]
+fn md_link_fallback_with_anchor() {
+    let result = md_links("[link](My File#section)");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].target, "My File");
+    assert_eq!(result[0].anchor, Some("section".to_string()));
+}
+
+#[test]
+fn md_link_fallback_does_not_duplicate_valid_links() {
+    // A normal, already-valid link is parsed once by pulldown-cmark and must
+    // not also be picked up by the fallback scan.
+    let result = md_links("[text](path.md)");
+    assert_eq!(result.len(), 1);
+}
+
+#[test]
+fn md_link_fallback_skips_fenced_code() {
+    let content = "```\n[hidden](My File)\n```\n";
+    assert!(md_links(content).is_empty());
+}
+
+#[test]
+fn md_link_fallback_no_bracket_no_link() {
+    // No "](" pattern at all — must not spuriously match.
+    assert!(md_links("just [some] text (parens)").is_empty());
+}
+
+#[test]
+fn md_link_fallback_multiple_on_one_line() {
+    let result = md_links("[a](My A) and [b](My B)");
+    assert_eq!(result.len(), 2);
+    assert_eq!(result[0].target, "My A");
+    assert_eq!(result[1].target, "My B");
+}
+
 // ── Markdown links — range assertions ────────────────────────────────────────
 
 #[test]

@@ -50,6 +50,28 @@ fn test_resolve_url() {
     ));
 }
 
+#[test]
+fn test_resolve_escaped_target_with_space() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/My File.md", ""));
+    // A completion-inserted, angle-bracket-wrapped target must resolve to the
+    // real file, not to a literal "<My File.md>" path.
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "<My File.md>"),
+        ResolvedLink::Found(_)
+    ));
+}
+
+#[test]
+fn test_resolve_escaped_target_with_inner_angle_bracket() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/My <File>.md", ""));
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "<My \\<File\\>.md>"),
+        ResolvedLink::Found(_)
+    ));
+}
+
 // ── index / remove ───────────────────────────────────────────────────────────
 
 #[test]

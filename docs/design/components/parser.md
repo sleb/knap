@@ -221,11 +221,14 @@ fn extract_frontmatter_fields(
 ## extract_body_elements()
 
 A single pulldown-cmark pass over the post-frontmatter body that collects
-headings and standard Markdown links/images.
+headings and standard Markdown links/images, followed by a raw-text fallback
+scan (`find_fallback_links()`, below) for link-shaped spans pulldown-cmark
+didn't parse.
 
-pulldown-cmark parses standard Markdown links natively — no raw scanning needed.
-Each `Event::Start(Tag::Link { .. })` or `Event::Start(Tag::Image { .. })` event
-carries the destination URL and the byte range of the full link span.
+pulldown-cmark parses standard Markdown links natively for the common case —
+no raw scanning needed there. Each `Event::Start(Tag::Link { .. })` or
+`Event::Start(Tag::Image { .. })` event carries the destination URL and the
+byte range of the full link span.
 
 ```rust
 fn extract_body_elements(
@@ -250,7 +253,10 @@ For each link or image event, the destination is split on `#` to separate the
 path from the optional heading anchor. The byte range of the full `[text](url)`
 span is available from the event; `target_range` (path inside `()`) and
 `anchor_range` are derived by scanning the raw source bytes within that span to
-locate the `(` delimiter, the optional `#` separator, and the `)` closer.
+locate the `(` delimiter, the optional `#` separator, and the `)` closer. This
+target/anchor split is factored into a shared `split_link_destination()`
+helper, reused by the fallback scan below so both paths produce identical
+`MarkdownLink` shapes.
 
 **Edge cases handled:**
 
@@ -261,3 +267,50 @@ locate the `(` delimiter, the optional `#` separator, and the `)` closer.
 - Images (`![alt](path)`) — captured with `is_image: true`.
 - Links inside fenced code blocks and inline code spans — pulldown-cmark excludes
   these automatically; no special handling needed.
+
+### Fallback link scan: `find_fallback_links()`
+
+CommonMark requires a _bare_ (unwrapped) link destination to contain no
+whitespace, control characters, or parentheses — pulldown-cmark enforces this
+strictly: `[text](My File)` isn't truncated at the space, it isn't parsed as
+a link event **at all**, and falls through as plain `Text`. A user who types
+a link to a file whose name has a space in it (without knowing to wrap it in
+`<...>`) gets a link that's invisible to knap entirely — no broken-link
+diagnostic, no "Create note" quick action, nothing.
+
+`find_fallback_links()` runs once after the pulldown-cmark pass, over the raw
+body text, to recover exactly these spans:
+
+```rust
+fn find_fallback_links(
+    content: &str,
+    offset: usize,
+    line_index: &LineIndex,
+    existing: &[Range<usize>],   // byte ranges pulldown-cmark already captured
+    fence_lines: &[(u32, u32)],  // fenced code block line ranges to skip
+) -> Vec<MarkdownLink>
+```
+
+For each `[`/`![` in the raw text not already covered by `existing` or inside
+a fenced code block, it locates the matching `]` (no nested `[`, no
+newline), requires an immediately-following `(`, then balances parentheses by
+hand (honoring `\`-escapes, refusing to cross a newline) to find the matching
+`)`. The destination text between them is checked against
+`link_destination_needs_wrapping()` — the same predicate `escape_link_target()`
+uses in `src/handlers.rs` — and only spans that need wrapping are recovered;
+anything pulldown-cmark could have parsed as a bare destination is left to
+the main pass, avoiding duplicates.
+
+Recovered links get the **raw, unwrapped** target (e.g. `"My File"`, not
+`"<My File>"`), matching what a valid parse would have produced — this is
+what lets `handle_code_actions`'s "Create note" quick action see and fix a
+hand-typed `[text](My File)` the same way it would a normal broken link.
+Results are merged into `md_links` and the combined list is sorted by
+position for deterministic ordering.
+
+This scan is deliberately conservative: it does not track inline code spans
+(single/double backticks), so a space-containing destination inside inline
+code (rare, and arguably still link-shaped) could be recovered as a link
+where pulldown-cmark itself would have suppressed it as part of the code
+span. Not observed as a real-world problem; documented here as a known
+limitation rather than special-cased.

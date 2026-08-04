@@ -29,6 +29,35 @@ fn contains(range: Range, pos: Position) -> bool {
 }
 ```
 
+### escape_link_target()
+
+Wraps a link destination in angle brackets (`<...>`) when it contains
+characters that would otherwise break or truncate a bare `](...)`
+destination: whitespace, ASCII control characters, or parentheses. Inner `<`,
+`>`, `\` are backslash-escaped so the wrapped form round-trips. Destinations
+with none of those characters are returned unchanged.
+
+```rust
+fn escape_link_target(target: &str) -> String {
+    if !crate::parser::link_destination_needs_wrapping(target) {
+        return target.to_string();
+    }
+    // wrap in `<...>`, backslash-escaping inner `<`, `>`, `\`
+}
+```
+
+The wrapping predicate itself (`link_destination_needs_wrapping`) lives in
+`src/parser/mod.rs`, not here — the parser's own fallback link scan (see
+[parser.md](parser.md)) needs the identical condition to decide which
+`[text](...)` spans pulldown-cmark refused to parse as links, so both the
+read side and the write side share one definition of "needs wrapping".
+
+Used by:
+
+- **Completion** (below) — terminal file-item insertions
+- **Code Actions** — "Create note" rewrites the broken link's text when its
+  target needs wrapping
+
 ---
 
 ## Completion (`textDocument/completion`)
@@ -86,6 +115,18 @@ Every item uses `text_edit: CompletionTextEdit::Edit(TextEdit { range, new_text
 `sub/` for a folder item, `sub/b.md` for a file). This ensures that
 re-triggering after selecting a folder item, or selecting a global item while a
 partial prefix is typed, replaces the prefix cleanly.
+
+For tier-1 and tier-2 **file** items, `new_text` is passed through
+`escape_link_target()` — a path containing whitespace, control characters, or
+parentheses (e.g. `My File.md`) is wrapped in `<...>` so the inserted link is
+valid CommonMark and actually resolves. Tier-0 **folder** items are
+deliberately left unescaped: their `new_text` is an intentionally incomplete
+destination (`sub/`) that the user keeps typing after, and re-triggering
+completion depends on `check_dir_trigger` re-reading the raw, unwrapped text
+between `](` and the cursor — wrapping a partial destination in `<` would
+break that re-read on the next keystroke. `filter_text`, `label`, and
+`detail` are unaffected by escaping — they're display/matching fields, never
+inserted into the document.
 
 ### Frontmatter value completion
 
@@ -367,22 +408,42 @@ Anchor-only links (`link.target.is_empty()`) are always skipped.
 
 For each link under the cursor:
 
-| Condition                                       | Action offered                                                                                    |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `index.resolve(…) == Broken`                    | **Create note** — a `CreateFile` workspace edit (`ignore_if_exists: true`)                        |
-| `Found(target)` + broken anchor (slug mismatch) | One **Change anchor to "…"** per heading in the target note — a `TextEdit` on `link.anchor_range` |
-| `Found(target)` + valid anchor (or no anchor)   | No action                                                                                         |
+| Condition                                       | Action offered                                                                                                                                    |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.resolve(…) == Broken`                    | **Create note** — a `CreateFile` workspace edit (`ignore_if_exists: true`), plus a `TextDocumentEdit` fixing the link text when it needs escaping |
+| `Found(target)` + broken anchor (slug mismatch) | One **Change anchor to "…"** per heading in the target note — a `TextEdit` on `link.anchor_range`                                                 |
+| `Found(target)` + valid anchor (or no anchor)   | No action                                                                                                                                         |
+
+**Create note** first unescapes `link.target` via `index::unescape_link_target()`
+— `link.target` is the raw text between `(` and `)`, so an already-wrapped
+broken link (`[text](<My File>)`) has it literally including the `<...>`;
+unescaping strips that before the target is reused, so the file isn't named
+`<My File>.md` and the link text isn't double-wrapped if rewritten. From the
+unescaped target it builds a `WorkspaceEdit` with:
+
+1. A `CreateFile` op at `new_note_path(&clean_target, …)` (`ignore_if_exists: true`).
+2. A `TextDocumentEdit` op rewriting `link.target_range` to
+   `escape_link_target(&clean_target)`, **only** when that differs from the
+   original `link.target` — i.e. only when the link's existing text isn't
+   already valid. `link.target_range` excludes any `#anchor`, so anchored
+   broken links (`[text](missing file#x)`) get only their path segment
+   rewritten.
 
 New-file path logic for **Create note** (`new_note_path`):
 
 ```rust
 fn new_note_path(link_target: &str, source: &Path, config: &Config) -> PathBuf {
-    match config.new_note_dir.as_deref().zip(config.index_roots.first()) {
+    let path = match config.new_note_dir.as_deref().zip(config.index_roots.first()) {
         Some((dir, root)) => root.join(dir).join(Path::new(link_target).file_name()),
         None => normalize_path(&source.parent().join(link_target)),
-    }
+    };
+    if path.extension().is_none() { path.with_extension("md") } else { path }
 }
 ```
+
+`.md` is appended when the target has no extension — otherwise a link typed
+as `[text](My New Note)` would create a file literally named `My New Note`
+with no extension.
 
 ---
 

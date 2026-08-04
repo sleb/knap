@@ -354,6 +354,162 @@ fn extract_tags(content: &str, line_index: &LineIndex) -> Vec<Tag> {
     tags
 }
 
+/// A bare (non-`<...>`-wrapped) Markdown link destination containing any of
+/// these characters is invalid CommonMark: pulldown-cmark won't recognize
+/// `[text](target)` as a link at all when `target` needs wrapping, so knap's
+/// own writers (completion, "Create note") must wrap it in `<...>`, and its
+/// own reader (`find_fallback_links`) must independently detect it as a
+/// link-shaped span pulldown-cmark silently skipped.
+pub(crate) fn link_destination_needs_wrapping(target: &str) -> bool {
+    target.chars().any(|c| c.is_whitespace() || c.is_control() || c == '(' || c == ')')
+}
+
+/// Split the raw text between `](` and `)` into `target`/`anchor` plus their
+/// ranges, splitting on the first unescaped `#`. Shared by the pulldown-cmark
+/// event handler (valid links) and `find_fallback_links` (link-shaped spans
+/// pulldown-cmark didn't recognize because the destination needs `<...>`
+/// wrapping).
+///
+/// `target_start_body` is `url_content`'s byte offset within the body slice
+/// (pre-`offset`); `offset` and `line_index` convert that into an LSP range.
+fn split_link_destination(
+    url_content: &str,
+    target_start_body: usize,
+    offset: usize,
+    line_index: &LineIndex,
+) -> (String, Option<String>, LspRange, Option<LspRange>) {
+    if let Some(hash_off) = url_content.find('#') {
+        let target_text = url_content[..hash_off].to_string();
+        let anchor_raw = &url_content[hash_off + 1..];
+        let anchor_text = anchor_raw.trim().to_string();
+
+        let target_end_body = target_start_body + hash_off;
+        let tr = line_index.range((target_start_body + offset)..(target_end_body + offset));
+
+        let anchor_start_body = target_start_body + hash_off + 1;
+        let anchor_end_body = target_start_body + url_content.len();
+        let ar = if !anchor_text.is_empty() {
+            Some(line_index.range((anchor_start_body + offset)..(anchor_end_body + offset)))
+        } else {
+            None
+        };
+        let anchor = if !anchor_text.is_empty() { Some(anchor_text) } else { None };
+        (target_text, anchor, tr, ar)
+    } else {
+        let target_end_body = target_start_body + url_content.len();
+        let tr = line_index.range((target_start_body + offset)..(target_end_body + offset));
+        (url_content.to_string(), None, tr, None)
+    }
+}
+
+/// Scan `content` for `[text](target)`/`![alt](target)` spans that
+/// pulldown-cmark did not recognize as links because `target` is a bare
+/// (unwrapped) destination containing whitespace, control characters, or
+/// parentheses — all invalid in a bare CommonMark link destination. These are
+/// exactly the malformed-but-intentional links `escape_link_target()` fixes
+/// on write (see `src/handlers.rs`); this is the read-side counterpart so
+/// they still show up as broken links eligible for the "Create note" quick
+/// action instead of silently vanishing as plain text.
+///
+/// `existing` holds the byte ranges (within `content`) of links pulldown-cmark
+/// already found, so this scan skips anything already covered — both to
+/// avoid duplicates and to avoid matching inside an already-parsed link's
+/// text. `fence_lines` holds the line ranges of fenced code blocks, whose
+/// contents are skipped.
+fn find_fallback_links(
+    content: &str,
+    offset: usize,
+    line_index: &LineIndex,
+    existing: &[Range<usize>],
+    fence_lines: &[(u32, u32)],
+) -> Vec<MarkdownLink> {
+    let bytes = content.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] != b'[' {
+            i += 1;
+            continue;
+        }
+        let is_image = i > 0 && bytes[i - 1] == b'!';
+        let span_start = if is_image { i - 1 } else { i };
+
+        let already_covered = existing.iter().any(|r| r.contains(&span_start))
+            || fence_lines.iter().any(|&(start, end)| {
+                let line = line_index.position(span_start + offset).line;
+                line >= start && line <= end
+            });
+        if already_covered {
+            i += 1;
+            continue;
+        }
+
+        // Find the matching `]`: no nested `[`, no newline.
+        let Some(rel_close_bracket) = content[i + 1..].find([']', '\n']) else {
+            i += 1;
+            continue;
+        };
+        let close_bracket = i + 1 + rel_close_bracket;
+        if bytes.get(close_bracket) != Some(&b']') || bytes.get(close_bracket + 1) != Some(&b'(') {
+            i += 1;
+            continue;
+        }
+
+        // Balance parens from just inside `(` to find the matching `)`,
+        // honoring backslash escapes, without crossing a newline.
+        let paren_start = close_bracket + 2;
+        let mut depth = 1i32;
+        let mut j = paren_start;
+        let mut close_paren = None;
+        while j < bytes.len() {
+            match bytes[j] {
+                b'\\' if j + 1 < bytes.len() => j += 1,
+                b'\n' => break,
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close_paren = Some(j);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            j += 1;
+        }
+        let Some(close_paren) = close_paren else {
+            i += 1;
+            continue;
+        };
+
+        let url_content = &content[paren_start..close_paren];
+        if !link_destination_needs_wrapping(url_content) {
+            // Valid bare destination — pulldown-cmark should already have
+            // parsed this; not our fallback's concern.
+            i = close_paren + 1;
+            continue;
+        }
+
+        let text = content[i + 1..close_bracket].trim().to_string();
+        let target_start_body = paren_start;
+        let (target, anchor, target_range, anchor_range) =
+            split_link_destination(url_content, target_start_body, offset, line_index);
+
+        out.push(MarkdownLink {
+            text,
+            target,
+            anchor,
+            is_image,
+            range: line_index.range((span_start + offset)..(close_paren + 1 + offset)),
+            target_range,
+            anchor_range,
+        });
+
+        i = close_paren + 1;
+    }
+    out
+}
+
 /// Parse `content` (the body slice, post-frontmatter) in a single pulldown-cmark
 /// pass, collecting headings and standard Markdown links/images.
 ///
@@ -371,6 +527,7 @@ fn extract_body_elements(
     let parser = Parser::new_ext(content, Options::empty()).into_offset_iter();
     let mut headings: Vec<Heading> = Vec::new();
     let mut md_links: Vec<MarkdownLink> = Vec::new();
+    let mut link_byte_ranges: Vec<Range<usize>> = Vec::new();
     let mut code_fences: Vec<CodeFence> = Vec::new();
 
     // (level, heading_byte_start, accumulated_text, first_text_byte)
@@ -458,39 +615,8 @@ fn extract_body_elements(
                             // link_slice ends with ')' so the last char is ')'
                             let url_end = link_slice.len() - 1;
                             let url_content = &link_slice[url_start..url_end];
-
                             let target_start_body = range_start + url_start;
-
-                            if let Some(hash_off) = url_content.find('#') {
-                                let target_text = url_content[..hash_off].to_string();
-                                let anchor_raw = &url_content[hash_off + 1..];
-                                let anchor_text = anchor_raw.trim().to_string();
-
-                                let target_end_body = target_start_body + hash_off;
-                                let tr = line_index.range(
-                                    (target_start_body + offset)..(target_end_body + offset),
-                                );
-
-                                let anchor_start_body = target_start_body + hash_off + 1;
-                                let anchor_end_body = target_start_body + url_content.len();
-                                let ar = if !anchor_text.is_empty() {
-                                    Some(line_index.range(
-                                        (anchor_start_body + offset)
-                                            ..(anchor_end_body + offset),
-                                    ))
-                                } else {
-                                    None
-                                };
-                                let anchor =
-                                    if !anchor_text.is_empty() { Some(anchor_text) } else { None };
-                                (target_text, anchor, tr, ar)
-                            } else {
-                                let target_end_body = target_start_body + url_content.len();
-                                let tr = line_index.range(
-                                    (target_start_body + offset)..(target_end_body + offset),
-                                );
-                                (url_content.to_string(), None, tr, None)
-                            }
+                            split_link_destination(url_content, target_start_body, offset, line_index)
                         } else {
                             // Fallback: no "](" found — shouldn't occur for valid Markdown
                             let tr = line_index
@@ -498,6 +624,7 @@ fn extract_body_elements(
                             (String::new(), None, tr, None)
                         };
 
+                    link_byte_ranges.push(range_start..byte_range.end);
                     md_links.push(MarkdownLink {
                         text: text.trim().to_string(),
                         target,
@@ -527,6 +654,17 @@ fn extract_body_elements(
             _ => {}
         }
     }
+
+    let fence_lines: Vec<(u32, u32)> =
+        code_fences.iter().map(|f| (f.start_line, f.end_line)).collect();
+    md_links.extend(find_fallback_links(
+        content,
+        offset,
+        line_index,
+        &link_byte_ranges,
+        &fence_lines,
+    ));
+    md_links.sort_by_key(|l| (l.range.start.line, l.range.start.character));
 
     (md_links, headings, code_fences)
 }

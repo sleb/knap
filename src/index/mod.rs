@@ -54,6 +54,29 @@ pub fn is_url_like(s: &str) -> bool {
         || s.starts_with("mailto:")
 }
 
+/// Reverse of `handlers::escape_link_target()`: unwrap a `<...>`-delimited
+/// link target and un-escape backslash-escaped `<`, `>`, `\` inside it, so it
+/// can be matched back against a real filesystem path.
+///
+/// Targets not wrapped in `<...>` are returned unchanged.
+pub(crate) fn unescape_link_target(target: &str) -> std::borrow::Cow<'_, str> {
+    let Some(inner) = target.strip_prefix('<').and_then(|s| s.strip_suffix('>')) else {
+        return std::borrow::Cow::Borrowed(target);
+    };
+    let mut out = String::with_capacity(inner.len());
+    let mut chars = inner.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\'
+            && let Some(next) = chars.next()
+        {
+            out.push(next);
+            continue;
+        }
+        out.push(c);
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 /// Collapse `.` and `..` components in `path` lexically (no syscalls).
 ///
 /// This works correctly for paths that don't yet exist on disk, which is
@@ -80,10 +103,11 @@ impl NoteIndex {
         if is_url_like(target) {
             return ResolvedLink::Found(PathBuf::from(target));
         }
+        let target = unescape_link_target(target);
         let candidate = source
             .parent()
             .expect("note path must have a parent directory")
-            .join(target);
+            .join(target.as_ref());
         let candidate = normalize_path(&candidate);
         if self.all_files.contains(&candidate) {
             ResolvedLink::Found(candidate)

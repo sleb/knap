@@ -12,9 +12,10 @@ use lsp_types::{
     DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeKind,
     FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse,
     InlayHint, InlayHintLabel, InlayHintParams,
-    Location, Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
+    Location, OneOf, OptionalVersionedTextDocumentIdentifier, Position, PrepareRenameResponse,
+    PublishDiagnosticsParams, Range, ReferenceParams,
     RenameFilesParams, RenameParams, ResourceOp, SelectionRange, SelectionRangeParams,
-    SymbolInformation, SymbolKind,
+    SymbolInformation, SymbolKind, TextDocumentEdit,
     TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
 };
 
@@ -31,6 +32,27 @@ fn slug(text: &str) -> String {
         .collect::<String>()
         .to_lowercase()
         .replace(' ', "-")
+}
+
+/// Escape a Markdown link target for insertion into `[text](target)`.
+///
+/// When `target` contains whitespace, control characters, or parentheses,
+/// CommonMark requires it to be wrapped in `<...>`; inner `<`, `>`, and `\`
+/// are backslash-escaped so the wrapped form round-trips.
+fn escape_link_target(target: &str) -> String {
+    if !crate::parser::link_destination_needs_wrapping(target) {
+        return target.to_string();
+    }
+    let mut escaped = String::with_capacity(target.len() + 2);
+    escaped.push('<');
+    for c in target.chars() {
+        if c == '<' || c == '>' || c == '\\' {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped.push('>');
+    escaped
 }
 
 // ─── Diagnostics ──────────────────────────────────────────────────────────────
@@ -649,7 +671,7 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, con
             detail,
             text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                 range: replace_range,
-                new_text: full_rel,
+                new_text: escape_link_target(&full_rel),
             })),
             ..Default::default()
         });
@@ -685,7 +707,7 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, con
             detail: Some(full_rel.clone()),
             text_edit: Some(CompletionTextEdit::Edit(TextEdit {
                 range: replace_range,
-                new_text: full_rel,
+                new_text: escape_link_target(&full_rel),
             })),
             ..Default::default()
         });
@@ -1172,21 +1194,34 @@ pub(crate) fn handle_code_actions(
         }
         match index.resolve(&path, &link.target) {
             ResolvedLink::Broken => {
-                let new_path = new_note_path(&link.target, &path, config);
+                let clean_target = index::unescape_link_target(&link.target);
+                let new_path = new_note_path(&clean_target, &path, config);
+                let mut ops = vec![DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
+                    uri: path_to_uri(&new_path),
+                    options: Some(CreateFileOptions {
+                        ignore_if_exists: Some(true),
+                        overwrite: None,
+                    }),
+                    annotation_id: None,
+                }))];
+                let escaped_target = escape_link_target(&clean_target);
+                if escaped_target != link.target {
+                    ops.push(DocumentChangeOperation::Edit(TextDocumentEdit {
+                        text_document: OptionalVersionedTextDocumentIdentifier {
+                            uri: path_to_uri(&path),
+                            version: None,
+                        },
+                        edits: vec![OneOf::Left(TextEdit {
+                            range: link.target_range,
+                            new_text: escaped_target,
+                        })],
+                    }));
+                }
                 actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                     title: "Create note".to_string(),
                     kind: Some(CodeActionKind::QUICKFIX),
                     edit: Some(WorkspaceEdit {
-                        document_changes: Some(DocumentChanges::Operations(vec![
-                            DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
-                                uri: path_to_uri(&new_path),
-                                options: Some(CreateFileOptions {
-                                    ignore_if_exists: Some(true),
-                                    overwrite: None,
-                                }),
-                                annotation_id: None,
-                            })),
-                        ])),
+                        document_changes: Some(DocumentChanges::Operations(ops)),
                         ..Default::default()
                     }),
                     ..Default::default()
@@ -1228,13 +1263,14 @@ pub(crate) fn handle_code_actions(
 }
 
 fn new_note_path(link_target: &str, source: &Path, config: &crate::server::Config) -> PathBuf {
-    match config.new_note_dir.as_deref().zip(config.index_roots.first()) {
+    let path = match config.new_note_dir.as_deref().zip(config.index_roots.first()) {
         Some((dir, root)) => {
             let stem = Path::new(link_target).file_name().unwrap_or_default();
             root.join(dir).join(stem)
         }
         None => index::normalize_path(&source.parent().unwrap_or(source).join(link_target)),
-    }
+    };
+    if path.extension().is_none() { path.with_extension("md") } else { path }
 }
 
 // ─── Code Lens ────────────────────────────────────────────────────────────────
@@ -1942,6 +1978,51 @@ mod tests {
             .unwrap();
         assert_eq!(item.label, "report.pdf");
         assert_eq!(item.filter_text.as_deref(), Some("report.pdf"));
+    }
+
+    #[test]
+    fn completion_file_item_with_space_wraps_target() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/My File.md", ""));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
+        assert!(items.iter().any(|i| {
+            i.kind == Some(CompletionItemKind::FILE)
+                && text_edit_new_text(i) == Some("<My File.md>")
+        }));
+    }
+
+    #[test]
+    fn completion_global_item_with_space_wraps_target() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/sub/My File.md", ""));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
+        assert!(items.iter().any(|i| text_edit_new_text(i) == Some("<sub/My File.md>")));
+    }
+
+    #[test]
+    fn completion_folder_item_with_space_not_wrapped() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/My Sub/b.md", ""));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
+        assert!(items.iter().any(|i| {
+            i.kind == Some(CompletionItemKind::FOLDER) && text_edit_new_text(i) == Some("My Sub/")
+        }));
+    }
+
+    #[test]
+    fn completion_file_item_without_space_unchanged() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx, &crate::server::Config::default());
+        assert!(items.iter().any(|i| text_edit_new_text(i) == Some("b.md")));
     }
 
     // ── handle_definition ─────────────────────────────────────────────────────
@@ -2715,6 +2796,65 @@ mod tests {
             }
             _ => None,
         }
+    }
+
+    fn extract_text_edit(action: &lsp_types::CodeActionOrCommand) -> Option<&lsp_types::TextEdit> {
+        match action {
+            lsp_types::CodeActionOrCommand::CodeAction(a) => {
+                let edit = a.edit.as_ref()?;
+                if let Some(lsp_types::DocumentChanges::Operations(ops)) = &edit.document_changes {
+                    for op in ops {
+                        if let lsp_types::DocumentChangeOperation::Edit(te) = op
+                            && let Some(lsp_types::OneOf::Left(edit)) = te.edits.first()
+                        {
+                            return Some(edit);
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn code_actions_create_note_target_with_space_adds_text_edit() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](My File)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert_eq!(actions.len(), 1);
+        let cf = extract_create_file(&actions[0]).unwrap();
+        assert!(cf.uri.as_str().ends_with("/vault/My%20File.md"));
+        let te = extract_text_edit(&actions[0]).expect("expected a TextDocumentEdit for the link text");
+        assert_eq!(te.new_text, "<My File>");
+    }
+
+    #[test]
+    fn code_actions_create_note_already_wrapped_target_not_double_escaped() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](<My File>)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert_eq!(actions.len(), 1);
+        let cf = extract_create_file(&actions[0]).unwrap();
+        assert!(cf.uri.as_str().ends_with("/vault/My%20File.md"));
+        // Already valid syntax — the link text needs no rewrite.
+        assert!(extract_text_edit(&actions[0]).is_none());
+    }
+
+    #[test]
+    fn code_actions_create_note_target_without_space_no_text_edit() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](missing.md)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert_eq!(actions.len(), 1);
+        assert!(extract_create_file(&actions[0]).is_some());
+        assert!(extract_text_edit(&actions[0]).is_none());
     }
 
     #[test]
@@ -4525,5 +4665,25 @@ mod tests {
         let params = make_inlay_hint_params("/vault/a.md", narrow_range);
         let hints = handle_inlay_hints(params, &idx);
         assert!(hints.is_empty(), "hint outside requested range should be excluded");
+    }
+
+    #[test]
+    fn escape_link_target_no_special_chars_unchanged() {
+        assert_eq!(escape_link_target("notes/my-file.md"), "notes/my-file.md");
+    }
+
+    #[test]
+    fn escape_link_target_space_wraps_in_angle_brackets() {
+        assert_eq!(escape_link_target("My File.md"), "<My File.md>");
+    }
+
+    #[test]
+    fn escape_link_target_parens_wrap_in_angle_brackets() {
+        assert_eq!(escape_link_target("file (1).md"), "<file (1).md>");
+    }
+
+    #[test]
+    fn escape_link_target_escapes_inner_angle_brackets_when_wrapping() {
+        assert_eq!(escape_link_target("My <File>.md"), "<My \\<File\\>.md>");
     }
 }
