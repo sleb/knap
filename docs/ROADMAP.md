@@ -3,27 +3,27 @@
 Each release is designed to be independently useful. A writer should get value
 from v0.1 alone and accumulate more with each release.
 
-| Version                                                                   | Title                                      | Status              |
-| ------------------------------------------------------------------------- | ------------------------------------------ | ------------------- |
-| [v0.1](#v01--mvp-navigate-your-workspace-released-2026-05-09)             | MVP: Navigate your workspace               | Released 2026-05-09 |
-| [v0.2](#v02--rename--refactor-released-2026-05-10)                        | Rename & Refactor                          | Released 2026-05-10 |
-| [v0.3](#v03--heading-navigation--anchors-released-2026-05-16)             | Heading Navigation & Anchors               | Released 2026-05-16 |
-| [v0.3.1](#v031--smarter-path-completion-released-2026-05-16)              | Smarter Path Completion                    | Released 2026-05-16 |
-| [v0.3.2](#v032--global-jump-in-completions-released-2026-05-17)           | Global Jump in Completions                 | Released 2026-05-17 |
-| [v0.3.3](#v033--rename-for-unindexed-files-released-2026-05-18)           | Rename for Unindexed Files                 | Released 2026-05-18 |
-| [v0.3.4](#v034--rename-dialog-for-formatted-headings-released-2026-05-18) | Rename Dialog for Formatted Headings       | Released 2026-05-18 |
-| [v0.3.5](#v035--lsp-range-correctness-released-2026-05-18)                | LSP Range Correctness                      | Released 2026-05-18 |
-| [v0.4](#v04--code-actions-released-2026-05-21)                            | Code Actions                               | Released 2026-05-21 |
-| [v0.5](#v05--tags-released-2026-06-06)                                    | Tags                                       | Released 2026-06-06 |
-| [v0.6](#v06--backlinks-released-2026-06-08)                               | Backlinks                                  | Released 2026-06-08 |
-| [v0.7](#v07--same-file-anchor-links-released-2026-06-08)                  | Same-file Anchor Links                     | Released 2026-06-08 |
-| [v0.8](#v08--frontmatter-schema-released-2026-06-09)                      | Frontmatter Schema                         | Released 2026-06-09 |
-| [v0.9](#v09--editor-experience-released-2026-06-10)                       | Editor Experience                          | Released 2026-06-10 |
-| [v0.10](#v010--tag-rename-released-2026-06-10)                            | Tag Rename                                 | Released 2026-06-10 |
-| [v0.10.1](#v0101--version-subcommand-released-2026-06-14)                 | Version Subcommand                         | Released 2026-06-14 |
-| [v0.10.2](#v0102--escaped-link-targets-for-paths-with-spaces)             | Escaped Link Targets for Paths with Spaces | Planned             |
-| [v0.11](#v011--daily-notes)                                               | Daily Notes                                | Planned             |
-| [v0.12](#v012--extract-to-new-note)                                       | Extract to New Note                        | Planned             |
+| Version                                                                           | Title                                      | Status              |
+| --------------------------------------------------------------------------------- | ------------------------------------------ | ------------------- |
+| [v0.1](#v01--mvp-navigate-your-workspace-released-2026-05-09)                     | MVP: Navigate your workspace               | Released 2026-05-09 |
+| [v0.2](#v02--rename--refactor-released-2026-05-10)                                | Rename & Refactor                          | Released 2026-05-10 |
+| [v0.3](#v03--heading-navigation--anchors-released-2026-05-16)                     | Heading Navigation & Anchors               | Released 2026-05-16 |
+| [v0.3.1](#v031--smarter-path-completion-released-2026-05-16)                      | Smarter Path Completion                    | Released 2026-05-16 |
+| [v0.3.2](#v032--global-jump-in-completions-released-2026-05-17)                   | Global Jump in Completions                 | Released 2026-05-17 |
+| [v0.3.3](#v033--rename-for-unindexed-files-released-2026-05-18)                   | Rename for Unindexed Files                 | Released 2026-05-18 |
+| [v0.3.4](#v034--rename-dialog-for-formatted-headings-released-2026-05-18)         | Rename Dialog for Formatted Headings       | Released 2026-05-18 |
+| [v0.3.5](#v035--lsp-range-correctness-released-2026-05-18)                        | LSP Range Correctness                      | Released 2026-05-18 |
+| [v0.4](#v04--code-actions-released-2026-05-21)                                    | Code Actions                               | Released 2026-05-21 |
+| [v0.5](#v05--tags-released-2026-06-06)                                            | Tags                                       | Released 2026-06-06 |
+| [v0.6](#v06--backlinks-released-2026-06-08)                                       | Backlinks                                  | Released 2026-06-08 |
+| [v0.7](#v07--same-file-anchor-links-released-2026-06-08)                          | Same-file Anchor Links                     | Released 2026-06-08 |
+| [v0.8](#v08--frontmatter-schema-released-2026-06-09)                              | Frontmatter Schema                         | Released 2026-06-09 |
+| [v0.9](#v09--editor-experience-released-2026-06-10)                               | Editor Experience                          | Released 2026-06-10 |
+| [v0.10](#v010--tag-rename-released-2026-06-10)                                    | Tag Rename                                 | Released 2026-06-10 |
+| [v0.10.1](#v0101--version-subcommand-released-2026-06-14)                         | Version Subcommand                         | Released 2026-06-14 |
+| [v0.10.2](#v0102--escaped-link-targets-for-paths-with-spaces-released-2026-08-03) | Escaped Link Targets for Paths with Spaces | Released 2026-08-03 |
+| [v0.11](#v011--daily-notes)                                                       | Daily Notes                                | Planned             |
+| [v0.12](#v012--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
 
 ---
 
@@ -274,7 +274,7 @@ features to bare `#slug` links that target a heading in the same file.
 
 ---
 
-## v0.10.2 — Escaped Link Targets for Paths with Spaces
+## v0.10.2 — Escaped Link Targets for Paths with Spaces _(released 2026-08-03)_
 
 **Goal:** Links to files with spaces in the name (`My File.md`) actually
 resolve, whether inserted via completion or created via the "Create note"

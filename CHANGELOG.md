@@ -5,6 +5,34 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.10.2] — 2026-08-03
+
+### Fixed
+
+- **Links to files with spaces or parentheses in the name now resolve.**
+  Completion and the "Create note" quick action wrap the inserted link
+  destination in angle brackets (`<...>`) whenever it contains whitespace,
+  control characters, or parentheses — characters that otherwise break or
+  truncate a bare Markdown link destination per CommonMark. Directory-item
+  (folder) completions are left unwrapped since they're an intentionally
+  incomplete destination the user keeps typing after. (#57)
+- **"Create note" now fixes the link text, not just the file on disk.**
+  Selecting "Create note" on a broken link whose target needs escaping
+  rewrites the link's text in the document, in addition to creating the
+  file, so the link actually resolves afterward. (#57)
+- **Hand-typed links with spaces are now recognized as links at all.**
+  Previously, a link like `[text](My File)` — written directly rather than
+  inserted via completion — was invisible to knap entirely (no broken-link
+  diagnostic, no quick action) because the underlying Markdown parser
+  doesn't recognize a bare, unescaped-space destination as a link. knap now
+  recovers these via a fallback scan so they're treated as ordinary
+  (typically broken) links. (#57)
+- **"Create note" now appends `.md` when the link target has no extension**
+  — previously a link like `[text](My New Note)` created a file with no
+  extension at all.
+
+---
+
 ## [0.10.1] — 2026-06-14
 
 ### Added

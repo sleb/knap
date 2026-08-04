@@ -29,12 +29,29 @@ We never touch stdin/stdout directly. All I/O goes through `Connection`.
 
 ## Entry point
 
-`main.rs` is the only file that knows about `Connection`. It owns the transport setup and hands the connection off to the Protocol Handler.
+`main.rs` is the only file that knows about `Connection`. Before setting up
+transport, it checks `argv[1]` against the Debug CLI subcommands
+(`parse`/`index`/`check`/`version` — see [ARCHITECTURE.md](../../ARCHITECTURE.md))
+and dispatches to `knap::cli` if one matches, returning early. Only when no
+subcommand is given does it fall through to normal LSP server startup, owning
+the transport setup and handing the connection off to the Protocol Handler
+(`knap::server::run`, in `src/server/mod.rs`):
 
 ```rust
 fn main() -> anyhow::Result<()> {
+    env_logger::Builder::from_env(
+        env_logger::Env::default().filter_or("KNAP_LOG", "info"),
+    )
+    .init();
+
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 2 && args[1] == "parse" {
+        return knap::cli::cmd_parse(&args[2..]);
+    }
+    // ... "index", "check", "version" dispatch similarly ...
+
     let (connection, io_threads) = Connection::stdio();
-    protocol_handler::run(connection)?;
+    knap::server::run(connection)?;
     io_threads.join()?;
     Ok(())
 }

@@ -54,10 +54,11 @@ pub fn resolve(&self, source: &Path, target: &str) -> ResolvedLink {
     if is_url_like(target) {
         return ResolvedLink::Found(PathBuf::from(target));
     }
+    let target = unescape_link_target(target);
     let candidate = source
         .parent()
         .expect("note path must have a parent directory")
-        .join(target);
+        .join(target.as_ref());
     // Normalise away `..` components without requiring the path to exist on disk.
     let candidate = normalize_path(&candidate);
     if self.all_files.contains(&candidate) {
@@ -73,6 +74,22 @@ the source file itself by the caller before invoking `resolve`.
 
 `normalize_path` collapses `.` and `..` components lexically (without syscalls),
 since the path may not exist on disk yet (e.g. during a Quick Fix preview).
+
+`unescape_link_target` (`pub(crate)`, defined alongside `resolve`) strips an
+existing `<...>` wrapping and un-escapes backslash-escaped `<`, `>`, `\`
+inside it — `link.target` for an already-valid, already-wrapped link (e.g.
+`[text](<My File>)`, produced by completion or "Create note" when the path
+needs escaping, see `docs/design/releases/v0.10.2/design.md`) is the literal
+wrapped string, since the parser records the raw text between `(` and `)`
+verbatim. Targets that were never wrapped pass through unchanged.
+
+**Known gap:** `index()`'s `links_to` population (step 3, below) and
+`recheck_incoming()` join `&link.target` directly and do **not** call
+`unescape_link_target` first. A link to a file whose name needs escaping
+(`[text](<My File>)`, resolving correctly via `resolve()`) is therefore never
+recorded in `links_to` — backlinks and Find References miss it even though
+diagnostics correctly show it as resolved. Not fixed as part of v0.10.2;
+tracked as follow-up work, not a documentation gap.
 
 ---
 
@@ -93,6 +110,10 @@ pub fn index(&mut self, note: Note) -> IndexDelta {
     self.all_files.insert(note.path.clone());
 
     // 3. Resolve each local link and populate links_to.
+    // NOTE: unlike resolve(), this does not call unescape_link_target — an
+    // already-wrapped target (`<My File>`) never matches all_files here, so
+    // escaped links are omitted from links_to even when resolve() considers
+    // them resolved. See "Known gap" under resolve() above.
     for link in &note.md_links {
         if link.target.is_empty() || is_url_like(&link.target) {
             continue;

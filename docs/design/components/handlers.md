@@ -69,7 +69,7 @@ The client sends a completion request when the user types `(`, `#`, or `/`
 are dispatched:
 
 ```rust
-pub fn handle_completion(
+pub(crate) fn handle_completion(
     params: CompletionParams,
     index: &NoteIndex,
     config: &Config,
@@ -155,7 +155,7 @@ Each item's `new_text` is `"key: "` (key name followed by colon-space). Returns
 ## Go to Definition (`textDocument/definition`)
 
 ```rust
-pub fn handle_definition(
+pub(crate) fn handle_definition(
     params: GotoDefinitionParams,
     index: &NoteIndex,
 ) -> Option<GotoDefinitionResponse>
@@ -181,7 +181,7 @@ Response is always `GotoDefinitionResponse::Scalar(Location)`.
 ## Find References (`textDocument/references`)
 
 ```rust
-pub fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Location>
+pub(crate) fn handle_references(params: ReferenceParams, index: &NoteIndex) -> Vec<Location>
 ```
 
 Priority:
@@ -206,7 +206,7 @@ Protocol Handler whenever the index changes. The Protocol Handler calls
 `publish_diagnostics` with the set of affected paths returned by `IndexDelta`.
 
 ```rust
-pub fn publish_diagnostics(
+pub(crate) fn publish_diagnostics(
     paths: &HashSet<PathBuf>,
     index: &NoteIndex,
     config: &Config,
@@ -217,7 +217,7 @@ pub fn publish_diagnostics(
 ### compute_diagnostics()
 
 ```rust
-pub fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &Config) -> Vec<Diagnostic>
+pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &Config) -> Vec<Diagnostic>
 ```
 
 For each Markdown link in the note:
@@ -257,7 +257,7 @@ exact-case.
 
 ```rust
 #[allow(clippy::mutable_key_type)]
-pub fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) -> WorkspaceEdit
+pub(crate) fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) -> WorkspaceEdit
 ```
 
 Called by the editor before applying a rename. Returns a `WorkspaceEdit` that
@@ -287,7 +287,7 @@ with no affected links.
 ## Document Symbols (`textDocument/documentSymbol`)
 
 ```rust
-pub fn handle_document_symbols(
+pub(crate) fn handle_document_symbols(
     params: DocumentSymbolParams,
     index: &NoteIndex,
 ) -> Option<DocumentSymbolResponse>
@@ -303,7 +303,7 @@ when the file is not indexed; returns an empty list for a file with no headings.
 ## Workspace Symbols (`workspace/symbol`)
 
 ```rust
-pub fn handle_workspace_symbols(
+pub(crate) fn handle_workspace_symbols(
     params: WorkspaceSymbolParams,
     index: &NoteIndex,
 ) -> Vec<SymbolInformation>
@@ -319,7 +319,7 @@ directory) as `container_name`, and `SymbolKind::STRING`.
 ## Prepare Rename (`textDocument/prepareRename`)
 
 ```rust
-pub fn handle_prepare_rename(
+pub(crate) fn handle_prepare_rename(
     params: TextDocumentPositionParams,
     index: &NoteIndex,
 ) -> Option<PrepareRenameResponse>
@@ -348,7 +348,7 @@ and parsing it on the fly. Returns `None` if the file cannot be read.
 ## Rename (`textDocument/rename`)
 
 ```rust
-pub fn handle_rename(
+pub(crate) fn handle_rename(
     params: RenameParams,
     index: &NoteIndex,
 ) -> Option<WorkspaceEdit>
@@ -541,9 +541,9 @@ Private helper: `fn range_contains_position(range: &Range, pos: Position) -> boo
 ```rust
 /// Convert an LSP URI to an absolute filesystem path.
 /// Returns `None` for non-`file://` URIs (e.g. `untitled:`, `vscode-notebook-cell:`).
-pub fn uri_to_path(uri: &lsp_types::Uri) -> Option<PathBuf>
+pub(crate) fn uri_to_path(uri: &lsp_types::Uri) -> Option<PathBuf>
 
 /// Convert an absolute filesystem path to an LSP URI.
 /// Panics if `path` is not absolute.
-pub fn path_to_uri(path: &Path) -> lsp_types::Uri
+pub(crate) fn path_to_uri(path: &Path) -> lsp_types::Uri
 ```
