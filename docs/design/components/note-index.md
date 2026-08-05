@@ -307,6 +307,55 @@ impl NoteIndex {
 
 ---
 
+## report()
+
+Builds a serializable snapshot of the whole index for `knap index --json`.
+Pure composition of the read methods above — no new resolution logic; a
+note's `links` reuses `resolve()`, its `backlinks` reuses `links_to()`, and
+the top-level `tags` map reuses `all_tags()`/`notes_by_tag()`.
+
+```rust
+#[derive(Serialize)]
+pub struct IndexReport {
+    pub notes: Vec<NoteSummary>,
+    pub tags: BTreeMap<String, Vec<PathBuf>>,
+}
+
+#[derive(Serialize)]
+pub struct NoteSummary {
+    pub path: PathBuf,
+    pub title: Option<String>,
+    pub tags: Vec<String>,
+    pub headings: Vec<HeadingSummary>,
+    pub links: Vec<LinkSummary>,
+    pub backlinks: Vec<PathBuf>,
+}
+
+#[derive(Serialize)]
+pub struct HeadingSummary {
+    pub text: String,
+    pub level: u8,
+    pub range: lsp_types::Range,
+}
+
+#[derive(Serialize)]
+pub struct LinkSummary {
+    pub target: String,
+    pub anchor: Option<String>,
+    pub resolved: Option<PathBuf>, // Some(path) if resolved, None if broken
+}
+
+impl NoteIndex {
+    pub fn report(&self) -> IndexReport { /* ... */ }
+}
+```
+
+`notes` is sorted by path for deterministic output. `tags` uses a
+`BTreeMap` for the same reason — both matter for diffable CI output and
+test assertions.
+
+---
+
 ## IndexDelta
 
 Every mutation returns an `IndexDelta` describing which files were affected. The Protocol Handler uses this to decide which files need their diagnostics republished.

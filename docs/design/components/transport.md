@@ -29,27 +29,29 @@ We never touch stdin/stdout directly. All I/O goes through `Connection`.
 
 ## Entry point
 
-`main.rs` is the only file that knows about `Connection`. Before setting up
-transport, it checks `argv[1]` against the Debug CLI subcommands
-(`parse`/`index`/`check`/`version` — see [ARCHITECTURE.md](../../ARCHITECTURE.md))
-and dispatches to `knap::cli` if one matches, returning early. Only when no
-subcommand is given does it fall through to normal LSP server startup, owning
-the transport setup and handing the connection off to the Protocol Handler
-(`knap::server::run`, in `src/server/mod.rs`):
+`main.rs` collapses to logging setup plus `knap::cli::run()` — it doesn't know
+about `Connection` directly. `knap::cli` (`src/cli/mod.rs`) owns clap parsing
+and dispatch to one subcommand module each: `lsp`, `lint`, `index`, `parse`,
+`check`, `version` (see [ARCHITECTURE.md](../../ARCHITECTURE.md) § CLI). A
+subcommand is required — clap exits non-zero with usage text on bare `knap`,
+there is no argument-free fallback to the LSP server. `src/cli/lsp.rs` is the
+only module that touches `Connection`; it owns the transport setup and hands
+the connection off to the Protocol Handler (`knap::server::run`, in
+`src/server/mod.rs`):
 
 ```rust
+// src/main.rs
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(
         env_logger::Env::default().filter_or("KNAP_LOG", "info"),
     )
     .init();
 
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() >= 2 && args[1] == "parse" {
-        return knap::cli::cmd_parse(&args[2..]);
-    }
-    // ... "index", "check", "version" dispatch similarly ...
+    knap::cli::run()
+}
 
+// src/cli/lsp.rs
+pub fn run() -> anyhow::Result<()> {
     let (connection, io_threads) = Connection::stdio();
     knap::server::run(connection)?;
     io_threads.join()?;

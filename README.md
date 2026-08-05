@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.10.2-blue)
+![Version](https://img.shields.io/badge/version-0.11.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Tooling for Markdown notes, built on standard Markdown syntax with no
@@ -189,7 +189,7 @@ present, `knap.toml` fills in the rest.
 
 ## Status
 
-v0.10.2. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.11.0. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

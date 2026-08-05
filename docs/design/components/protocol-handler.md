@@ -47,11 +47,17 @@ struct Config {
 }
 ```
 
-`index_roots` is set directly from `params.workspace_folders` at init time.
-`extensions` comes from `initializationOptions`. If `initializationOptions`
-cannot be deserialized (e.g. a typo in the editor's LSP config), a `warn!()` is
-logged and defaults are used — the server still starts rather than rejecting the
-session.
+`Config` is built by `config::for_lsp`, the same loader shared with the
+`knap lint`/`knap index` CLI commands (see `docs/ARCHITECTURE.md` §
+Configuration for the full module). `index_roots` is set directly from
+`params.workspace_folders` at init time. `extensions` and the other fields
+come from `initializationOptions`, layered over an optional `knap.toml` at
+`index_roots[0]` (the editor value wins where present). If
+`initializationOptions` cannot be deserialized (e.g. a typo in the editor's
+LSP config), a `warn!()` is logged and that field defaults — the server
+still starts rather than rejecting the session. A malformed `knap.toml`, by
+contrast, fails `initialize` outright, since it's a file the user wrote
+themselves.
 
 ---
 

@@ -5,14 +5,13 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
-## [0.11.0]
+## [0.11.0] — 2026-08-04
 
 ### ⚠ Breaking
 
 - **Bare `knap` (no subcommand) no longer starts the LSP server.** Use
-  `knap lsp` instead. `zed-knap` and `vscode-knap` must invoke `knap lsp`
-  going forward — this release is not tagged/pushed until both are updated.
-  (US-D06)
+  `knap lsp` instead. `zed-knap` (v0.2.0) and `vscode-knap` (v0.1.0) have
+  both been updated to invoke `knap lsp`. (US-D06)
 
 ### Added
 

@@ -10,18 +10,18 @@ down untested code for the next step to build on.
 
 ## Status
 
-| Step                                                | Status | Notes |
-| --------------------------------------------------- | ------ | ----- |
-| 1 — Dependencies                                    | Done   |       |
-| 2 — Shared `Config` loader + `knap.toml`            | Done   |       |
-| 3 — Rewire `server.rs`/`handlers.rs` to `config.rs` | Done   |       |
-| 4 — `NoteIndex::report()` for `knap index --json`   | Done   |       |
-| 5 — `src/cli/` restructure + clap wiring            | Done   |       |
-| 6 — `knap lint`                                     | Done   |       |
-| 7 — `knap index` rewrite                            | Done   |       |
-| 8 — Full test suite + clippy                        | Done   |       |
-| 9 — Docs                                            | Done   |       |
-| 10 — Release coordination                           | Todo   |       |
+| Step                                                | Status | Notes                                                                                                               |
+| --------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------- |
+| 1 — Dependencies                                    | Done   |                                                                                                                     |
+| 2 — Shared `Config` loader + `knap.toml`            | Done   |                                                                                                                     |
+| 3 — Rewire `server.rs`/`handlers.rs` to `config.rs` | Done   |                                                                                                                     |
+| 4 — `NoteIndex::report()` for `knap index --json`   | Done   |                                                                                                                     |
+| 5 — `src/cli/` restructure + clap wiring            | Done   |                                                                                                                     |
+| 6 — `knap lint`                                     | Done   |                                                                                                                     |
+| 7 — `knap index` rewrite                            | Done   |                                                                                                                     |
+| 8 — Full test suite + clippy                        | Done   |                                                                                                                     |
+| 9 — Docs                                            | Done   |                                                                                                                     |
+| 10 — Release coordination                           | Done   | Extensions coordinated (zed-knap v0.2.0, vscode-knap v0.1.0 released with `knap lsp`); released via `/knap-release` |
 
 ---
 
@@ -261,8 +261,18 @@ End-to-end verification across the whole crate.
   server-launch command updated from bare `knap` to `knap lsp` — **do not
   tag/push this release until that's coordinated**, since it breaks both
   extensions on upgrade otherwise.
-- `cargo run -- version` reports `0.11.0` after the version bump.
-- Release via `/knap-release`.
+  - Done: `zed-knap` released
+    [v0.2.0](https://github.com/sleb/zed-knap/releases/tag/v0.2.0) — args
+    now `["lsp"]`, README notes the `knap` 0.11.0+ requirement. Zed
+    extension registry PR (`zed-industries/extensions`) still needs to be
+    opened separately to publish it.
+  - Done: `vscode-knap` released
+    [v0.1.0](https://github.com/sleb/vscode-knap/releases/tag/v0.1.0) —
+    `ServerOptions.args` now `['lsp']`, README notes the `knap` 0.11.0+
+    requirement. VS Code Marketplace publish (`vsce publish`) still needs
+    to be run separately.
+- `cargo run -- version` reports `0.11.0` after the version bump. Done.
+- Release via `/knap-release`. Done.
 
 ---
 

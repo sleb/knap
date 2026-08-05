@@ -108,9 +108,11 @@ add an `initializationOptions` block to your VS Code `settings.json`:
 ### Other editors
 
 For Neovim, Helix, and others, follow your editor's standard procedure for
-adding a custom LSP server, pointing it at the `knap` binary. The server speaks
-the standard Language Server Protocol over stdin/stdout — no special flags or
-arguments are needed.
+adding a custom LSP server, pointing it at the `knap` binary with the `lsp`
+subcommand: `knap lsp`. The server then speaks the standard Language Server
+Protocol over stdin/stdout. (Bare `knap` with no subcommand no longer starts
+the server — see [Command-line usage](../README.md#command-line-usage) in the
+README for the other subcommands.)
 
 ---
 
@@ -118,7 +120,11 @@ arguments are needed.
 
 knap works with zero configuration for a standard single-folder Markdown
 workspace. The following options can be passed via `initializationOptions`
-when you need to customise behaviour:
+when you need to customise behaviour. They can also be set in a `knap.toml`
+file at your workspace root, which is picked up by `knap lsp` as well as the
+headless `knap lint` and `knap index` commands — see the
+[README](../README.md#knaptoml) for its shape and how it layers with
+`initializationOptions`.
 
 | Option              | Type       | Default  | Description                                                                                                                                         |
 | ------------------- | ---------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -291,10 +297,10 @@ Inside a frontmatter `tags:` value, trigger completions to see every tag used
 across your workspace. All three YAML forms are supported:
 
 ```yaml
-tags: writing          # bare scalar — cursor anywhere on the value
-tags: [writing, ...]   # inline list — cursor inside the brackets
+tags: writing # bare scalar — cursor anywhere on the value
+tags: [writing, ...] # inline list — cursor inside the brackets
 tags:
-  - writing            # block list — cursor on the value after `- `
+  - writing # block list — cursor on the value after `- `
 ```
 
 Tags already present in the current note's frontmatter are excluded. Typing
