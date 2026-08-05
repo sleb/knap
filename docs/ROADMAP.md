@@ -22,9 +22,9 @@ from v0.1 alone and accumulate more with each release.
 | [v0.10](#v010--tag-rename-released-2026-06-10)                                    | Tag Rename                                 | Released 2026-06-10 |
 | [v0.10.1](#v0101--version-subcommand-released-2026-06-14)                         | Version Subcommand                         | Released 2026-06-14 |
 | [v0.10.2](#v0102--escaped-link-targets-for-paths-with-spaces-released-2026-08-03) | Escaped Link Targets for Paths with Spaces | Released 2026-08-03 |
-| [v0.11](#v011--daily-notes)                                                       | Daily Notes                                | Planned             |
-| [v0.12](#v012--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
-| [v0.13](#v013--headless-cli)                                                      | Headless CLI                               | Planned             |
+| [v0.11](#v011--headless-cli)                                                      | Headless CLI                               | Planned             |
+| [v0.12](#v012--daily-notes)                                                       | Daily Notes                                | Planned             |
+| [v0.13](#v013--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
 
 ---
 
@@ -296,7 +296,27 @@ Step 3.5.
 
 ---
 
-## v0.11 — Daily Notes
+## v0.11 — Headless CLI
+
+**Goal:** Make knap usable outside a live editor session — by scripts, CI, and
+coding agents that can't rely on a running LSP session for diagnostics.
+
+**Breaking change:** bare `knap` (no subcommand) no longer starts the LSP
+server — use `knap lsp`. `zed-knap` and `vscode-knap` must be updated to
+invoke `knap lsp` before this release reaches their users.
+
+| Story  | Feature                                                                    |
+| ------ | -------------------------------------------------------------------------- |
+| US-D07 | `knap.toml` project config, shared by `lsp`/`lint`/`index`                 |
+| US-D06 | `knap lsp` explicit subcommand; bare `knap` no longer starts it            |
+| US-D04 | `knap lint [path] [--json]` — headless link/anchor/frontmatter diagnostics |
+| US-D05 | `knap index <path> --json` — structured workspace snapshot for agents      |
+
+See `docs/design/releases/v0.11/design.md` for the full design.
+
+---
+
+## v0.12 — Daily Notes
 
 **Goal:** Open today's journal entry with one command, creating it from a
 template if it doesn't exist.
@@ -314,7 +334,7 @@ template if it doesn't exist.
 
 ---
 
-## v0.12 — Extract to New Note
+## v0.13 — Extract to New Note
 
 **Goal:** Restructure notes without leaving your editor.
 
@@ -323,26 +343,6 @@ template if it doesn't exist.
 | US-19 | Extract selection to new note — code action replaces selection with a link to the new file |
 
 **LSP capabilities delivered:** `textDocument/codeAction` (extended)
-
----
-
-## v0.13 — Headless CLI
-
-**Goal:** Make knap usable outside a live editor session — by scripts, CI, and
-coding agents that can't rely on a running LSP session for diagnostics.
-
-**Breaking change:** bare `knap` (no subcommand) no longer starts the LSP
-server — use `knap lsp`. `zed-knap` and `vscode-knap` must be updated to
-invoke `knap lsp` before this release reaches their users.
-
-| Story  | Feature                                                                    |
-| ------ | -------------------------------------------------------------------------- |
-| US-D07 | `knap.toml` project config, shared by `lsp`/`lint`/`index`                 |
-| US-D06 | `knap lsp` explicit subcommand; bare `knap` no longer starts it            |
-| US-D04 | `knap lint [path] [--json]` — headless link/anchor/frontmatter diagnostics |
-| US-D05 | `knap index <path> --json` — structured workspace snapshot for agents      |
-
-See `docs/design/releases/v0.13/design.md` for the full design.
 
 ---
 

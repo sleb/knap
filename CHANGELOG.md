@@ -5,7 +5,7 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
-## [0.13.0]
+## [0.11.0]
 
 ### ⚠ Breaking
 

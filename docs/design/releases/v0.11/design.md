@@ -1,6 +1,6 @@
-# v0.13 Design — Headless CLI: `knap lsp` / `knap lint` / `knap index`
+# v0.11 Design — Headless CLI: `knap lsp` / `knap lint` / `knap index`
 
-Covers the stories in the v0.13 release:
+Covers the stories in the v0.11 release:
 
 | Story  | Feature                                                                               |
 | ------ | ------------------------------------------------------------------------------------- |

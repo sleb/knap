@@ -133,7 +133,7 @@ running `knap` with no subcommand prints usage and exits non-zero.
 
 Starts the LSP server on stdio. This is what your editor's LSP client should
 invoke — see your editor's extension docs for how to point it at the `knap`
-binary. (Prior to v0.13, bare `knap` did this; that fallback is gone —
+binary. (Prior to v0.11, bare `knap` did this; that fallback is gone —
 editor extensions must invoke `knap lsp` explicitly.)
 
 ### `knap lint [path] [--json]`

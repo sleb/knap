@@ -245,9 +245,9 @@ own — use `knap lsp`.**
 
 | Subcommand | Usage                       | Available from                                       |
 | ---------- | --------------------------- | ---------------------------------------------------- |
-| `lsp`      | `knap lsp`                  | v0.13 (previously the bare-args default, since v0.1) |
-| `lint`     | `knap lint [path] [--json]` | v0.13                                                |
-| `index`    | `knap index <dir> [--json]` | v0.1, rewritten v0.13                                |
+| `lsp`      | `knap lsp`                  | v0.11 (previously the bare-args default, since v0.1) |
+| `lint`     | `knap lint [path] [--json]` | v0.11                                                |
+| `index`    | `knap index <dir> [--json]` | v0.1, rewritten v0.11                                |
 | `parse`    | `knap parse <file>`         | v0.1                                                 |
 | `check`    | `knap check`                | v0.2                                                 |
 | `version`  | `knap version`              | v0.10.1                                              |

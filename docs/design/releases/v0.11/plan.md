@@ -1,4 +1,4 @@
-# v0.13 Implementation Plan — Headless CLI
+# v0.11 Implementation Plan — Headless CLI
 
 Describes the order in which changes are made, what is tested after each
 step, and the checkpoints where the CLI should be manually verified.
@@ -245,11 +245,11 @@ End-to-end verification across the whole crate.
 - `docs/ARCHITECTURE.md`: rewrite "Configuration" (no longer
   `initializationOptions`-only) and "Debug CLI" (add `lsp`/`lint`, note
   bare `knap` now requires a subcommand) sections.
-- `docs/ROADMAP.md`: new v0.13 entry; Backlog bullet for a future
+- `docs/ROADMAP.md`: new v0.11 entry; Backlog bullet for a future
   `--fail-on <severity>` threshold on `knap lint`.
 - `README.md`: document `knap lsp`/`knap lint`/`knap index --json` usage
   and `knap.toml` as a config source.
-- `CHANGELOG.md`: new `[0.13.0]` entry, breaking-change callout up top.
+- `CHANGELOG.md`: new `[0.11.0]` entry, breaking-change callout up top.
 
 ---
 
@@ -261,12 +261,12 @@ End-to-end verification across the whole crate.
   server-launch command updated from bare `knap` to `knap lsp` — **do not
   tag/push this release until that's coordinated**, since it breaks both
   extensions on upgrade otherwise.
-- `cargo run -- version` reports `0.13.0` after the version bump.
+- `cargo run -- version` reports `0.11.0` after the version bump.
 - Release via `/knap-release`.
 
 ---
 
-## Done — v0.13 complete
+## Done — v0.11 complete
 
 | Story  | Feature                                                         | Delivered in step |
 | ------ | --------------------------------------------------------------- | ----------------- |

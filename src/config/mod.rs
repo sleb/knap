@@ -1,6 +1,6 @@
 // Shared config loading for `lsp`/`lint`/`index`, so headless commands see
 // the same `Config` the LSP would build for the same workspace.
-// See docs/design/releases/v0.13/design.md ("Config Changes").
+// See docs/design/releases/v0.11/design.md ("Config Changes").
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
