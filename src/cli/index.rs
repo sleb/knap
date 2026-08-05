@@ -1,17 +1,21 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::index::{self, ResolvedLink};
+use crate::config;
+use crate::index::{self, IndexReport, ResolvedLink};
 
-/// Text-output path is today's `cmd_index` moved verbatim. `--json` support
-/// and `config::for_path` loading (fixing the hardcoded `["md"]` extensions)
-/// land in Step 7 — see docs/design/releases/v0.13/plan.md.
+/// `config::for_path` → `index::build`, same as `lint` — this is the fix for
+/// the hardcoded `extensions: &["md"]` bug. Text output unchanged from the
+/// pre-Step-7 format; `--json` serializes `NoteIndex::report()`.
 pub fn run(path: &Path, json: bool) -> anyhow::Result<()> {
-    if json {
-        todo!("knap index --json — Step 7")
-    }
+    let config = config::for_path(path, None)?;
+    let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
+    let (idx, _) = index::build(&config.index_roots, &extensions);
 
-    let root = PathBuf::from(path);
-    let (idx, _) = index::build(&[root], &["md"]);
+    if json {
+        let report: IndexReport = idx.report();
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
 
     let mut notes: Vec<_> = idx.all_notes().collect();
     notes.sort_by(|a, b| a.path.cmp(&b.path));

@@ -100,6 +100,51 @@ fn lint_respects_knap_toml_extensions() {
 }
 
 #[test]
+fn index_json_output_shape() {
+    let output = knap()
+        .args(["index", "tests/fixtures/index_basic", "--json"])
+        .output()
+        .expect("failed to run knap");
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+
+    let notes = value["notes"].as_array().expect("notes present");
+    assert_eq!(notes.len(), 2, "notes were: {notes:?}");
+
+    let alpha = notes
+        .iter()
+        .find(|n| n["path"].as_str().unwrap().ends_with("alpha.md"))
+        .expect("alpha.md present");
+    let headings = alpha["headings"].as_array().expect("headings present");
+    assert!(headings.iter().any(|h| h["text"] == "Alpha"), "headings were: {headings:?}");
+
+    let links = alpha["links"].as_array().expect("links present");
+    assert!(
+        links.iter().any(|l| l["resolved"].as_str().is_some_and(|p| p.ends_with("beta.md"))),
+        "links were: {links:?}"
+    );
+
+    let tags = value["tags"].as_object().expect("tags present");
+    assert!(tags.contains_key("demo"), "tags were: {tags:?}");
+    assert_eq!(tags["demo"].as_array().map(|a| a.len()), Some(2));
+}
+
+#[test]
+fn index_text_output_unchanged_format() {
+    let output = knap()
+        .args(["index", "tests/fixtures/index_basic"])
+        .output()
+        .expect("failed to run knap");
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("2 note(s) indexed"), "stdout was: {stdout}");
+    assert!(stdout.contains("alpha.md"), "stdout was: {stdout}");
+    assert!(stdout.contains("beta.md"), "stdout was: {stdout}");
+    assert!(stdout.contains("referenced by:"), "stdout was: {stdout}");
+}
+
+#[test]
 fn lint_malformed_knap_toml_fails_loudly() {
     let output = knap()
         .args(["lint", "tests/fixtures/knap_toml_malformed"])
