@@ -56,29 +56,52 @@ the files stay clean.
 
 ## Configuration
 
-Configuration is delivered via standard LSP mechanisms — no custom config
-component is needed.
-
-- **At startup:** the client passes user settings as `initializationOptions`
-  inside the `initialize` request. This is how all major editors expose
-  per-server config (VS Code `settings.json`, Neovim `lspconfig`, Helix
-  `languages.toml`).
-
-The Protocol Handler resolves `initializationOptions` into a plain `Config`
-struct at startup. Configuration is fixed for the lifetime of the session —
-`workspace/didChangeConfiguration` is not processed.
+`src/config.rs` is the single config-loading module shared by `knap lsp`,
+`knap lint`, and `knap index` — headless commands see the same `Config` the
+LSP would build for the same workspace, rather than diverging on their own
+defaults.
 
 ```
 Config {
-  index_roots: PathBuf[]       // workspace folders from the initialize request
+  index_roots: PathBuf[]       // workspace folders (lsp) or the target path's directory (lint/index)
   extensions: string[]         // default: ["md"]
   new_note_dir: Option<string> // inbox folder for Quick Fix "Create note"; relative to index_roots[0]
   frontmatter_schema: FrontmatterSchema // key/value constraints; default: empty (no validation)
 }
 ```
 
-`workspaceFolders` comes from the `initialize` request itself and is not
-user-configurable — it is whatever the editor has open.
+There are two sources, and two loader entry points that combine them
+differently depending on whether an editor is involved:
+
+- **`initializationOptions`** — the client passes user settings inside the
+  `initialize` request. This is how all major editors expose per-server
+  config (VS Code `settings.json`, Neovim `lspconfig`, Helix
+  `languages.toml`). Only available when an editor is driving the session.
+- **`knap.toml`** — an optional project config file at a workspace root,
+  written in idiomatic snake_case TOML (see `README.md` for the full
+  shape). Available to every entry point, including headless ones with no
+  editor in the loop.
+
+```rust
+fn for_lsp(init_params: &InitializeParams) -> Result<Config>   // knap lsp
+fn for_path(root: &Path, extensions_override: Option<Vec<String>>) -> Result<Config> // knap lint, knap index
+```
+
+- `for_lsp` — `index_roots` from `workspaceFolders` in the `initialize`
+  request (not user-configurable — whatever the editor has open). Looks for
+  `knap.toml` in `index_roots[0]`, then layers `initializationOptions` over
+  it field-by-field: the editor value wins where present, `knap.toml` fills
+  in what's left, and the built-in defaults are the final fallback. A
+  malformed `knap.toml` fails `initialize` outright; a malformed
+  `initializationOptions` payload keeps the existing lenient behavior —
+  `warn!` and default that field — since it's an editor-side concern the
+  user doesn't directly author, unlike a `knap.toml` they wrote themselves.
+- `for_path` — used by `lint`/`index`, no editor involved. If the given path
+  is a file, its parent directory is the root; `knap.toml` is looked up
+  there only (no ancestor-directory search).
+
+Configuration is resolved once, at startup, and fixed for the lifetime of
+the session — `workspace/didChangeConfiguration` is not processed.
 
 ---
 
@@ -210,24 +233,34 @@ exclusively — they do not touch the filesystem directly.
 
 ---
 
-### Debug CLI
+### CLI
 
-A thin `src/cli.rs` module dispatched from `main.rs` when the first argument is
-a known subcommand. Used during development to inspect component output without
-a running editor. When no subcommand is given, `main.rs` falls through to normal
-LSP server startup.
+`src/cli/` — one module per subcommand (`mod.rs`, `lsp.rs`, `lint.rs`,
+`index.rs`, `parse.rs`, `check.rs`, `version.rs`), wired up with `clap`.
+`main.rs` is just logging setup plus `knap::cli::run()`. There is no
+argument-free fallback: a subcommand is required, and bare `knap` exits
+non-zero with usage text (clap's built-in behavior for a required
+subcommand). In particular, **`knap` no longer starts the LSP server on its
+own — use `knap lsp`.**
 
-| Subcommand | Usage               | Available from |
-| ---------- | ------------------- | -------------- |
-| `parse`    | `knap parse <file>` | v0.1           |
-| `index`    | `knap index <dir>`  | v0.1           |
-| `check`    | `knap check`        | v0.2           |
-| `version`  | `knap version`      | v0.10.1        |
+| Subcommand | Usage                       | Available from                                       |
+| ---------- | --------------------------- | ---------------------------------------------------- |
+| `lsp`      | `knap lsp`                  | v0.13 (previously the bare-args default, since v0.1) |
+| `lint`     | `knap lint [path] [--json]` | v0.13                                                |
+| `index`    | `knap index <dir> [--json]` | v0.1, rewritten v0.13                                |
+| `parse`    | `knap parse <file>`         | v0.1                                                 |
+| `check`    | `knap check`                | v0.2                                                 |
+| `version`  | `knap version`              | v0.10.1                                              |
 
-The CLI shares the same library crate as the server — `cmd_parse` calls
-`parser::parse` directly; `cmd_index` calls `index::build` directly; `cmd_check`
-spins up a full in-process server and exercises the LSP lifecycle as a smoke
-test. No editor is needed.
+The CLI shares the same library crate as the server. `lsp` boots the same
+stdio server the LSP Client talks to. `lint` and `index` both resolve config
+via `config::for_path` and build the index via `index::build` — this is what
+makes their behavior match the LSP for the same workspace, including
+`knap.toml`; `lint` then calls the existing `handlers::compute_diagnostics`
+per target file, and `index --json` serializes `NoteIndex::report()`.
+`parse` calls `parser::parse` directly; `check` spins up a full in-process
+server and exercises the LSP lifecycle as a smoke test. No editor is needed
+for any of them.
 
 ---
 

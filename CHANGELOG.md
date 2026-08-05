@@ -5,6 +5,39 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.13.0]
+
+### ⚠ Breaking
+
+- **Bare `knap` (no subcommand) no longer starts the LSP server.** Use
+  `knap lsp` instead. `zed-knap` and `vscode-knap` must invoke `knap lsp`
+  going forward — this release is not tagged/pushed until both are updated.
+  (US-D06)
+
+### Added
+
+- **`knap lsp`** — explicit subcommand to start the LSP server on stdio,
+  replacing the old no-args fallback. (US-D06)
+- **`knap lint [path] [--json]`** — headless link/anchor/frontmatter
+  diagnostics, the same checks the editor shows, without a running LSP
+  session. Text output is rustc/clippy-style (`path:line:col: severity:
+message`); `--json` emits a structured report. Exit code `1` if any
+  diagnostic was found, `0` otherwise. (US-D04)
+- **`knap.toml`** — optional project config file at a workspace root,
+  mirroring `initializationOptions` (`extensions`, `new_note_dir`,
+  `frontmatter_schema`) in snake_case TOML. Read by `knap lsp`, `knap lint`,
+  and `knap index` alike; when running under `knap lsp`, editor-supplied
+  `initializationOptions` win over `knap.toml` field-by-field. (US-D07)
+
+### Changed
+
+- **`knap index --json`** — now serializes a structured `IndexReport`
+  (notes, headings, links with resolved/broken status, backlinks, tags)
+  instead of the old ad hoc format. Text output is unchanged. `knap index`
+  now loads `knap.toml` the same way `lsp`/`lint` do, fixing a bug where it
+  always used the hardcoded `["md"]` extension list regardless of
+  configuration. (US-D05)
+
 ## [0.10.2] — 2026-08-03
 
 ### Fixed

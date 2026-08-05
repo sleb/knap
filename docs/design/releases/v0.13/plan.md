@@ -20,7 +20,7 @@ down untested code for the next step to build on.
 | 6 — `knap lint`                                     | Done   |       |
 | 7 — `knap index` rewrite                            | Done   |       |
 | 8 — Full test suite + clippy                        | Done   |       |
-| 9 — Docs                                            | Todo   |       |
+| 9 — Docs                                            | Done   |       |
 | 10 — Release coordination                           | Todo   |       |
 
 ---

@@ -3,11 +3,13 @@
 ![Version](https://img.shields.io/badge/version-0.10.2-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A
+Tooling for Markdown notes, built on standard Markdown syntax with no
+proprietary extensions. Its core is a
 [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
-server for Markdown. It brings IDE-quality linking and navigation to any
-LSP-compatible editor — using standard Markdown syntax, no proprietary
-extensions.
+server (`knap lsp`) that brings IDE-quality linking and navigation to any
+LSP-compatible editor. The same engine is also available headlessly from the
+command line — `knap lint` and `knap index --json` — for CI, scripts, and
+coding agents that don't have an editor in the loop.
 
 ## What it does
 
@@ -101,9 +103,10 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 ### Workspace
 
 - Incremental index — stays live as files change, no restart needed
-- Configurable via `initializationOptions`: file extensions (`extensions`,
-  e.g. `["md", "mdx"]`), new-note inbox folder (`newNoteDir`), and frontmatter
-  schema (`frontmatterSchema`)
+- Configurable via `initializationOptions` or `knap.toml`: file extensions
+  (`extensions`, e.g. `["md", "mdx"]`), new-note inbox folder (`newNoteDir` /
+  `new_note_dir`), and frontmatter schema (`frontmatterSchema` /
+  `frontmatter_schema`)
 
 Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
 Dedicated extensions are available for [VS Code](https://github.com/sleb/vscode-knap) and [Zed](https://github.com/sleb/zed-knap).
@@ -115,12 +118,78 @@ change notifications. It requires no external tools and no editor-specific
 plugins — just a standard LSP client configuration pointing at the server
 binary.
 
-Configuration (note subdirectory, file extensions) is passed via your editor's
-native LSP settings, using `initializationOptions`.
+Configuration (note subdirectory, file extensions, frontmatter schema) comes
+from two sources: your editor's native LSP settings via
+`initializationOptions`, or a `knap.toml` file at your workspace root. Both
+are read by every command below — `knap lint` and `knap index` see the same
+config an editor session would.
+
+## Command-line usage
+
+knap is a single binary with several subcommands. There is no default —
+running `knap` with no subcommand prints usage and exits non-zero.
+
+### `knap lsp`
+
+Starts the LSP server on stdio. This is what your editor's LSP client should
+invoke — see your editor's extension docs for how to point it at the `knap`
+binary. (Prior to v0.13, bare `knap` did this; that fallback is gone —
+editor extensions must invoke `knap lsp` explicitly.)
+
+### `knap lint [path] [--json]`
+
+Headless diagnostics — the same broken-link, broken-anchor, and frontmatter
+checks the editor shows, without a running LSP session. Useful in CI or for
+an agent to check whether its edits broke any links.
+
+```
+$ knap lint .
+notes/index.md:12:3: warning: broken link to 'notes/missing.md'
+
+1 problem(s) in 1 file(s)
+```
+
+`path` defaults to the current directory; pass a single file to lint just
+that file. `--json` emits a machine-readable report (`diagnostics`,
+`problem_count`, `file_count`). Exit code is `0` if no problems were found,
+`1` otherwise.
+
+### `knap index <path> [--json]`
+
+Builds and prints the note index for a directory: notes, headings, links
+(with resolved/broken status), backlinks, and tags. `--json` emits a
+structured snapshot — handy for an agent to get a fast structural view of a
+workspace without grepping.
+
+### `knap.toml`
+
+An optional project config file at a workspace root, read by `knap lsp`,
+`knap lint`, and `knap index` alike (for `lint`/`index`, the root is the
+target directory, or the parent directory when the target is a single
+file):
+
+```toml
+extensions = ["md"]
+new_note_dir = "inbox"
+
+[frontmatter_schema]
+require_frontmatter = false
+warn_unknown_keys = false
+
+[frontmatter_schema.fields.title]
+required = true
+
+[frontmatter_schema.fields.status]
+values = ["draft", "published"]
+```
+
+When running under `knap lsp`, `initializationOptions` from the editor
+layers over `knap.toml` field-by-field — the editor value wins where
+present, `knap.toml` fills in the rest.
 
 ## Status
 
-v0.10.0 — Tag Rename. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.10.2. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 
