@@ -34,12 +34,8 @@ fn parse_subcommand_still_works() {
 
 #[test]
 fn check_subcommand_still_works() {
-    // Pre-existing on `main`: `knap check` never sends `workspaceFolders`, so
-    // the registerCapability watcher-glob assertion always fails and the
-    // command exits non-zero. Unchanged by the Step 5 restructure (verbatim
-    // move) — this test pins that existing behavior, not a target.
     let output = knap().arg("check").output().expect("failed to run knap");
-    assert!(!output.status.success());
+    assert!(output.status.success(), "stdout: {}", String::from_utf8_lossy(&output.stdout));
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("10 passed, 1 failed"), "stdout was: {stdout}");
+    assert!(stdout.contains("11 passed, 0 failed"), "stdout was: {stdout}");
 }

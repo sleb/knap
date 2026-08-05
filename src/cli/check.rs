@@ -40,14 +40,17 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     // ── initialize ────────────────────────────────────────────────────────────
-    // A real `workspaceFolders` entry (the cwd) is required so the server has
-    // a root to register a file watcher against — without one, the
-    // registerCapability check below is guaranteed to fail regardless of
-    // whether watcher registration actually works.
-
-    let cwd = std::env::current_dir()?;
-    let cwd_uri = url::Url::from_file_path(&cwd)
-        .map_err(|_| anyhow::anyhow!("cwd is not a valid file:// URI: {}", cwd.display()))?;
+    // A real `workspaceFolders` entry is required so the server has a root to
+    // register a file watcher against — without one, the registerCapability
+    // check below is guaranteed to fail regardless of whether watcher
+    // registration actually works. A freshly created, empty scratch directory
+    // (rather than the cwd) keeps this deterministic and cheap to index no
+    // matter where `knap check` is run from — indexing a real, populated
+    // vault would also flood the connection with `publishDiagnostics`
+    // notifications past `recv_response`'s skip limit below.
+    let scratch_root = ScratchDir::new()?;
+    let root_uri = url::Url::from_file_path(&scratch_root.path)
+        .map_err(|_| anyhow::anyhow!("scratch dir is not a valid file:// URI"))?;
 
     client_conn
         .sender
@@ -61,7 +64,7 @@ pub fn run() -> anyhow::Result<()> {
                     "version": env!("CARGO_PKG_VERSION")
                 },
                 "workspaceFolders": [{
-                    "uri": cwd_uri.as_str(),
+                    "uri": root_uri.as_str(),
                     "name": "knap-check"
                 }]
             }),
@@ -119,7 +122,7 @@ pub fn run() -> anyhow::Result<()> {
                 .flat_map(|o| o.watchers)
                 .map(|w| match w.glob_pattern {
                     GlobPattern::String(s) => s,
-                    _ => "?".to_string(),
+                    GlobPattern::Relative(r) => r.pattern,
                 })
                 .collect();
             check!(
@@ -203,6 +206,34 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// A freshly created empty directory, removed on drop. Used as an isolated
+/// workspace root so `knap check` doesn't depend on (or index) whatever
+/// directory it happens to be run from.
+struct ScratchDir {
+    path: std::path::PathBuf,
+}
+
+impl ScratchDir {
+    fn new() -> anyhow::Result<Self> {
+        let path = std::env::temp_dir().join(format!(
+            "knap-check-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default(),
+        ));
+        std::fs::create_dir_all(&path)?;
+        Ok(Self { path })
+    }
+}
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
 }
 
 /// Receive the next Response from `conn`, skipping server-initiated Requests
