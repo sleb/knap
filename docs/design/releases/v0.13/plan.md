@@ -19,7 +19,7 @@ down untested code for the next step to build on.
 | 5 — `src/cli/` restructure + clap wiring            | Done   |       |
 | 6 — `knap lint`                                     | Done   |       |
 | 7 — `knap index` rewrite                            | Done   |       |
-| 8 — Full test suite + clippy                        | Todo   |       |
+| 8 — Full test suite + clippy                        | Done   |       |
 | 9 — Docs                                            | Todo   |       |
 | 10 — Release coordination                           | Todo   |       |
 

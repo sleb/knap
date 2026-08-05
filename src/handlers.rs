@@ -1756,6 +1756,7 @@ pub(crate) fn path_to_uri(path: &Path) -> lsp_types::Uri {
 }
 
 #[cfg(test)]
+#[allow(clippy::mutable_key_type)] // lsp_types::Uri has interior mutability; HashMap<Uri, _> is the LSP-spec type
 mod tests {
     use std::path::Path;
 
