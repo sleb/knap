@@ -39,3 +39,73 @@ fn check_subcommand_still_works() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("11 passed, 0 failed"), "stdout was: {stdout}");
 }
+
+#[test]
+fn lint_text_output_reports_broken_link() {
+    let output = knap()
+        .args(["lint", "tests/fixtures/lint_basic"])
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Link target not found: 'missing.md'"), "stdout was: {stdout}");
+    assert_eq!(output.status.code(), Some(1));
+}
+
+#[test]
+fn lint_json_output_parses_and_matches_shape() {
+    let output = knap()
+        .args(["lint", "tests/fixtures/lint_basic", "--json"])
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    let problem_count = value["problem_count"].as_u64().expect("problem_count present");
+    assert!(problem_count > 0);
+    assert!(value["diagnostics"].as_array().is_some());
+    assert!(value["file_count"].as_u64().is_some());
+}
+
+#[test]
+fn lint_clean_dir_exits_zero() {
+    let output = knap()
+        .args(["lint", "tests/fixtures/lint_clean", "--json"])
+        .output()
+        .expect("failed to run knap");
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    assert_eq!(value["problem_count"].as_u64(), Some(0));
+    assert_eq!(value["diagnostics"].as_array().map(|a| a.len()), Some(0));
+}
+
+#[test]
+fn lint_respects_knap_toml_extensions() {
+    let output = knap()
+        .args(["lint", "tests/fixtures/knap_toml", "--json"])
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    assert!(value["problem_count"].as_u64().unwrap_or(0) > 0);
+    let paths: Vec<&str> = value["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["path"].as_str().unwrap())
+        .collect();
+    assert!(paths.iter().any(|p| p.ends_with("note.knap")), "paths were: {paths:?}");
+}
+
+#[test]
+fn lint_malformed_knap_toml_fails_loudly() {
+    let output = knap()
+        .args(["lint", "tests/fixtures/knap_toml_malformed"])
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("parsing"), "stderr was: {stderr}");
+}
