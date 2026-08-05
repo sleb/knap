@@ -273,3 +273,53 @@ fn index_replace_updates_tags() {
     assert!(!tags.contains(&"old"), "old tag should be removed");
     assert!(tags.contains(&"new"), "new tag should be present");
 }
+
+// ── report ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn report_includes_all_notes_sorted_by_path() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/z.md", ""));
+    idx.seed(note("/vault/a.md", ""));
+    idx.seed(note("/vault/m.md", ""));
+
+    let report = idx.report();
+    let paths: Vec<&PathBuf> = report.notes.iter().map(|n| &n.path).collect();
+    assert_eq!(paths, vec![&pb("/vault/a.md"), &pb("/vault/m.md"), &pb("/vault/z.md")]);
+}
+
+#[test]
+fn report_link_summary_marks_broken_links() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/a.md", "[missing](missing.md)\n"));
+
+    let report = idx.report();
+    let note = report.notes.iter().find(|n| n.path == pb("/vault/a.md")).unwrap();
+    assert_eq!(note.links.len(), 1);
+    assert_eq!(note.links[0].target, "missing.md");
+    assert_eq!(note.links[0].resolved, None);
+}
+
+#[test]
+fn report_link_summary_marks_resolved_links() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/b.md", ""));
+    idx.seed(note("/vault/a.md", "[real](b.md)\n"));
+
+    let report = idx.report();
+    let note = report.notes.iter().find(|n| n.path == pb("/vault/a.md")).unwrap();
+    assert_eq!(note.links.len(), 1);
+    assert_eq!(note.links[0].target, "b.md");
+    assert_eq!(note.links[0].resolved, Some(pb("/vault/b.md")));
+}
+
+#[test]
+fn report_tags_map_groups_by_tag() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
+    idx.seed(note("/vault/b.md", "---\ntags: [rust]\n---\n"));
+
+    let report = idx.report();
+    let rust_paths = report.tags.get("rust").expect("rust tag should be present");
+    assert_eq!(rust_paths, &vec![pb("/vault/a.md"), pb("/vault/b.md")]);
+}

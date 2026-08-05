@@ -36,6 +36,38 @@ pub enum ResolvedLink {
     Broken,
 }
 
+/// A structured, serializable snapshot of the whole workspace, returned by
+/// [`NoteIndex::report`] for `knap index --json`.
+#[derive(serde::Serialize)]
+pub struct IndexReport {
+    pub notes: Vec<NoteSummary>,
+    pub tags: std::collections::BTreeMap<String, Vec<PathBuf>>,
+}
+
+#[derive(serde::Serialize)]
+pub struct NoteSummary {
+    pub path: PathBuf,
+    pub title: Option<String>,
+    pub tags: Vec<String>,
+    pub headings: Vec<HeadingSummary>,
+    pub links: Vec<LinkSummary>,
+    pub backlinks: Vec<PathBuf>,
+}
+
+#[derive(serde::Serialize)]
+pub struct HeadingSummary {
+    pub text: String,
+    pub level: u8,
+    pub range: lsp_types::Range,
+}
+
+#[derive(serde::Serialize)]
+pub struct LinkSummary {
+    pub target: String,
+    pub anchor: Option<String>,
+    pub resolved: Option<PathBuf>, // Some(path) if resolved, None if broken
+}
+
 /// Paths whose diagnostic state may have changed after a mutation.
 type AffectedPaths = HashSet<PathBuf>;
 
@@ -296,6 +328,59 @@ impl NoteIndex {
             .get(&key)
             .into_iter()
             .flat_map(|paths| paths.iter().filter_map(|p| self.by_path.get(p)))
+    }
+
+    /// Build a structured, serializable snapshot of the whole workspace for
+    /// `knap index --json`. Built entirely from existing accessors — no new
+    /// resolution logic.
+    pub fn report(&self) -> IndexReport {
+        let mut notes: Vec<&Note> = self.all_notes().collect();
+        notes.sort_by(|a, b| a.path.cmp(&b.path));
+
+        let notes = notes
+            .into_iter()
+            .map(|note| {
+                let title = note.frontmatter.as_ref().and_then(|fm| fm.title.clone());
+                let tags = note
+                    .frontmatter
+                    .as_ref()
+                    .map(|fm| fm.tags.iter().map(|t| t.name.clone()).collect())
+                    .unwrap_or_default();
+                let headings = note
+                    .headings
+                    .iter()
+                    .map(|h| HeadingSummary { text: h.text.clone(), level: h.level, range: h.range })
+                    .collect();
+                let links = note
+                    .md_links
+                    .iter()
+                    .map(|link| {
+                        let resolved = match self.resolve(&note.path, &link.target) {
+                            ResolvedLink::Found(p) => Some(p),
+                            ResolvedLink::Broken => None,
+                        };
+                        LinkSummary { target: link.target.clone(), anchor: link.anchor.clone(), resolved }
+                    })
+                    .collect();
+                let mut backlinks: Vec<PathBuf> =
+                    self.links_to(&note.path).iter().map(|l| l.source_path.clone()).collect();
+                backlinks.sort();
+
+                NoteSummary { path: note.path.clone(), title, tags, headings, links, backlinks }
+            })
+            .collect();
+
+        let tags = self
+            .by_tag
+            .iter()
+            .map(|(tag, paths)| {
+                let mut paths = paths.clone();
+                paths.sort();
+                (tag.clone(), paths)
+            })
+            .collect();
+
+        IndexReport { notes, tags }
     }
 
     /// Register a non-note file (attachment) in `all_files`. Rechecks all

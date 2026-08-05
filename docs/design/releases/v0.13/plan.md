@@ -15,7 +15,7 @@ down untested code for the next step to build on.
 | 1 — Dependencies                                    | Done   |       |
 | 2 — Shared `Config` loader + `knap.toml`            | Done   |       |
 | 3 — Rewire `server.rs`/`handlers.rs` to `config.rs` | Done   |       |
-| 4 — `NoteIndex::report()` for `knap index --json`   | Todo   |       |
+| 4 — `NoteIndex::report()` for `knap index --json`   | Done   |       |
 | 5 — `src/cli/` restructure + clap wiring            | Todo   |       |
 | 6 — `knap lint`                                     | Todo   |       |
 | 7 — `knap index` rewrite                            | Todo   |       |
