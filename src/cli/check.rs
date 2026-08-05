@@ -1,142 +1,11 @@
-use std::path::{Path, PathBuf};
 use std::thread;
-
-pub fn cmd_version() {
-    println!("knap {}", env!("CARGO_PKG_VERSION"));
-}
-
-use crate::index::{self, ResolvedLink};
-use crate::parser;
-
-pub fn cmd_parse(args: &[String]) -> anyhow::Result<()> {
-    let path = args.first().ok_or_else(|| anyhow::anyhow!("usage: knap parse <file>"))?;
-    let path = Path::new(path);
-    let content = std::fs::read_to_string(path)?;
-    let note = parser::parse(path, &content);
-
-    println!("path:  {}", note.path.display());
-
-    match &note.frontmatter {
-        None => println!("title: (no frontmatter)"),
-        Some(fm) => {
-            match &fm.title {
-                None => println!("title: (none)"),
-                Some(t) => println!("title: {t}"),
-            }
-            if !fm.tags.is_empty() {
-                let names: Vec<&str> = fm.tags.iter().map(|t| t.name.as_str()).collect();
-                println!("tags:  [{}]", names.join(", "));
-            }
-        }
-    }
-
-    if note.headings.is_empty() {
-        println!("headings: none");
-    } else {
-        println!("headings: {}", note.headings.len());
-        for h in &note.headings {
-            let r = &h.range;
-            let tr = &h.text_range;
-            println!(
-                "  h{}  \"{}\"  {}:{}\u{2013}{}:{}  (text: {}:{}\u{2013}{}:{})",
-                h.level,
-                h.text,
-                r.start.line,
-                r.start.character,
-                r.end.line,
-                r.end.character,
-                tr.start.line,
-                tr.start.character,
-                tr.end.line,
-                tr.end.character,
-            );
-        }
-    }
-
-    if note.md_links.is_empty() {
-        println!("md_links: none");
-    } else {
-        println!("md_links: {}", note.md_links.len());
-        for link in &note.md_links {
-            let r = &link.range;
-            let tr = &link.target_range;
-            let kind = if link.is_image { "image" } else { "link" };
-            let anchor_str = match (&link.anchor, &link.anchor_range) {
-                (Some(a), Some(ar)) => format!(
-                    "  #{a}  (anchor: {}:{}\u{2013}{}:{})",
-                    ar.start.line, ar.start.character, ar.end.line, ar.end.character
-                ),
-                (Some(a), None) => format!("  #{a}"),
-                _ => String::new(),
-            };
-            println!(
-                "  [{kind}]  \"{}\"  →  {}  (target: {}:{}\u{2013}{}:{})  range: {}:{}\u{2013}{}:{}{}",
-                link.text,
-                link.target,
-                tr.start.line,
-                tr.start.character,
-                tr.end.line,
-                tr.end.character,
-                r.start.line,
-                r.start.character,
-                r.end.line,
-                r.end.character,
-                anchor_str,
-            );
-        }
-    }
-
-    Ok(())
-}
-
-pub fn cmd_index(args: &[String]) -> anyhow::Result<()> {
-    let dir = args.first().ok_or_else(|| anyhow::anyhow!("usage: knap index <dir>"))?;
-    let root = PathBuf::from(dir);
-
-    let (idx, _) = index::build(&[root], &["md"]);
-
-    let mut notes: Vec<_> = idx.all_notes().collect();
-    notes.sort_by(|a, b| a.path.cmp(&b.path));
-
-    println!("{} note(s) indexed", notes.len());
-
-    for note in notes {
-        println!();
-        println!("{}", note.path.display());
-
-        if note.md_links.is_empty() {
-            println!("  links: none");
-        } else {
-            for link in &note.md_links {
-                let status = match idx.resolve(&note.path, &link.target) {
-                    ResolvedLink::Found(p) => format!("→ {}", p.display()),
-                    ResolvedLink::Broken => "broken".to_string(),
-                };
-                let anchor_str = link.anchor.as_deref()
-                    .map(|a| format!("#{a}"))
-                    .unwrap_or_default();
-                println!("  [{}]{}  {}", link.target, anchor_str, status);
-            }
-        }
-
-        let incoming = idx.links_to(&note.path);
-        if !incoming.is_empty() {
-            println!("  referenced by:");
-            for l in incoming {
-                println!("    {}", l.source_path.display());
-            }
-        }
-    }
-
-    Ok(())
-}
 
 /// In-process LSP smoke test: acts as a minimal LSP client against the server
 /// running in a background thread. Verifies the full lifecycle without needing
 /// a real editor.
 ///
 /// Exit code is non-zero if any check fails, so this can be used in CI.
-pub fn cmd_check() -> anyhow::Result<()> {
+pub fn run() -> anyhow::Result<()> {
     use lsp_server::{Connection, Message, Notification, Request};
     use lsp_types::{
         DidChangeWatchedFilesRegistrationOptions, GlobPattern, RegistrationParams,
@@ -171,6 +40,14 @@ pub fn cmd_check() -> anyhow::Result<()> {
     }
 
     // ── initialize ────────────────────────────────────────────────────────────
+    // A real `workspaceFolders` entry (the cwd) is required so the server has
+    // a root to register a file watcher against — without one, the
+    // registerCapability check below is guaranteed to fail regardless of
+    // whether watcher registration actually works.
+
+    let cwd = std::env::current_dir()?;
+    let cwd_uri = url::Url::from_file_path(&cwd)
+        .map_err(|_| anyhow::anyhow!("cwd is not a valid file:// URI: {}", cwd.display()))?;
 
     client_conn
         .sender
@@ -182,7 +59,11 @@ pub fn cmd_check() -> anyhow::Result<()> {
                 "clientInfo": {
                     "name": "knap-check",
                     "version": env!("CARGO_PKG_VERSION")
-                }
+                },
+                "workspaceFolders": [{
+                    "uri": cwd_uri.as_str(),
+                    "name": "knap-check"
+                }]
             }),
         }))?;
 
