@@ -2,6 +2,7 @@
 #![warn(clippy::suspicious, clippy::perf)]
 
 pub mod cli;
+pub mod config;
 pub mod handlers;
 pub mod index;
 pub mod parser;

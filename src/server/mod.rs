@@ -1,9 +1,6 @@
 // LSP lifecycle, message loop, request/notification routing.
 // See docs/design/components/protocol-handler.md
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-
 use anyhow::Result;
 use log::{debug, info, warn};
 use crossbeam_channel::Sender;
@@ -23,109 +20,10 @@ use lsp_types::{
     WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
 
+use crate::config::Config;
 use crate::handlers::{self, uri_to_path};
 use crate::index::{self, NoteIndex};
 use crate::parser;
-
-pub(crate) struct SchemaField {
-    pub(crate) values: Option<Vec<String>>,
-    pub(crate) required: bool,
-}
-
-#[derive(Default)]
-pub(crate) struct FrontmatterSchema {
-    pub(crate) fields: Vec<(String, SchemaField)>,
-    pub(crate) require_frontmatter: bool,
-    pub(crate) warn_unknown_keys: bool,
-}
-
-#[derive(serde::Deserialize, Default)]
-#[serde(default)]
-struct SchemaFieldOpts {
-    values: Option<Vec<String>>,
-    required: bool,
-}
-
-#[derive(serde::Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
-struct FrontmatterSchemaOpts {
-    fields: HashMap<String, SchemaFieldOpts>,
-    require_frontmatter: bool,
-    warn_on_unknown_keys: bool,
-}
-
-#[derive(Default)]
-pub(crate) struct Config {
-    pub(crate) index_roots: Vec<PathBuf>,
-    pub(crate) extensions: Vec<String>,
-    pub(crate) new_note_dir: Option<String>,
-    pub(crate) frontmatter_schema: FrontmatterSchema,
-}
-
-/// Mirrors the shape of `initializationOptions` sent by the editor.
-#[derive(serde::Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
-struct InitOptions {
-    extensions: Option<Vec<String>>,
-    new_note_dir: Option<String>,
-    frontmatter_schema: Option<FrontmatterSchemaOpts>,
-}
-
-impl Config {
-    fn from_params(params: &InitializeParams) -> Self {
-        let index_roots = params
-            .workspace_folders
-            .as_deref()
-            .unwrap_or(&[])
-            .iter()
-            .filter_map(|folder| {
-                url::Url::parse(folder.uri.as_str())
-                    .ok()?
-                    .to_file_path()
-                    .ok()
-            })
-            .collect();
-
-        let opts: InitOptions = params
-            .initialization_options
-            .as_ref()
-            .map(|v| {
-                serde_json::from_value::<InitOptions>(v.clone()).unwrap_or_else(|e| {
-                    warn!("initializationOptions parse error: {e}; using defaults");
-                    InitOptions::default()
-                })
-            })
-            .unwrap_or_default();
-
-        let frontmatter_schema = match opts.frontmatter_schema {
-            Some(schema_opts) => {
-                let mut fields: Vec<(String, SchemaField)> = schema_opts
-                    .fields
-                    .into_iter()
-                    .map(|(k, v)| (k, SchemaField { values: v.values, required: v.required }))
-                    .collect();
-                fields.sort_by(|a, b| a.0.cmp(&b.0));
-                FrontmatterSchema {
-                    fields,
-                    require_frontmatter: schema_opts.require_frontmatter,
-                    warn_unknown_keys: schema_opts.warn_on_unknown_keys,
-                }
-            }
-            None => FrontmatterSchema::default(),
-        };
-
-        Config {
-            index_roots,
-            extensions: opts.extensions.unwrap_or_else(|| vec!["md".to_string()]),
-            new_note_dir: opts.new_note_dir,
-            frontmatter_schema,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests;
-
 
 pub fn run(connection: Connection) -> Result<()> {
     info!(
@@ -153,7 +51,7 @@ pub fn run(connection: Connection) -> Result<()> {
         .unwrap_or("unknown");
     info!("initialize: client={} version={}", client_name, client_version);
 
-    let config = Config::from_params(&init_params);
+    let config = crate::config::for_lsp(&init_params)?;
 
     let capabilities = ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Kind(
