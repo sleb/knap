@@ -68,23 +68,6 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
     let mut diagnostics = Vec::new();
 
     for link in &note.md_links {
-        if link.target.is_empty() {
-            // Bare anchor (`[text](#slug)`): validate against current note's headings.
-            // `[text](#)` has `link.anchor = None` (empty slug) — nothing to check.
-            let Some(anchor) = &link.anchor else { continue };
-            let found = note.headings.iter().any(|h| slug(&h.text) == slug(anchor));
-            if !found {
-                let range = link.anchor_range.unwrap_or(link.range);
-                diagnostics.push(Diagnostic {
-                    range,
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    message: format!("Heading not found: '#{anchor}'"),
-                    source: Some(DIAG_SOURCE.to_owned()),
-                    ..Default::default()
-                });
-            }
-            continue;
-        }
         match index.resolve(path, &link.target) {
             ResolvedLink::Broken => {
                 diagnostics.push(Diagnostic {
@@ -567,13 +550,6 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, con
     // Anchor completion: `](path#` → list headings from target note,
     // or `](#` → list headings from the current note.
     if let Some(target_rel) = check_anchor_trigger(&note.content, pos) {
-        if target_rel.is_empty() {
-            return note
-                .headings
-                .iter()
-                .map(heading_completion_item)
-                .collect();
-        }
         let ResolvedLink::Found(target_path) = index.resolve(&path, &target_rel) else {
             return vec![];
         };
@@ -803,20 +779,6 @@ pub(crate) fn handle_definition(
     }
 
     let link = find_md_link_at_position(note, pos)?;
-
-    // Bare anchor (`[text](#slug)`): resolve against current note's headings.
-    if link.target.is_empty() {
-        let range = link
-            .anchor
-            .as_ref()
-            .and_then(|anchor| note.headings.iter().find(|h| slug(&h.text) == slug(anchor)))
-            .map(|h| h.range)
-            .unwrap_or_default();
-        return Some(GotoDefinitionResponse::Scalar(Location {
-            uri: path_to_uri(&path),
-            range,
-        }));
-    }
 
     let ResolvedLink::Found(target_path) = index.resolve(&path, &link.target) else {
         return None;
@@ -3827,6 +3789,62 @@ mod tests {
         idx.seed(note("/vault/a.md", "[text](#)"));
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
         assert!(diags.is_empty());
+    }
+
+    // ── #60 pinning tests: same-file anchor links via empty target (v0.11.1) ──
+    // Written against the still-special-cased handlers to pin today's
+    // behavior before the `if link.target.is_empty() { ... }` branches are
+    // deleted in favor of routing through `index.resolve()`.
+
+    #[test]
+    fn diagnostics_same_file_anchor_valid_no_warning() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Section One\n\n[§1](#section-one)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn diagnostics_same_file_anchor_missing_emits_heading_not_found() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Section One\n\n[§1](#nope)"));
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        assert_eq!(diags.len(), 1);
+        assert_eq!(diags[0].message, "Heading not found: '#nope'");
+    }
+
+    #[test]
+    fn goto_definition_same_file_anchor_jumps_to_heading() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## Section One\n\n[§1](#section-one)"));
+        let params = make_definition_params("/vault/a.md", 2, 5);
+        let loc = unwrap_scalar(handle_definition(params, &idx));
+        assert!(loc.uri.as_str().ends_with("a.md"));
+        assert_eq!(loc.range.start.line, 0);
+    }
+
+    #[test]
+    fn completion_same_file_anchor_trigger_lists_current_note_headings() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "## My Section\n## Another\n\n[see](#"));
+        let params = make_completion_params("/vault/a.md", 3, 7);
+        let items = handle_completion(params, &idx, &crate::config::Config::default());
+        assert_eq!(items.len(), 2);
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"My Section"));
+        assert!(labels.contains(&"Another"));
+    }
+
+    #[test]
+    fn references_same_file_anchor_link_returns_backlinks_to_current_file() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "[link](a.md)"));
+        idx.seed(note("/vault/a.md", "## Section One\n\n[§1](#section-one)"));
+        // cursor on `[§1](#section-one)` in a.md
+        let params = make_references_params("/vault/a.md", 2, 3);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 1, "expected the backlink from b.md, got {:?}", locs);
+        assert!(locs[0].uri.as_str().ends_with("b.md"));
     }
 
     // ── find references on heading (US-49) ────────────────────────────────────

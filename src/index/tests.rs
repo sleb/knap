@@ -41,6 +41,28 @@ fn test_resolve_broken() {
 }
 
 #[test]
+fn resolve_empty_target_resolves_to_source() {
+    let idx = NoteIndex::default();
+    // A same-file link (empty target, e.g. `[§1](#section-one)`) resolves to
+    // the source note itself, without any filesystem lookup.
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), ""),
+        ResolvedLink::Found(p) if p == Path::new("/vault/a.md")
+    ));
+}
+
+#[test]
+fn resolve_empty_target_with_anchor_resolves_to_source() {
+    let idx = NoteIndex::default();
+    // The anchor itself is carried separately from `target` (see
+    // `MarkdownLink::anchor`); `resolve()` only ever sees the empty target.
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), ""),
+        ResolvedLink::Found(p) if p == Path::new("/vault/a.md")
+    ));
+}
+
+#[test]
 fn test_resolve_url() {
     let idx = NoteIndex::default();
     // External URLs resolve Found without any filesystem check.

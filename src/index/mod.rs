@@ -135,6 +135,9 @@ impl NoteIndex {
         if is_url_like(target) {
             return ResolvedLink::Found(PathBuf::from(target));
         }
+        if target.is_empty() {
+            return ResolvedLink::Found(source.to_path_buf());
+        }
         let target = unescape_link_target(target);
         let candidate = source
             .parent()
