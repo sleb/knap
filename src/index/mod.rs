@@ -462,7 +462,7 @@ fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
                 walk_dir(&entry.path(), out);
             }
         } else if ft.is_file() {
-            out.push(entry.path());
+            out.push(normalize_path(&entry.path()));
         }
         // symlinks: ft.is_symlink() → skip to prevent infinite loops
     }

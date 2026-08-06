@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::index::{NoteIndex, ResolvedLink};
+use crate::index::{build, walk_files, NoteIndex, ResolvedLink};
 use crate::test_helpers::note;
 
 fn pb(s: &str) -> PathBuf {
@@ -344,4 +344,31 @@ fn report_tags_map_groups_by_tag() {
     let report = idx.report();
     let rust_paths = report.tags.get("rust").expect("rust tag should be present");
     assert_eq!(rust_paths, &vec![pb("/vault/a.md"), pb("/vault/b.md")]);
+}
+
+// ── walk_dir / build ─────────────────────────────────────────────────────────
+
+#[test]
+fn walk_files_strips_leading_curdir_from_root() {
+    let root = Path::new("./tests/fixtures/lint_clean");
+    let files = walk_files(root);
+    assert!(!files.is_empty(), "expected walk_files to find fixture files");
+    for path in &files {
+        assert_ne!(
+            path.components().next(),
+            Some(std::path::Component::CurDir),
+            "path {path:?} should not have a leading './' component"
+        );
+    }
+}
+
+#[test]
+fn build_with_leading_curdir_root_resolves_relative_links() {
+    let roots = vec![PathBuf::from("./tests/fixtures/lint_clean")];
+    let (idx, _) = build(&roots, &["md"]);
+    let note_path = PathBuf::from("tests/fixtures/lint_clean/note.md");
+    assert!(
+        matches!(idx.resolve(&note_path, "target.md"), ResolvedLink::Found(_)),
+        "expected note.md's link to target.md to resolve as Found"
+    );
 }
