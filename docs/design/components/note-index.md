@@ -54,6 +54,9 @@ pub fn resolve(&self, source: &Path, target: &str) -> ResolvedLink {
     if is_url_like(target) {
         return ResolvedLink::Found(PathBuf::from(target));
     }
+    if target.is_empty() {
+        return ResolvedLink::Found(source.to_path_buf());
+    }
     let target = unescape_link_target(target);
     let candidate = source
         .parent()
@@ -69,8 +72,12 @@ pub fn resolve(&self, source: &Path, target: &str) -> ResolvedLink {
 }
 ```
 
-Empty targets (anchor-only links like `[text](#heading)`) are resolved against
-the source file itself by the caller before invoking `resolve`.
+Empty targets (anchor-only links like `[text](#heading)`) resolve to the
+source file itself directly inside `resolve()` (v0.11.1, #60) — previously
+this was a special case duplicated across each caller (`compute_diagnostics`,
+`handle_definition`, completion's anchor trigger); those callers now flow
+through this same branch instead of special-casing the empty target
+themselves.
 
 `normalize_path` collapses `.` and `..` components lexically (without syscalls),
 since the path may not exist on disk yet (e.g. during a Quick Fix preview).
@@ -410,3 +417,10 @@ loops. Directories whose name starts with `.` (e.g. `.git`) and the well-known
 build/dependency directories `node_modules` and `target` are skipped. Every
 remaining file is returned — no extension filter — so that attachments can be
 registered alongside notes.
+
+Each collected file path is passed through `normalize_path` before being
+pushed to the result (v0.11.1, #62). Without this, a root given with a
+leading `./` (e.g. `knap lint .`) produced paths with a leading `CurDir`
+component that never matched the lexically-normalized candidates `resolve()`
+computes from link targets, causing every valid relative link under that
+root to be misdiagnosed as broken.

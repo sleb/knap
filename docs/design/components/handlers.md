@@ -79,10 +79,13 @@ pub(crate) fn handle_completion(
 ### Anchor completion (`](path#` or `](#`)
 
 When `check_anchor_trigger` detects that the cursor is immediately after a `#`
-inside a link destination, the handler returns one item per heading. Two cases:
+inside a link destination, the handler returns one item per heading. Both
+cases go through the same `index.resolve(&path, &target_rel)` call (v0.11.1,
+#60) — there is no separate empty-target branch:
 
-- **Same-file anchor** (`[text](#`) — `target_rel` is empty; items come from the
-  headings of the current note itself.
+- **Same-file anchor** (`[text](#`) — `target_rel` is empty; `resolve()`
+  resolves an empty target to `path` itself, so headings come from the
+  current note.
 - **Cross-file anchor** (`[text](file.md#`) — `target_rel` is non-empty; the
   handler resolves the target note via `index.resolve` and returns its headings.
 
@@ -162,17 +165,21 @@ pub(crate) fn handle_definition(
 ```
 
 Finds the `MarkdownLink` at the cursor position and returns a `Location`.
+Both same-file and cross-file links go through the same
+`index.resolve(&path, &link.target)` call (v0.11.1, #60) — there is no
+separate empty-target branch.
 
-**Same-file anchor** (`link.target.is_empty()`): resolves the anchor against
-`note.headings` directly. Returns a `Location` in the current file at the
-matching heading's `range`, or `Range::default()` (top of file) if no heading
-matches.
+**Same-file anchor** (`link.target` is empty): `resolve()` resolves the
+empty target to the current file itself. When the link has an anchor,
+navigates to the matching heading's `range` in `note.headings` (falling back
+to `Range::default()`, top of file, if no heading matches). When there is no
+anchor, returns `Range::default()`.
 
-**Cross-file link** (`link.target` is non-empty): resolves via
-`index.resolve(source, &link.target)`. Returns `None` for broken links. When
-the link has an anchor, navigates to the matching heading's `range` in the
-target note (falling back to `Range::default()` if the anchor doesn't match).
-When there is no anchor, returns `Range::default()`.
+**Cross-file link** (`link.target` is non-empty): resolves via `resolve()`
+to the target note. Returns `None` for broken links. When the link has an
+anchor, navigates to the matching heading's `range` in the target note
+(falling back to `Range::default()` if the anchor doesn't match). When there
+is no anchor, returns `Range::default()`.
 
 Response is always `GotoDefinitionResponse::Scalar(Location)`.
 
@@ -189,7 +196,9 @@ Priority:
 1. **Tag at cursor** → returns all notes carrying that tag.
 2. **Markdown link at cursor** → resolves the target; returns all
    `LocatedLink`s from `index.links_to(target)`. Returns `vec![]` for broken
-   links.
+   links. A same-file anchor link under the cursor now resolves to the
+   current file (v0.11.1, #60 side effect) instead of `Broken`, so it
+   returns real backlinks to the current file rather than nothing.
 3. **Heading at cursor** (no link at cursor) → collects all anchor references
    to that heading: same-file bare anchors (`[text](#slug)` in the current note
    whose anchor slug matches) plus cross-file anchors (`[text](this.md#slug)`
@@ -230,9 +239,12 @@ For each Markdown link in the note:
 | Cross-file — `Found` + anchor not matching any heading | `link.anchor_range`            | `Heading not found: '#anchor'`             |
 | Cross-file — `Found` + no anchor (or valid anchor)     | —                              | No diagnostic                              |
 
-Bare anchor-only links (`target = ""`) are validated against the current note's
-headings (via GFM slug comparison). A link `[text](#)` with an empty anchor
-(`link.anchor = None`) produces no diagnostic.
+Bare anchor-only links (`target = ""`) flow through the same
+`match index.resolve(path, &link.target)` as cross-file links (v0.11.1, #60)
+— `resolve()` resolves the empty target to `path` itself, so the "Cross-file
+— `Found`" row above is what actually validates the anchor against the
+current note's headings (via GFM slug comparison). A link `[text](#)` with
+an empty anchor (`link.anchor = None`) produces no diagnostic.
 
 ### Schema diagnostics
 

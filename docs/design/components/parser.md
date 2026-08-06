@@ -267,6 +267,8 @@ helper, reused by the fallback scan below so both paths produce identical
 - Images (`![alt](path)`) — captured with `is_image: true`.
 - Links inside fenced code blocks and inline code spans — pulldown-cmark excludes
   these automatically; no special handling needed.
+  `find_fallback_links()` (below) separately excludes inline code spans since
+  it operates on raw text pulldown-cmark hasn't already filtered.
 
 ### Fallback link scan: `find_fallback_links()`
 
@@ -286,16 +288,23 @@ fn find_fallback_links(
     content: &str,
     offset: usize,
     line_index: &LineIndex,
-    existing: &[Range<usize>],   // byte ranges pulldown-cmark already captured
-    fence_lines: &[(u32, u32)],  // fenced code block line ranges to skip
+    existing: &[Range<usize>],    // byte ranges pulldown-cmark already captured
+    fence_lines: &[(u32, u32)],   // fenced code block line ranges to skip
+    code_spans: &[Range<usize>],  // inline code span byte ranges to skip
 ) -> Vec<MarkdownLink>
 ```
 
-For each `[`/`![` in the raw text not already covered by `existing` or inside
-a fenced code block, it locates the matching `]` (no nested `[`, no
-newline), requires an immediately-following `(`, then balances parentheses by
-hand (honoring `\`-escapes, refusing to cross a newline) to find the matching
-`)`. The destination text between them is checked against
+`code_spans` is collected by `extract_body_elements()` alongside
+`existing` — one `Range` pushed per pulldown-cmark `Event::Code(_)` — and
+threaded through so a bracket-like span opening inside inline code (e.g.
+`` `[text](` path)` ``) is never recovered as a broken link (v0.11.1, #63).
+
+For each `[`/`![` in the raw text not already covered by `existing`, inside
+a fenced code block, or inside a `code_spans` range, it locates the matching
+`]` (no nested `[`, no newline), requires an immediately-following `(`, then
+balances parentheses by hand (honoring `\`-escapes, refusing to cross a
+newline) to find the matching `)`. The destination text between them is
+checked against
 `link_destination_needs_wrapping()` — the same predicate `escape_link_target()`
 uses in `src/handlers.rs` — and only spans that need wrapping are recovered;
 anything pulldown-cmark could have parsed as a bare destination is left to
@@ -308,9 +317,7 @@ hand-typed `[text](My File)` the same way it would a normal broken link.
 Results are merged into `md_links` and the combined list is sorted by
 position for deterministic ordering.
 
-This scan is deliberately conservative: it does not track inline code spans
-(single/double backticks), so a space-containing destination inside inline
-code (rare, and arguably still link-shaped) could be recovered as a link
-where pulldown-cmark itself would have suppressed it as part of the code
-span. Not observed as a real-world problem; documented here as a known
-limitation rather than special-cased.
+This scan excludes `existing` link/image spans, fenced code blocks, and
+inline code spans (`code_spans`) — the three cases pulldown-cmark itself
+would already have accounted for one way or another, so nothing inside them
+is ever eligible for fallback recovery.

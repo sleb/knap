@@ -5,6 +5,25 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.11.1] — 2026-08-05
+
+### Fixed
+
+- **Empty-target links (`[text](#heading)`) now resolve as same-file
+  references everywhere.** `NoteIndex::resolve()` treats an empty target as
+  pointing back at the source file directly, instead of each caller
+  special-casing it separately. One side effect: Find References on a
+  same-file anchor link now returns real backlinks to the current file,
+  where it previously returned nothing. (#60)
+- **`knap lint .` (and other relative, `./`-prefixed roots) no longer
+  reports false-positive broken links.** Paths collected while walking the
+  directory are now normalized, fixing a mismatch with the paths link
+  resolution computes that made every valid relative link under a
+  `./`-prefixed root look broken. (#62)
+- **A link-shaped span inside inline code (`` `[text](path)` ``) is no
+  longer recovered as a broken link** by the fallback scan for hand-typed,
+  unwrapped link destinations. (#63)
+
 ## [0.11.0] — 2026-08-04
 
 ### ⚠ Breaking

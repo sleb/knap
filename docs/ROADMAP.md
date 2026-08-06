@@ -23,6 +23,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.10.1](#v0101--version-subcommand-released-2026-06-14)                         | Version Subcommand                         | Released 2026-06-14 |
 | [v0.10.2](#v0102--escaped-link-targets-for-paths-with-spaces-released-2026-08-03) | Escaped Link Targets for Paths with Spaces | Released 2026-08-03 |
 | [v0.11](#v011--headless-cli-released-2026-08-04)                                  | Headless CLI                               | Released 2026-08-04 |
+| [v0.11.1](#v0111--lint--index-false-positives-released-2026-08-05)                | Lint & Index False Positives               | Released 2026-08-05 |
 | [v0.12](#v012--daily-notes)                                                       | Daily Notes                                | Planned             |
 | [v0.13](#v013--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
 
@@ -313,6 +314,23 @@ updated to invoke `knap lsp` before this release shipped.
 | US-D05 | `knap index <path> --json` — structured workspace snapshot for agents      |
 
 See `docs/design/releases/v0.11/design.md` for the full design.
+
+---
+
+## v0.11.1 — Lint & Index False Positives _(released 2026-08-05)_
+
+**Goal:** Fix three false positives in `knap lint`/`knap index` and the
+editor diagnostics that share the same resolution logic — surfaced by
+running v0.11's new headless CLI against knap's own repository.
+
+| Story | Feature                                                                                                                                                                                    |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #60   | `resolve()` treats an empty target as a same-file reference; redundant empty-target special cases deleted from `compute_diagnostics`, `handle_definition`, and completion's anchor trigger |
+| #60   | Find References on a same-file anchor link now returns real backlinks instead of nothing (side effect of the #60 fix)                                                                      |
+| #62   | `walk_dir()` normalizes collected paths, fixing false positives when linting/indexing a relative, `./`-prefixed root                                                                       |
+| #63   | `find_fallback_links()` excludes inline code spans                                                                                                                                         |
+
+See `docs/design/releases/v0.11.1/plan.md` for the full implementation plan.
 
 ---
 
