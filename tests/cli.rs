@@ -145,6 +145,31 @@ fn index_text_output_unchanged_format() {
 }
 
 #[test]
+fn lint_relative_dot_root_does_not_false_positive_on_valid_links() {
+    let output = knap()
+        .args(["lint", ".", "--json"])
+        .current_dir("tests/fixtures/lint_clean")
+        .output()
+        .expect("failed to run knap");
+    assert!(output.status.success(), "stdout: {}", String::from_utf8_lossy(&output.stdout));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    assert_eq!(value["problem_count"].as_u64(), Some(0), "stdout was: {stdout}");
+}
+
+#[test]
+fn index_text_output_resolves_same_file_anchor_link() {
+    let output = knap()
+        .args(["index", "tests/fixtures/index_anchor"])
+        .output()
+        .expect("failed to run knap");
+    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains('→'), "stdout was: {stdout}");
+    assert!(!stdout.contains("broken"), "stdout was: {stdout}");
+}
+
+#[test]
 fn lint_malformed_knap_toml_fails_loudly() {
     let output = knap()
         .args(["lint", "tests/fixtures/knap_toml_malformed"])
