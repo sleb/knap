@@ -415,13 +415,16 @@ fn split_link_destination(
 /// already found, so this scan skips anything already covered — both to
 /// avoid duplicates and to avoid matching inside an already-parsed link's
 /// text. `fence_lines` holds the line ranges of fenced code blocks, whose
-/// contents are skipped.
+/// contents are skipped. `code_spans` holds the byte ranges of inline code
+/// spans (`` `...` ``), also skipped — a code span's raw text can contain
+/// link-shaped characters (e.g. `` `[text](` ``) that aren't a link.
 fn find_fallback_links(
     content: &str,
     offset: usize,
     line_index: &LineIndex,
     existing: &[Range<usize>],
     fence_lines: &[(u32, u32)],
+    code_spans: &[Range<usize>],
 ) -> Vec<MarkdownLink> {
     let bytes = content.as_bytes();
     let mut out = Vec::new();
@@ -438,7 +441,8 @@ fn find_fallback_links(
             || fence_lines.iter().any(|&(start, end)| {
                 let line = line_index.position(span_start + offset).line;
                 line >= start && line <= end
-            });
+            })
+            || code_spans.iter().any(|r| r.contains(&span_start));
         if already_covered {
             i += 1;
             continue;
@@ -528,6 +532,7 @@ fn extract_body_elements(
     let mut headings: Vec<Heading> = Vec::new();
     let mut md_links: Vec<MarkdownLink> = Vec::new();
     let mut link_byte_ranges: Vec<Range<usize>> = Vec::new();
+    let mut code_span_ranges: Vec<Range<usize>> = Vec::new();
     let mut code_fences: Vec<CodeFence> = Vec::new();
 
     // (level, heading_byte_start, accumulated_text, first_text_byte)
@@ -639,7 +644,19 @@ fn extract_body_elements(
             }
 
             // ── Text (accumulated by whichever collector is active) ───────────
-            Event::Text(s) | Event::Code(s) => {
+            Event::Code(s) => {
+                code_span_ranges.push(byte_range.clone());
+                if let Some((_, _, ref mut text, ref mut first_start)) = current_heading {
+                    if first_start.is_none() {
+                        *first_start = Some(byte_range.start);
+                    }
+                    text.push_str(&s);
+                }
+                if let Some((_, _, ref mut text, _)) = current_link {
+                    text.push_str(&s);
+                }
+            }
+            Event::Text(s) => {
                 if let Some((_, _, ref mut text, ref mut first_start)) = current_heading {
                     if first_start.is_none() {
                         *first_start = Some(byte_range.start);
@@ -663,6 +680,7 @@ fn extract_body_elements(
         line_index,
         &link_byte_ranges,
         &fence_lines,
+        &code_span_ranges,
     ));
     md_links.sort_by_key(|l| (l.range.start.line, l.range.start.character));
 

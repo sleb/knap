@@ -174,6 +174,25 @@ fn md_link_fallback_multiple_on_one_line() {
     assert_eq!(result[1].target, "My B");
 }
 
+#[test]
+fn md_link_fallback_skips_inline_code_span() {
+    // Mirrors docs/ARCHITECTURE.md:312 — "`[text](` path)". The code span
+    // `[text](` is literal code, not the start of a link; the ") " that
+    // follows it belongs to the surrounding sentence, not a link target.
+    let content = "triggered inside `[text](` path)";
+    assert!(md_links(content).is_empty());
+}
+
+#[test]
+fn md_link_fallback_recovers_link_outside_code_span_on_same_line() {
+    // An unrelated code span earlier on the line must not suppress a real
+    // fallback-eligible link later on the same line.
+    let content = "`code` and [link](My File)";
+    let result = md_links(content);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].target, "My File");
+}
+
 // ── Markdown links — range assertions ────────────────────────────────────────
 
 #[test]

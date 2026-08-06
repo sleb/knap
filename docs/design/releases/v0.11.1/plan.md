@@ -14,7 +14,7 @@ down untested code for the next step to build on.
 | ----------------------------------------------- | ------ |
 | 1 — `resolve()` empty-target fix (#60)          | Done   |
 | 2 — `walk_dir()` CurDir fix (#62)               | Done   |
-| 3 — `find_fallback_links()` code-span fix (#63) | Todo   |
+| 3 — `find_fallback_links()` code-span fix (#63) | Done   |
 | 4 — Integration tests                           | Todo   |
 | 5 — Docs: components, ROADMAP, CHANGELOG        | Todo   |
 
