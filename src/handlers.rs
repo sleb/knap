@@ -1140,9 +1140,6 @@ pub(crate) fn handle_prepare_rename(
 /// Look up a heading by exact text (case-insensitive) or, failing that, by
 /// GFM slug. Used by the CLI to turn a user-supplied `<old>` string into a
 /// `Heading`, where there's no cursor position to anchor on.
-// Not yet called outside tests — `knap rename-heading` (v0.12 step 6) is its
-// first caller.
-#[allow(dead_code)]
 pub(crate) fn find_heading<'a>(note: &'a parser::Note, query: &str) -> Option<&'a parser::Heading> {
     note.headings
         .iter()

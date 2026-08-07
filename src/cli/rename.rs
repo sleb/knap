@@ -56,6 +56,42 @@ pub fn run_file(old: &Path, new: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `knap rename-heading <file> <old> <new>`: rewrites a heading's text and
+/// every anchor link that targets it, same-file and cross-file alike.
+///
+/// Reuses `handlers::find_heading` to turn `<old>` (text or slug) into a
+/// `Heading`, and `handlers::compute_heading_rename` for the edit — the same
+/// computation the LSP `rename` handler uses for a heading under the
+/// cursor. No resource op is involved (the file doesn't move), so the
+/// resulting `WorkspaceEdit` is handed to `edit::apply` unwrapped.
+pub fn run_heading(file: &Path, old: &str, new: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(file.exists(), "{}: no such file", file.display());
+
+    let file_abs = absolute(file)?;
+    let config = config::for_path(&file_abs, None)?;
+    let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
+    let (idx, _) = index::build(&config.index_roots, &extensions);
+
+    let disk_note;
+    let note: &crate::parser::Note = match idx.get_note(&file_abs) {
+        Some(n) => n,
+        None => {
+            let content = std::fs::read_to_string(&file_abs)?;
+            disk_note = crate::parser::parse(&file_abs, &content);
+            &disk_note
+        }
+    };
+
+    let heading = handlers::find_heading(note, old)
+        .ok_or_else(|| anyhow::anyhow!("{}: no heading matching {old:?}", file.display()))?;
+
+    let edit = handlers::compute_heading_rename(&file_abs, note, heading, new, &idx);
+    let touched = edit::apply(&edit)?;
+    println!("{old:?} → {new:?} in {} ({touched} file(s) touched)", file.display());
+
+    Ok(())
+}
+
 /// Resolves `path` to an absolute, normalized location without requiring it
 /// to exist (`Path::canonicalize` would fail for `new`, which by contract
 /// doesn't exist yet).

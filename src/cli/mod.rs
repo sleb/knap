@@ -54,6 +54,16 @@ enum Commands {
         /// New path for the note. Must not already exist.
         new: PathBuf,
     },
+    /// Rename a heading in a note, rewriting its text and every anchor link
+    /// that targets it (same-file and cross-file).
+    RenameHeading {
+        /// File containing the heading.
+        file: PathBuf,
+        /// Existing heading text or GFM slug.
+        old: String,
+        /// New heading text.
+        new: String,
+    },
     /// Run an in-process LSP smoke test.
     Check,
     /// Print the version.
@@ -69,6 +79,7 @@ pub fn run() -> anyhow::Result<()> {
         Commands::Index { path, json } => index::run(&path, json),
         Commands::Parse { path } => parse::run(&path),
         Commands::RenameFile { old, new } => rename::run_file(&old, &new),
+        Commands::RenameHeading { file, old, new } => rename::run_heading(&file, &old, &new),
         Commands::Check => check::run(),
         Commands::Version => {
             version::run();
