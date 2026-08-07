@@ -171,11 +171,12 @@ impl NoteIndex {
             if link.target.is_empty() || is_url_like(&link.target) {
                 continue;
             }
+            let target = unescape_link_target(&link.target);
             let candidate = note
                 .path
                 .parent()
                 .expect("note path must have a parent directory")
-                .join(&link.target);
+                .join(target.as_ref());
             let candidate = normalize_path(&candidate);
             if self.all_files.contains(&candidate) {
                 self.links_to
@@ -228,11 +229,12 @@ impl NoteIndex {
                 if link.target.is_empty() || is_url_like(&link.target) {
                     continue;
                 }
+                let target = unescape_link_target(&link.target);
                 let candidate = note
                     .path
                     .parent()
                     .expect("note path must have a parent directory")
-                    .join(&link.target);
+                    .join(target.as_ref());
                 let candidate = normalize_path(&candidate);
                 if candidate != new_path {
                     continue;

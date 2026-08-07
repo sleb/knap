@@ -132,6 +132,34 @@ fn test_index_populates_links_to() {
 }
 
 #[test]
+fn test_index_populates_links_to_with_escaped_target() {
+    // A link target wrapped in `<...>` (produced by escape_link_target for
+    // paths containing spaces/special chars) must still be unescaped before
+    // being recorded in links_to, matching what resolve() does.
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/My File.md", ""));
+    idx.seed(note("/vault/a.md", "[link](<My File.md>)"));
+    let links = idx.links_to(Path::new("/vault/My File.md"));
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].source_path, pb("/vault/a.md"));
+}
+
+#[test]
+fn test_recheck_incoming_with_escaped_target() {
+    // a.md links to an escaped target for b.md, but b.md doesn't exist yet
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/a.md", "[link](<My File.md>)"));
+    assert_eq!(idx.links_to(Path::new("/vault/My File.md")).len(), 0);
+
+    // Now add the target — recheck_incoming should pick up a.md's link
+    // after unescaping it.
+    idx.seed(note("/vault/My File.md", ""));
+    let links = idx.links_to(Path::new("/vault/My File.md"));
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].source_path, pb("/vault/a.md"));
+}
+
+#[test]
 fn test_recheck_incoming() {
     // a.md links to b.md, but b.md doesn't exist yet
     let mut idx = NoteIndex::default();
