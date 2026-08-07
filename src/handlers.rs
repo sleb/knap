@@ -1137,6 +1137,88 @@ pub(crate) fn handle_prepare_rename(
     })
 }
 
+/// Look up a heading by exact text (case-insensitive) or, failing that, by
+/// GFM slug. Used by the CLI to turn a user-supplied `<old>` string into a
+/// `Heading`, where there's no cursor position to anchor on.
+// Not yet called outside tests — `knap rename-heading` (v0.12 step 6) is its
+// first caller.
+#[allow(dead_code)]
+pub(crate) fn find_heading<'a>(note: &'a parser::Note, query: &str) -> Option<&'a parser::Heading> {
+    note.headings
+        .iter()
+        .find(|h| h.text.eq_ignore_ascii_case(query))
+        .or_else(|| note.headings.iter().find(|h| slug(&h.text) == slug(query)))
+}
+
+/// Compute the `WorkspaceEdit` for renaming `heading` to `new_name`: the
+/// heading text itself, any same-file anchor-only self-links, and any
+/// incoming cross-file links that anchor to it. Position-independent — the
+/// heading to rename is passed in directly rather than located by cursor.
+#[allow(clippy::mutable_key_type)]
+pub(crate) fn compute_heading_rename(
+    path: &Path,
+    note: &parser::Note,
+    heading: &parser::Heading,
+    new_name: &str,
+    index: &NoteIndex,
+) -> WorkspaceEdit {
+    let old_slug = slug(&heading.text);
+    let new_slug = slug(new_name);
+
+    let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
+
+    // a. Rewrite the heading text itself (human-readable, not slugified).
+    changes
+        .entry(path_to_uri(path))
+        .or_default()
+        .push(TextEdit {
+            range: heading.text_range,
+            new_text: new_name.to_string(),
+        });
+
+    // b. Anchor-only self-links inside the same file (target == "").
+    for link in &note.md_links {
+        if !link.target.is_empty() {
+            continue;
+        }
+        if link.anchor.as_deref().map(slug).as_deref() != Some(old_slug.as_str()) {
+            continue;
+        }
+        let Some(anchor_range) = link.anchor_range else {
+            continue;
+        };
+        changes
+            .entry(path_to_uri(path))
+            .or_default()
+            .push(TextEdit {
+                range: anchor_range,
+                new_text: new_slug.clone(),
+            });
+    }
+
+    // c. Incoming links from other files that reference this heading by anchor.
+    for located in index.links_to(path) {
+        if located.md_link.anchor.as_deref().map(slug).as_deref() != Some(old_slug.as_str()) {
+            continue;
+        }
+        let Some(anchor_range) = located.md_link.anchor_range else {
+            continue;
+        };
+        changes
+            .entry(path_to_uri(&located.source_path))
+            .or_default()
+            .push(TextEdit {
+                range: anchor_range,
+                new_text: new_slug.clone(),
+            });
+    }
+
+    WorkspaceEdit {
+        changes: Some(changes),
+        ..Default::default()
+    }
+}
+
 #[allow(clippy::mutable_key_type)]
 pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<WorkspaceEdit> {
     let path = uri_to_path(&params.text_document_position.text_document.uri)?;
@@ -1196,62 +1278,14 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
         .headings
         .iter()
         .find(|h| h.range.start.line <= pos.line && pos.line <= h.range.end.line)?;
-    let new_name = &params.new_name;
-    let old_slug = slug(&heading.text);
-    let new_slug = slug(new_name);
 
-    let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
-
-    // a. Rewrite the heading text itself (human-readable, not slugified).
-    changes
-        .entry(path_to_uri(&path))
-        .or_default()
-        .push(TextEdit {
-            range: heading.text_range,
-            new_text: new_name.clone(),
-        });
-
-    // b. Anchor-only self-links inside the same file (target == "").
-    for link in &note.md_links {
-        if !link.target.is_empty() {
-            continue;
-        }
-        if link.anchor.as_deref().map(slug).as_deref() != Some(old_slug.as_str()) {
-            continue;
-        }
-        let Some(anchor_range) = link.anchor_range else {
-            continue;
-        };
-        changes
-            .entry(path_to_uri(&path))
-            .or_default()
-            .push(TextEdit {
-                range: anchor_range,
-                new_text: new_slug.clone(),
-            });
-    }
-
-    // c. Incoming links from other files that reference this heading by anchor.
-    for located in index.links_to(&path) {
-        if located.md_link.anchor.as_deref().map(slug).as_deref() != Some(old_slug.as_str()) {
-            continue;
-        }
-        let Some(anchor_range) = located.md_link.anchor_range else {
-            continue;
-        };
-        changes
-            .entry(path_to_uri(&located.source_path))
-            .or_default()
-            .push(TextEdit {
-                range: anchor_range,
-                new_text: new_slug.clone(),
-            });
-    }
-
-    Some(WorkspaceEdit {
-        changes: Some(changes),
-        ..Default::default()
-    })
+    Some(compute_heading_rename(
+        &path,
+        note,
+        heading,
+        &params.new_name,
+        index,
+    ))
 }
 
 // ─── Code Actions ─────────────────────────────────────────────────────────────
@@ -2865,6 +2899,70 @@ mod tests {
         idx.seed(note("/vault/a.md", "# Old Heading\n\nsome prose\n"));
         let params = make_rename_heading_params("/vault/a.md", 2, 0, "New Heading");
         assert!(handle_rename(params, &idx).is_none());
+    }
+
+    // ── find_heading ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn find_heading_matches_exact_text() {
+        let n = note("/vault/a.md", "# My Section\n");
+        let found = find_heading(&n, "my section").expect("expected Some");
+        assert_eq!(found.text, "My Section");
+    }
+
+    #[test]
+    fn find_heading_matches_slug() {
+        let n = note("/vault/a.md", "# My Section\n");
+        let found = find_heading(&n, "my-section").expect("expected Some");
+        assert_eq!(found.text, "My Section");
+    }
+
+    #[test]
+    fn find_heading_no_match_returns_none() {
+        let n = note("/vault/a.md", "# My Section\n");
+        assert!(find_heading(&n, "other section").is_none());
+    }
+
+    // ── compute_heading_rename ────────────────────────────────────────────────
+
+    #[test]
+    fn compute_heading_rename_updates_same_file_anchors() {
+        let n = note(
+            "/vault/a.md",
+            "# Old Heading\n\n[link](#old-heading)\n",
+        );
+        let idx = NoteIndex::default();
+        let heading = &n.headings[0];
+        let edit = compute_heading_rename(
+            Path::new("/vault/a.md"),
+            &n,
+            heading,
+            "New Heading",
+            &idx,
+        );
+        let changes = edit.changes.unwrap();
+        let a_uri = file_uri("/vault/a.md");
+        assert!(changes[&a_uri].iter().any(|e| e.new_text == "New Heading"));
+        assert!(changes[&a_uri].iter().any(|e| e.new_text == "new-heading"));
+    }
+
+    #[test]
+    fn compute_heading_rename_updates_cross_file_anchors() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "# Old Heading\n"));
+        idx.seed(note("/vault/b.md", "[link](a.md#old-heading)"));
+        let a = note("/vault/a.md", "# Old Heading\n");
+        let heading = &a.headings[0];
+        let edit = compute_heading_rename(
+            Path::new("/vault/a.md"),
+            &a,
+            heading,
+            "New Heading",
+            &idx,
+        );
+        let changes = edit.changes.unwrap();
+        let b_uri = file_uri("/vault/b.md");
+        assert!(changes[&b_uri].iter().any(|e| e.new_text == "new-heading"));
     }
 
     // ── rename_tag ────────────────────────────────────────────────────────────

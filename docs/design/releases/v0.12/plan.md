@@ -13,7 +13,7 @@ down untested code for the next step to build on.
 | Step                                                  | Status | Notes |
 | ----------------------------------------------------- | ------ | ----- |
 | 1 — `LineIndex::offset`                               | Done   |       |
-| 2 — Extract `compute_heading_rename` + `find_heading` | Todo   |       |
+| 2 — Extract `compute_heading_rename` + `find_heading` | Done   |       |
 | 3 — Extract `compute_tag_rename`                      | Todo   |       |
 | 4 — `edit::apply` (Edit Applicator)                   | Todo   |       |
 | 5 — `knap rename-file`                                | Todo   |       |
