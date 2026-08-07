@@ -348,7 +348,13 @@ otherwise — the editor shows no rename UI in that case.
   forms: bare scalar (`tags: rust`), inline list (`tags: [rust, go]`), and
   block list (`- rust` under `tags:`). Uses `find_tag_at_position`.
 - **Heading at cursor** — `range` is the heading text range (excluding the
-  `## ` prefix); `placeholder` is the heading text.
+  `## ` prefix); `placeholder` is the **raw source text** at that range
+  (extracted from `note.content`, not `heading.text`). `heading.text` is
+  pulldown-cmark's rendered text with inline markup stripped, so for a
+  heading like `## My _Fancy_ Heading` it would mismatch `text-at-range`
+  (`"My _Fancy_ Heading"`) — editors that validate `placeholder ==
+text-at-range` per the LSP spec would then refuse to show the rename
+  dialog (v0.3.4, #3).
 
 The handler uses the indexed note when available. If the file is absent from the
 index (e.g. the server started without workspace folders configured and no
