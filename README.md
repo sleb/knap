@@ -4,19 +4,40 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Tooling for Markdown notes, built on standard Markdown syntax with no
-proprietary extensions. Its core is a
-[Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
-server (`knap lsp`) that brings IDE-quality linking and navigation to any
-LSP-compatible editor. The same engine is also available headlessly from the
-command line — `knap lint` and `knap index --json` — for CI, scripts, and
-coding agents that don't have an editor in the loop.
+proprietary extensions.
 
-## What it does
+## Overview
 
-knap uses plain `[text](path/to/note.md)` links. Notes stay valid Markdown that
-renders correctly anywhere — GitHub, static site generators, other editors —
-without knap present. The tooling provides the convenience; the files stay clean.
-See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
+knap uses plain `[text](path/to/note.md)` links. Notes stay valid Markdown
+that renders correctly anywhere — GitHub, static site generators, other
+editors — without knap present. The tooling provides the convenience; the
+files stay clean. See [Architecture](docs/ARCHITECTURE.md) for the full
+design tenets.
+
+knap ships as a single binary with two faces:
+
+- **`knap lsp`** — a
+  [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
+  server that brings IDE-quality linking, navigation, and refactoring to any
+  LSP-compatible editor: Neovim, VS Code, Helix, Zed, and others. Dedicated
+  extensions are available for [VS Code](https://github.com/sleb/vscode-knap)
+  and [Zed](https://github.com/sleb/zed-knap).
+- **`knap lint` / `knap index`** — the same engine, available headlessly from
+  the command line for CI, scripts, and coding agents that don't have an
+  editor in the loop.
+
+Both faces share one indexing and configuration core: `src/config.rs` loads
+`initializationOptions` or `knap.toml` the same way for every entry point, and
+the note index — files, headings, links, backlinks, tags — is built once and
+reused across all commands.
+
+## LSP server
+
+`knap lsp` starts the server on stdio. This is what your editor's LSP client
+should invoke — see your editor's extension docs for how to point it at the
+`knap` binary. (Prior to v0.11, bare `knap` did this; that fallback is gone —
+editor extensions must invoke `knap lsp` explicitly.) The index stays live as
+files change, so there's no restart needed after edits.
 
 ### Linking & completions
 
@@ -100,43 +121,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 - **Quick Fix** — create a missing file from a broken link, or pick a valid
   heading to replace a broken anchor; both via standard `textDocument/codeAction`
 
-### Workspace
-
-- Incremental index — stays live as files change, no restart needed
-- Configurable via `initializationOptions` or `knap.toml`: file extensions
-  (`extensions`, e.g. `["md", "mdx"]`), new-note inbox folder (`newNoteDir` /
-  `new_note_dir`), and frontmatter schema (`frontmatterSchema` /
-  `frontmatter_schema`)
-
-Works with any editor that speaks LSP: Neovim, VS Code, Helix, Zed, and others.
-Dedicated extensions are available for [VS Code](https://github.com/sleb/vscode-knap) and [Zed](https://github.com/sleb/zed-knap).
-
-## How it works
-
-knap indexes your workspace on startup and keeps the index live via LSP file
-change notifications. It requires no external tools and no editor-specific
-plugins — just a standard LSP client configuration pointing at the server
-binary.
-
-Configuration (note subdirectory, file extensions, frontmatter schema) comes
-from two sources: your editor's native LSP settings via
-`initializationOptions`, or a `knap.toml` file at your workspace root. Both
-are read by every command below — `knap lint` and `knap index` see the same
-config an editor session would.
-
-## Command-line usage
-
-knap is a single binary with several subcommands. There is no default —
-running `knap` with no subcommand prints usage and exits non-zero.
-
-### `knap lsp`
-
-Starts the LSP server on stdio. This is what your editor's LSP client should
-invoke — see your editor's extension docs for how to point it at the `knap`
-binary. (Prior to v0.11, bare `knap` did this; that fallback is gone —
-editor extensions must invoke `knap lsp` explicitly.)
-
-### `knap lint [path] [--json]`
+## Linter (`knap lint`)
 
 Headless diagnostics — the same broken-link, broken-anchor, and frontmatter
 checks the editor shows, without a running LSP session. Useful in CI or for
@@ -154,12 +139,25 @@ that file. `--json` emits a machine-readable report (`diagnostics`,
 `problem_count`, `file_count`). Exit code is `0` if no problems were found,
 `1` otherwise.
 
-### `knap index <path> [--json]`
+Usage: `knap lint [path] [--json]`
+
+## Indexer (`knap index`)
 
 Builds and prints the note index for a directory: notes, headings, links
 (with resolved/broken status), backlinks, and tags. `--json` emits a
 structured snapshot — handy for an agent to get a fast structural view of a
 workspace without grepping.
+
+Usage: `knap index <path> [--json]`
+
+## Configuration
+
+Configuration (note subdirectory, file extensions, frontmatter schema) comes
+from two sources, both read by every command above — `knap lint` and `knap
+index` see the same config an editor session would:
+
+- your editor's native LSP settings via `initializationOptions`, or
+- a `knap.toml` file at your workspace root
 
 ### `knap.toml`
 
