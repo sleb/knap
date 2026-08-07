@@ -34,7 +34,9 @@ pub fn run(path: &Path, json: bool) -> anyhow::Result<()> {
                     ResolvedLink::Found(p) => format!("→ {}", p.display()),
                     ResolvedLink::Broken => "broken".to_string(),
                 };
-                let anchor_str = link.anchor.as_deref()
+                let anchor_str = link
+                    .anchor
+                    .as_deref()
                     .map(|a| format!("#{a}"))
                     .unwrap_or_default();
                 println!("  [{}]{}  {}", link.target, anchor_str, status);

@@ -10,7 +10,11 @@ mod parse;
 mod version;
 
 #[derive(Parser)]
-#[command(name = "knap", version, about = "A minimal, opinionated LSP for Markdown notes")]
+#[command(
+    name = "knap",
+    version,
+    about = "A minimal, opinionated LSP for Markdown notes"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

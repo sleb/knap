@@ -52,23 +52,21 @@ pub fn run() -> anyhow::Result<()> {
     let root_uri = url::Url::from_file_path(&scratch_root.path)
         .map_err(|_| anyhow::anyhow!("scratch dir is not a valid file:// URI"))?;
 
-    client_conn
-        .sender
-        .send(Message::Request(Request {
-            id: lsp_server::RequestId::from(1i32),
-            method: "initialize".to_string(),
-            params: json!({
-                "capabilities": {},
-                "clientInfo": {
-                    "name": "knap-check",
-                    "version": env!("CARGO_PKG_VERSION")
-                },
-                "workspaceFolders": [{
-                    "uri": root_uri.as_str(),
-                    "name": "knap-check"
-                }]
-            }),
-        }))?;
+    client_conn.sender.send(Message::Request(Request {
+        id: lsp_server::RequestId::from(1i32),
+        method: "initialize".to_string(),
+        params: json!({
+            "capabilities": {},
+            "clientInfo": {
+                "name": "knap-check",
+                "version": env!("CARGO_PKG_VERSION")
+            },
+            "workspaceFolders": [{
+                "uri": root_uri.as_str(),
+                "name": "knap-check"
+            }]
+        }),
+    }))?;
 
     let init_resp = recv_response(&client_conn)?;
     check!("initialize", init_resp.error.is_none(), "ok");
@@ -96,8 +94,16 @@ pub fn run() -> anyhow::Result<()> {
         .unwrap_or(false);
     check!("completion trigger", trigger_ok, r#""(""#);
 
-    check!("definition provider", caps.definition_provider.is_some(), "advertised");
-    check!("references provider", caps.references_provider.is_some(), "advertised");
+    check!(
+        "definition provider",
+        caps.definition_provider.is_some(),
+        "advertised"
+    );
+    check!(
+        "references provider",
+        caps.references_provider.is_some(),
+        "advertised"
+    );
 
     // ── initialized → registerCapability ─────────────────────────────────────
 
@@ -147,29 +153,24 @@ pub fn run() -> anyhow::Result<()> {
         (3i32, "textDocument/definition"),
         (4i32, "textDocument/references"),
     ] {
-        client_conn
-            .sender
-            .send(Message::Request(Request {
-                id: lsp_server::RequestId::from(id),
-                method: method.to_string(),
-                params: json!({}),
-            }))?;
+        client_conn.sender.send(Message::Request(Request {
+            id: lsp_server::RequestId::from(id),
+            method: method.to_string(),
+            params: json!({}),
+        }))?;
 
         let resp = recv_response(&client_conn)?;
-        let null_result =
-            resp.error.is_none() && resp.result == Some(serde_json::Value::Null);
+        let null_result = resp.error.is_none() && resp.result == Some(serde_json::Value::Null);
         check!(method, null_result, "null (graceful on bad params)");
     }
 
     // ── unknown method ────────────────────────────────────────────────────────
 
-    client_conn
-        .sender
-        .send(Message::Request(Request {
-            id: lsp_server::RequestId::from(5i32),
-            method: "workspace/unknownMethod".to_string(),
-            params: json!({}),
-        }))?;
+    client_conn.sender.send(Message::Request(Request {
+        id: lsp_server::RequestId::from(5i32),
+        method: "workspace/unknownMethod".to_string(),
+        params: json!({}),
+    }))?;
 
     let unk = recv_response(&client_conn)?;
     check!(
@@ -180,13 +181,11 @@ pub fn run() -> anyhow::Result<()> {
 
     // ── shutdown ──────────────────────────────────────────────────────────────
 
-    client_conn
-        .sender
-        .send(Message::Request(Request {
-            id: lsp_server::RequestId::from(6i32),
-            method: "shutdown".to_string(),
-            params: json!(null),
-        }))?;
+    client_conn.sender.send(Message::Request(Request {
+        id: lsp_server::RequestId::from(6i32),
+        method: "shutdown".to_string(),
+        params: json!(null),
+    }))?;
 
     let shut = recv_response(&client_conn)?;
     check!("shutdown", shut.error.is_none(), "clean");

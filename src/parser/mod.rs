@@ -41,13 +41,13 @@ pub struct Frontmatter {
 /// A standard Markdown link or image found in the file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarkdownLink {
-    pub text: String,                     // link text or image alt text
-    pub target: String,                   // relative path or URL, raw; empty for anchor-only links
-    pub anchor: Option<String>,           // text after `#`, trimmed; None when absent
-    pub is_image: bool,                   // true for `![alt](url)`
-    pub range: LspRange,                  // full `[text](url)` or `![alt](url)` span
-    pub target_range: LspRange,           // path inside `()`, excluding `#anchor`
-    pub anchor_range: Option<LspRange>,   // anchor text only (None when absent)
+    pub text: String,                   // link text or image alt text
+    pub target: String,                 // relative path or URL, raw; empty for anchor-only links
+    pub anchor: Option<String>,         // text after `#`, trimmed; None when absent
+    pub is_image: bool,                 // true for `![alt](url)`
+    pub range: LspRange,                // full `[text](url)` or `![alt](url)` span
+    pub target_range: LspRange,         // path inside `()`, excluding `#anchor`
+    pub anchor_range: Option<LspRange>, // anchor text only (None when absent)
 }
 
 /// A fenced code block found in the document body.
@@ -71,9 +71,9 @@ pub struct Note {
 /// An ATX heading found in a note file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Heading {
-    pub text: String,        // raw heading text, e.g. "My Section"
-    pub level: u8,           // ATX heading level 1–6
-    pub range: LspRange,     // full heading line range (for navigation and DocumentSymbol)
+    pub text: String,         // raw heading text, e.g. "My Section"
+    pub level: u8,            // ATX heading level 1–6
+    pub range: LspRange,      // full heading line range (for navigation and DocumentSymbol)
     pub text_range: LspRange, // text-only range, excluding `## ` prefix (for rename)
 }
 
@@ -93,7 +93,10 @@ impl<'a> LineIndex<'a> {
                 starts.push(offset + 1);
             }
         }
-        LineIndex { line_starts: starts, content }
+        LineIndex {
+            line_starts: starts,
+            content,
+        }
     }
 
     pub fn position(&self, byte_offset: usize) -> Position {
@@ -104,7 +107,10 @@ impl<'a> LineIndex<'a> {
             .chars()
             .map(|c| c.len_utf16() as u32)
             .sum();
-        Position { line: line as u32, character }
+        Position {
+            line: line as u32,
+            character,
+        }
     }
 
     pub fn range(&self, byte_range: Range<usize>) -> LspRange {
@@ -127,7 +133,14 @@ pub fn parse(path: &Path, content: &str) -> Note {
     let body_offset = frontmatter_body_offset(content);
     let body = &content[body_offset..];
     let (md_links, headings, code_fences) = extract_body_elements(body, body_offset, &line_index);
-    Note { path: path.to_path_buf(), md_links, content: content.to_string(), headings, frontmatter, code_fences }
+    Note {
+        path: path.to_path_buf(),
+        md_links,
+        content: content.to_string(),
+        headings,
+        frontmatter,
+        code_fences,
+    }
 }
 
 /// Return the block of text between the frontmatter delimiters (`---`…`---`),
@@ -146,8 +159,7 @@ fn frontmatter_block(content: &str) -> Option<&str> {
 
 fn strip_surrounding_quotes(s: &str) -> &str {
     if s.len() >= 2
-        && ((s.starts_with('"') && s.ends_with('"'))
-            || (s.starts_with('\'') && s.ends_with('\'')))
+        && ((s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')))
     {
         &s[1..s.len() - 1]
     } else {
@@ -180,7 +192,11 @@ pub fn extract_frontmatter(content: &str) -> Option<Frontmatter> {
         }
     }
 
-    Some(Frontmatter { title, tags: vec![], fields: vec![] })
+    Some(Frontmatter {
+        title,
+        tags: vec![],
+        fields: vec![],
+    })
 }
 
 /// Extract all key-value pairs from the frontmatter block.
@@ -188,7 +204,11 @@ pub fn extract_frontmatter(content: &str) -> Option<Frontmatter> {
 /// Scalar values (`key: value`, with optional surrounding quotes) are
 /// captured with their ranges. Block scalars (`|`, `>`), inline lists (`[`),
 /// and bare keys (no `:`) are skipped — those fields get `value: None`.
-fn extract_frontmatter_fields(block: &str, block_start: usize, line_index: &LineIndex) -> Vec<FrontmatterField> {
+fn extract_frontmatter_fields(
+    block: &str,
+    block_start: usize,
+    line_index: &LineIndex,
+) -> Vec<FrontmatterField> {
     let mut fields = vec![];
     let mut offset = block_start;
 
@@ -231,11 +251,19 @@ fn extract_frontmatter_fields(block: &str, block_start: usize, line_index: &Line
                 } else {
                     (raw_start, raw_start + inner.len())
                 };
-                (Some(inner.to_string()), Some(line_index.range(val_start..val_end)))
+                (
+                    Some(inner.to_string()),
+                    Some(line_index.range(val_start..val_end)),
+                )
             }
         };
 
-        fields.push(FrontmatterField { key: key.to_string(), key_range, value, value_range });
+        fields.push(FrontmatterField {
+            key: key.to_string(),
+            key_range,
+            value,
+            value_range,
+        });
         offset += line.len() + 1;
     }
 
@@ -253,7 +281,11 @@ pub fn frontmatter_body_offset(content: &str) -> usize {
         None => return 0,
     };
     let block_end = 4 + block.len(); // 4 = len("---\n")
-    if block_end + 5 <= content.len() { block_end + 5 } else { content.len() } // 5 = len("\n---\n")
+    if block_end + 5 <= content.len() {
+        block_end + 5
+    } else {
+        content.len()
+    } // 5 = len("\n---\n")
 }
 
 /// Extract tags from the frontmatter `tags:` key. Supports three forms:
@@ -361,7 +393,9 @@ fn extract_tags(content: &str, line_index: &LineIndex) -> Vec<Tag> {
 /// own reader (`find_fallback_links`) must independently detect it as a
 /// link-shaped span pulldown-cmark silently skipped.
 pub(crate) fn link_destination_needs_wrapping(target: &str) -> bool {
-    target.chars().any(|c| c.is_whitespace() || c.is_control() || c == '(' || c == ')')
+    target
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control() || c == '(' || c == ')')
 }
 
 /// Split the raw text between `](` and `)` into `target`/`anchor` plus their
@@ -393,7 +427,11 @@ fn split_link_destination(
         } else {
             None
         };
-        let anchor = if !anchor_text.is_empty() { Some(anchor_text) } else { None };
+        let anchor = if !anchor_text.is_empty() {
+            Some(anchor_text)
+        } else {
+            None
+        };
         (target_text, anchor, tr, ar)
     } else {
         let target_end_body = target_start_body + url_content.len();
@@ -553,9 +591,7 @@ fn extract_body_elements(
                 ));
             }
             Event::End(TagEnd::Heading(_)) => {
-                if let Some((level, heading_start, text, first_start)) =
-                    current_heading.take()
-                {
+                if let Some((level, heading_start, text, first_start)) = current_heading.take() {
                     let range =
                         line_index.range((heading_start + offset)..(byte_range.end + offset));
                     // text_range end: use the line end (byte_range.end minus the trailing \n)
@@ -570,8 +606,9 @@ fn extract_body_elements(
                     };
                     let text_range = match first_start {
                         Some(ts) => line_index.range((ts + offset)..(text_end + offset)),
-                        None => line_index
-                            .range((heading_start + offset)..(heading_start + offset)),
+                        None => {
+                            line_index.range((heading_start + offset)..(heading_start + offset))
+                        }
                     };
                     headings.push(Heading {
                         text: text.trim().to_string(),
@@ -593,19 +630,20 @@ fn extract_body_elements(
                     // on it lands on the closing ``` line.
                     let end_line = line_index.position(offset + byte_range.end).line;
                     if end_line > start_line {
-                        code_fences.push(CodeFence { start_line, end_line });
+                        code_fences.push(CodeFence {
+                            start_line,
+                            end_line,
+                        });
                     }
                 }
             }
 
             // ── Standard Markdown links and images ────────────────────────────
             Event::Start(PdTag::Link { dest_url, .. }) => {
-                current_link =
-                    Some((dest_url.to_string(), byte_range.start, String::new(), false));
+                current_link = Some((dest_url.to_string(), byte_range.start, String::new(), false));
             }
             Event::Start(PdTag::Image { dest_url, .. }) => {
-                current_link =
-                    Some((dest_url.to_string(), byte_range.start, String::new(), true));
+                current_link = Some((dest_url.to_string(), byte_range.start, String::new(), true));
             }
             Event::End(TagEnd::Link) | Event::End(TagEnd::Image) => {
                 if let Some((_, range_start, text, is_image)) = current_link.take() {
@@ -613,21 +651,22 @@ fn extract_body_elements(
 
                     // Find the '(' that opens the URL: scan for "](" to locate
                     // the boundary between link text and URL portion.
-                    let (target, anchor, target_range, anchor_range) =
-                        if let Some(bracket_pos) = link_slice.rfind("](") {
-                            let paren_pos = bracket_pos + 1; // index of '(' in link_slice
-                            let url_start = paren_pos + 1; // index right after '('
-                            // link_slice ends with ')' so the last char is ')'
-                            let url_end = link_slice.len() - 1;
-                            let url_content = &link_slice[url_start..url_end];
-                            let target_start_body = range_start + url_start;
-                            split_link_destination(url_content, target_start_body, offset, line_index)
-                        } else {
-                            // Fallback: no "](" found — shouldn't occur for valid Markdown
-                            let tr = line_index
-                                .range((range_start + offset)..(byte_range.end + offset));
-                            (String::new(), None, tr, None)
-                        };
+                    let (target, anchor, target_range, anchor_range) = if let Some(bracket_pos) =
+                        link_slice.rfind("](")
+                    {
+                        let paren_pos = bracket_pos + 1; // index of '(' in link_slice
+                        let url_start = paren_pos + 1; // index right after '('
+                        // link_slice ends with ')' so the last char is ')'
+                        let url_end = link_slice.len() - 1;
+                        let url_content = &link_slice[url_start..url_end];
+                        let target_start_body = range_start + url_start;
+                        split_link_destination(url_content, target_start_body, offset, line_index)
+                    } else {
+                        // Fallback: no "](" found — shouldn't occur for valid Markdown
+                        let tr =
+                            line_index.range((range_start + offset)..(byte_range.end + offset));
+                        (String::new(), None, tr, None)
+                    };
 
                     link_byte_ranges.push(range_start..byte_range.end);
                     md_links.push(MarkdownLink {
@@ -635,8 +674,7 @@ fn extract_body_elements(
                         target,
                         anchor,
                         is_image,
-                        range: line_index
-                            .range((range_start + offset)..(byte_range.end + offset)),
+                        range: line_index.range((range_start + offset)..(byte_range.end + offset)),
                         target_range,
                         anchor_range,
                     });
@@ -672,8 +710,10 @@ fn extract_body_elements(
         }
     }
 
-    let fence_lines: Vec<(u32, u32)> =
-        code_fences.iter().map(|f| (f.start_line, f.end_line)).collect();
+    let fence_lines: Vec<(u32, u32)> = code_fences
+        .iter()
+        .map(|f| (f.start_line, f.end_line))
+        .collect();
     md_links.extend(find_fallback_links(
         content,
         offset,

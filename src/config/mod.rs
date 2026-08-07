@@ -127,10 +127,22 @@ fn build_frontmatter_schema(
 ) -> FrontmatterSchema {
     let mut fields: Vec<(String, SchemaField)> = fields
         .into_iter()
-        .map(|(k, v)| (k, SchemaField { values: v.values, required: v.required }))
+        .map(|(k, v)| {
+            (
+                k,
+                SchemaField {
+                    values: v.values,
+                    required: v.required,
+                },
+            )
+        })
         .collect();
     fields.sort_by(|a, b| a.0.cmp(&b.0));
-    FrontmatterSchema { fields, require_frontmatter, warn_unknown_keys }
+    FrontmatterSchema {
+        fields,
+        require_frontmatter,
+        warn_unknown_keys,
+    }
 }
 
 fn finalize(raw: RawConfig, index_roots: Vec<PathBuf>) -> Config {
@@ -158,11 +170,13 @@ pub(crate) fn find_knap_toml(start: &Path) -> Option<PathBuf> {
 /// `Ok(None)` if no `knap.toml` exists under `root` (defaults apply).
 /// `Err` if it exists but is malformed — fail loud, never silently default.
 pub(crate) fn load_knap_toml(root: &Path) -> Result<Option<KnapToml>> {
-    let Some(path) = find_knap_toml(root) else { return Ok(None) };
-    let content = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))?;
-    let parsed: KnapToml = toml::from_str(&content)
-        .with_context(|| format!("parsing {}", path.display()))?;
+    let Some(path) = find_knap_toml(root) else {
+        return Ok(None);
+    };
+    let content =
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
+    let parsed: KnapToml =
+        toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))?;
     Ok(Some(parsed))
 }
 
@@ -184,7 +198,9 @@ pub(crate) fn for_lsp(params: &InitializeParams) -> Result<Config> {
         .collect();
 
     let knap_toml_raw = match index_roots.first() {
-        Some(root) => load_knap_toml(root)?.map(RawConfig::from).unwrap_or_default(),
+        Some(root) => load_knap_toml(root)?
+            .map(RawConfig::from)
+            .unwrap_or_default(),
         None => RawConfig::default(),
     };
 
@@ -209,12 +225,16 @@ pub(crate) fn for_lsp(params: &InitializeParams) -> Result<Config> {
 /// flag.
 pub(crate) fn for_path(path: &Path, extensions_override: Option<Vec<String>>) -> Result<Config> {
     let root = if path.is_file() {
-        path.parent().map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
+        path.parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
     } else {
         path.to_path_buf()
     };
 
-    let mut raw = load_knap_toml(&root)?.map(RawConfig::from).unwrap_or_default();
+    let mut raw = load_knap_toml(&root)?
+        .map(RawConfig::from)
+        .unwrap_or_default();
     if extensions_override.is_some() {
         raw.extensions = extensions_override;
     }

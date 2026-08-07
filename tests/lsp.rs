@@ -61,7 +61,11 @@ fn do_shutdown(client: &Connection, request_id: i32) {
         .unwrap();
 
     let resp = recv_response(client, lsp_server::RequestId::from(request_id));
-    assert!(resp.error.is_none(), "shutdown returned error: {:?}", resp.error);
+    assert!(
+        resp.error.is_none(),
+        "shutdown returned error: {:?}",
+        resp.error
+    );
 
     let _ = client.sender.send(Message::Notification(Notification {
         method: "exit".to_string(),
@@ -177,23 +181,47 @@ fn lifecycle_capabilities() {
         .as_ref()
         .and_then(|c| c.trigger_characters.as_ref())
         .expect("completion provider should be advertised");
-    assert!(trigger_chars.contains(&"(".to_string()), "expected `(` as trigger character");
+    assert!(
+        trigger_chars.contains(&"(".to_string()),
+        "expected `(` as trigger character"
+    );
 
-    assert!(caps.definition_provider.is_some(), "definition provider should be advertised");
-    assert!(caps.references_provider.is_some(), "references provider should be advertised");
+    assert!(
+        caps.definition_provider.is_some(),
+        "definition provider should be advertised"
+    );
+    assert!(
+        caps.references_provider.is_some(),
+        "references provider should be advertised"
+    );
 
     // rename must be advertised with prepare support
-    let rename_opts = caps.rename_provider.as_ref().expect("rename provider should be advertised");
+    let rename_opts = caps
+        .rename_provider
+        .as_ref()
+        .expect("rename provider should be advertised");
     assert!(
-        matches!(rename_opts, OneOf::Right(lsp_types::RenameOptions { prepare_provider: Some(true), .. })),
+        matches!(
+            rename_opts,
+            OneOf::Right(lsp_types::RenameOptions {
+                prepare_provider: Some(true),
+                ..
+            })
+        ),
         "rename provider should have prepare_provider=true"
     );
 
     // unimplemented capabilities must NOT be present
-    assert!(caps.hover_provider.is_none(), "hover should not be advertised");
+    assert!(
+        caps.hover_provider.is_none(),
+        "hover should not be advertised"
+    );
 
     // code lens must be advertised (v0.6)
-    assert!(caps.code_lens_provider.is_some(), "code lens should be advertised");
+    assert!(
+        caps.code_lens_provider.is_some(),
+        "code lens should be advertised"
+    );
 
     client
         .sender
@@ -225,7 +253,10 @@ fn broken_link_produces_warning() {
         .find(|d| d.uri.as_str().ends_with("a.md"))
         .expect("no diagnostics published for a.md");
     assert_eq!(file_diags.diagnostics.len(), 1);
-    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(
+        file_diags.diagnostics[0].severity,
+        Some(DiagnosticSeverity::WARNING)
+    );
     assert!(
         file_diags.diagnostics[0].message.contains("missing.md"),
         "unexpected message: {}",
@@ -245,10 +276,18 @@ fn valid_link_no_warning() {
     did_open(&client, "file:///vault/a.md", "[link](b.md)\n");
 
     let diags = sync_and_collect_diagnostics(&client, 2);
-    let file_diags: Vec<_> =
-        diags.iter().filter(|d| d.uri.as_str().ends_with("a.md")).collect();
-    let last = file_diags.last().expect("no diagnostics published for a.md");
-    assert!(last.diagnostics.is_empty(), "expected no diagnostics, got {:?}", last.diagnostics);
+    let file_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .collect();
+    let last = file_diags
+        .last()
+        .expect("no diagnostics published for a.md");
+    assert!(
+        last.diagnostics.is_empty(),
+        "expected no diagnostics, got {:?}",
+        last.diagnostics
+    );
 
     do_shutdown(&client, 3);
 }
@@ -263,11 +302,18 @@ fn broken_anchor_produces_warning() {
     did_open(&client, "file:///vault/a.md", "[link](b.md#Missing)\n");
 
     let diags = sync_and_collect_diagnostics(&client, 2);
-    let file_diags: Vec<_> =
-        diags.iter().filter(|d| d.uri.as_str().ends_with("a.md")).collect();
-    let last = file_diags.last().expect("no diagnostics published for a.md");
+    let file_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .collect();
+    let last = file_diags
+        .last()
+        .expect("no diagnostics published for a.md");
     assert_eq!(last.diagnostics.len(), 1);
-    assert_eq!(last.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(
+        last.diagnostics[0].severity,
+        Some(DiagnosticSeverity::WARNING)
+    );
     assert!(
         last.diagnostics[0].message.contains("Missing"),
         "unexpected message: {}",
@@ -287,9 +333,13 @@ fn valid_anchor_no_warning() {
     did_open(&client, "file:///vault/a.md", "[link](b.md#Real Heading)\n");
 
     let diags = sync_and_collect_diagnostics(&client, 2);
-    let file_diags: Vec<_> =
-        diags.iter().filter(|d| d.uri.as_str().ends_with("a.md")).collect();
-    let last = file_diags.last().expect("no diagnostics published for a.md");
+    let file_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .collect();
+    let last = file_diags
+        .last()
+        .expect("no diagnostics published for a.md");
     assert!(
         last.diagnostics.is_empty(),
         "expected no diagnostics for valid anchor, got {:?}",
@@ -311,8 +361,15 @@ fn diagnostic_clears_when_target_created() {
     did_open(&client, "file:///vault/a.md", "[img](logo.png)\n");
 
     let diags = sync_and_collect_diagnostics(&client, 2);
-    let broken = diags.iter().find(|d| d.uri.as_str().ends_with("a.md")).unwrap();
-    assert_eq!(broken.diagnostics.len(), 1, "expected broken-link diagnostic before fix");
+    let broken = diags
+        .iter()
+        .find(|d| d.uri.as_str().ends_with("a.md"))
+        .unwrap();
+    assert_eq!(
+        broken.diagnostics.len(),
+        1,
+        "expected broken-link diagnostic before fix"
+    );
 
     // Simulate the watcher seeing the attachment created (non-.md → add_attachment,
     // no disk read required).
@@ -374,7 +431,10 @@ fn completion_returns_relative_paths() {
         Some(CompletionTextEdit::Edit(te)) => te.new_text == "b.md",
         _ => false,
     });
-    assert!(b_item.is_some(), "expected an item with text_edit new_text = \"b.md\"");
+    assert!(
+        b_item.is_some(),
+        "expected an item with text_edit new_text = \"b.md\""
+    );
 
     do_shutdown(&client, 3);
 }
@@ -409,7 +469,10 @@ fn definition_navigates_to_target() {
         other => panic!("unexpected response shape: {:?}", other),
     };
 
-    assert!(loc.uri.as_str().ends_with("b.md"), "expected navigation to b.md");
+    assert!(
+        loc.uri.as_str().ends_with("b.md"),
+        "expected navigation to b.md"
+    );
     assert_eq!(loc.range.start.line, 0);
 
     do_shutdown(&client, 3);
@@ -439,7 +502,9 @@ fn test_will_rename_incoming() {
     let result: serde_json::Value =
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
 
-    let edits = result["changes"]["file:///vault/a.md"].as_array().expect("expected edits for a.md");
+    let edits = result["changes"]["file:///vault/a.md"]
+        .as_array()
+        .expect("expected edits for a.md");
     assert_eq!(edits.len(), 1);
     assert_eq!(edits[0]["newText"], "c.md");
 
@@ -506,7 +571,10 @@ fn test_will_rename_no_links() {
         .as_object()
         .map(|o| o.is_empty())
         .unwrap_or(true);
-    assert!(is_empty, "expected empty changes for unlinked file, got {result}");
+    assert!(
+        is_empty,
+        "expected empty changes for unlinked file, got {result}"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -643,7 +711,11 @@ fn test_document_symbols_lists_headings() {
     let client = spawn_server();
     do_initialize(&client);
 
-    did_open(&client, "file:///vault/a.md", "# Title\n\n## Section\n\n### Sub\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "# Title\n\n## Section\n\n### Sub\n",
+    );
 
     send_request(
         &client,
@@ -658,7 +730,10 @@ fn test_document_symbols_lists_headings() {
     let symbols = result.as_array().expect("expected array of symbols");
 
     assert_eq!(symbols.len(), 3, "expected 3 heading symbols");
-    let names: Vec<&str> = symbols.iter().map(|s| s["name"].as_str().unwrap()).collect();
+    let names: Vec<&str> = symbols
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
     assert!(names.contains(&"Title"), "expected Title");
     assert!(names.contains(&"Section"), "expected Section");
     assert!(names.contains(&"Sub"), "expected Sub");
@@ -685,7 +760,10 @@ fn test_document_symbols_empty_for_no_headings() {
     let result: serde_json::Value =
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
     let symbols = result.as_array().expect("expected empty array, not null");
-    assert!(symbols.is_empty(), "expected no symbols for headingless file");
+    assert!(
+        symbols.is_empty(),
+        "expected no symbols for headingless file"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -697,7 +775,11 @@ fn test_workspace_symbols_query() {
     let client = spawn_server();
     do_initialize(&client);
 
-    did_open(&client, "file:///vault/a.md", "# Introduction\n\n## Summary\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "# Introduction\n\n## Summary\n",
+    );
     did_open(&client, "file:///vault/b.md", "# Conclusion\n");
 
     send_request(&client, 2, "workspace/symbol", json!({ "query": "intro" }));
@@ -757,7 +839,10 @@ fn test_prepare_rename_on_heading() {
     let result: serde_json::Value =
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
 
-    assert!(!result.is_null(), "expected non-null prepareRename for heading");
+    assert!(
+        !result.is_null(),
+        "expected non-null prepareRename for heading"
+    );
     assert!(result.get("range").is_some(), "expected 'range' field");
     assert_eq!(
         result["placeholder"].as_str(),
@@ -774,7 +859,11 @@ fn test_prepare_rename_off_heading() {
     let client = spawn_server();
     do_initialize(&client);
 
-    did_open(&client, "file:///vault/a.md", "## Heading\n\nSome prose here.\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "## Heading\n\nSome prose here.\n",
+    );
 
     send_request(
         &client,
@@ -790,7 +879,10 @@ fn test_prepare_rename_off_heading() {
     let result: serde_json::Value =
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
 
-    assert!(result.is_null(), "expected null prepareRename for prose line");
+    assert!(
+        result.is_null(),
+        "expected null prepareRename for prose line"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -823,13 +915,21 @@ fn test_rename_heading_updates_anchor_links() {
         .as_array()
         .expect("expected edits for b.md");
     assert_eq!(b_edits.len(), 1);
-    assert_eq!(b_edits[0]["newText"].as_str(), Some("New Heading"), "heading text should be updated");
+    assert_eq!(
+        b_edits[0]["newText"].as_str(),
+        Some("New Heading"),
+        "heading text should be updated"
+    );
 
     let a_edits = result["changes"]["file:///vault/a.md"]
         .as_array()
         .expect("expected edits for a.md");
     assert_eq!(a_edits.len(), 1);
-    assert_eq!(a_edits[0]["newText"].as_str(), Some("new-heading"), "anchor slug should be updated");
+    assert_eq!(
+        a_edits[0]["newText"].as_str(),
+        Some("new-heading"),
+        "anchor slug should be updated"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -841,7 +941,11 @@ fn test_rename_heading_updates_self_links() {
     let client = spawn_server();
     do_initialize(&client);
 
-    did_open(&client, "file:///vault/a.md", "## Old Heading\n\n[jump](#old-heading)\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "## Old Heading\n\n[jump](#old-heading)\n",
+    );
 
     send_request(
         &client,
@@ -861,12 +965,24 @@ fn test_rename_heading_updates_self_links() {
     let a_edits = result["changes"]["file:///vault/a.md"]
         .as_array()
         .expect("expected edits for a.md");
-    assert_eq!(a_edits.len(), 2, "expected 2 edits: heading text + self-link anchor");
+    assert_eq!(
+        a_edits.len(),
+        2,
+        "expected 2 edits: heading text + self-link anchor"
+    );
 
-    let new_texts: Vec<&str> =
-        a_edits.iter().map(|e| e["newText"].as_str().unwrap()).collect();
-    assert!(new_texts.contains(&"New Heading"), "expected heading text edit");
-    assert!(new_texts.contains(&"new-heading"), "expected slug edit for self-link");
+    let new_texts: Vec<&str> = a_edits
+        .iter()
+        .map(|e| e["newText"].as_str().unwrap())
+        .collect();
+    assert!(
+        new_texts.contains(&"New Heading"),
+        "expected heading text edit"
+    );
+    assert!(
+        new_texts.contains(&"new-heading"),
+        "expected slug edit for self-link"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -878,7 +994,11 @@ fn test_anchor_completion() {
     let client = spawn_server();
     do_initialize(&client);
 
-    did_open(&client, "file:///vault/b.md", "## My Section\n\n## Another Part\n");
+    did_open(
+        &client,
+        "file:///vault/b.md",
+        "## My Section\n\n## Another Part\n",
+    );
     // cursor is right after `#` — character 12 in "[link](b.md#"
     did_open(&client, "file:///vault/a.md", "[link](b.md#");
 
@@ -902,8 +1022,14 @@ fn test_anchor_completion() {
 
     assert_eq!(items.len(), 2, "expected 2 heading completions");
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-    assert!(labels.contains(&"My Section"), "expected 'My Section' label");
-    assert!(labels.contains(&"Another Part"), "expected 'Another Part' label");
+    assert!(
+        labels.contains(&"My Section"),
+        "expected 'My Section' label"
+    );
+    assert!(
+        labels.contains(&"Another Part"),
+        "expected 'Another Part' label"
+    );
 
     let my_section = items.iter().find(|i| i.label == "My Section").unwrap();
     assert_eq!(
@@ -949,7 +1075,9 @@ fn test_dir_completion_initial() {
     };
 
     // FOLDER item for the sub/ directory must be present
-    let folder_item = items.iter().find(|i| i.kind == Some(CompletionItemKind::FOLDER));
+    let folder_item = items
+        .iter()
+        .find(|i| i.kind == Some(CompletionItemKind::FOLDER));
     assert!(folder_item.is_some(), "expected a FOLDER item for sub/");
     let folder = folder_item.unwrap();
     assert_eq!(folder.label, "sub/", "folder label should be 'sub/'");
@@ -1052,7 +1180,10 @@ fn references_returns_backlinks() {
     let locs = locs.unwrap_or_default();
 
     assert_eq!(locs.len(), 1, "expected 1 backlink from a.md");
-    assert!(locs[0].uri.as_str().ends_with("a.md"), "expected backlink to come from a.md");
+    assert!(
+        locs[0].uri.as_str().ends_with("a.md"),
+        "expected backlink to come from a.md"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -1116,7 +1247,10 @@ fn prepare_rename_without_did_open() {
     let result: serde_json::Value =
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
 
-    assert!(!result.is_null(), "prepareRename should return non-null for an on-disk file even without didOpen");
+    assert!(
+        !result.is_null(),
+        "prepareRename should return non-null for an on-disk file even without didOpen"
+    );
     assert_eq!(
         result["placeholder"].as_str(),
         Some("My Heading"),
@@ -1128,7 +1262,11 @@ fn prepare_rename_without_did_open() {
 
 // ─── v0.4 Integration tests ───────────────────────────────────────────────────
 
-fn do_initialize_with_options(client: &Connection, workspace_uri: &str, options: serde_json::Value) {
+fn do_initialize_with_options(
+    client: &Connection,
+    workspace_uri: &str,
+    options: serde_json::Value,
+) {
     client
         .sender
         .send(Message::Request(Request {
@@ -1190,7 +1328,9 @@ fn test_code_action_create_note() {
     let action = &actions[0];
     let create_uri = action["edit"]["documentChanges"][0]["uri"].as_str();
     assert!(
-        create_uri.map(|u| u.ends_with("missing.md")).unwrap_or(false),
+        create_uri
+            .map(|u| u.ends_with("missing.md"))
+            .unwrap_or(false),
         "expected CreateFile URI ending in missing.md, got: {action}"
     );
 
@@ -1201,11 +1341,7 @@ fn test_code_action_create_note() {
 #[test]
 fn test_code_action_create_note_in_new_note_dir() {
     let client = spawn_server();
-    do_initialize_with_options(
-        &client,
-        "file:///vault",
-        json!({ "newNoteDir": "inbox" }),
-    );
+    do_initialize_with_options(&client, "file:///vault", json!({ "newNoteDir": "inbox" }));
 
     did_open(&client, "file:///vault/a.md", "[link](missing.md)\n");
 
@@ -1225,7 +1361,9 @@ fn test_code_action_create_note_in_new_note_dir() {
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
 
     assert_eq!(actions.len(), 1);
-    let create_uri = actions[0]["edit"]["documentChanges"][0]["uri"].as_str().unwrap_or("");
+    let create_uri = actions[0]["edit"]["documentChanges"][0]["uri"]
+        .as_str()
+        .unwrap_or("");
     assert!(
         create_uri.ends_with("/vault/inbox/missing.md"),
         "expected CreateFile in inbox folder, got: {create_uri}"
@@ -1292,7 +1430,10 @@ fn test_code_action_empty_for_valid_link() {
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result = resp.result.unwrap_or_default();
     let actions: Vec<serde_json::Value> = serde_json::from_value(result).unwrap_or_default();
-    assert!(actions.is_empty(), "expected empty list for valid link, got {actions:?}");
+    assert!(
+        actions.is_empty(),
+        "expected empty list for valid link, got {actions:?}"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -1319,7 +1460,10 @@ fn test_code_action_empty_off_link() {
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let actions: Vec<serde_json::Value> =
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
-    assert!(actions.is_empty(), "expected empty list when cursor is off any link");
+    assert!(
+        actions.is_empty(),
+        "expected empty list when cursor is off any link"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -1352,7 +1496,10 @@ fn test_code_lens_backlinks() {
     assert_eq!(lenses.len(), 1, "expected exactly one code lens");
     let title = lenses[0]["command"]["title"].as_str().unwrap_or("");
     assert_eq!(title, "↑ 2 backlinks");
-    assert_eq!(lenses[0]["command"]["command"].as_str().unwrap_or(""), "editor.action.showReferences");
+    assert_eq!(
+        lenses[0]["command"]["command"].as_str().unwrap_or(""),
+        "editor.action.showReferences"
+    );
 
     let locations = lenses[0]["command"]["arguments"][2].as_array().unwrap();
     assert_eq!(locations.len(), 2);
@@ -1381,7 +1528,10 @@ fn test_code_lens_no_backlinks() {
     let lenses: Vec<serde_json::Value> =
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
 
-    assert!(lenses.is_empty(), "orphan note should return empty lens array");
+    assert!(
+        lenses.is_empty(),
+        "orphan note should return empty lens array"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -1396,7 +1546,11 @@ fn test_same_file_anchor_definition() {
     do_initialize(&client);
 
     // Line 0: "## Section", Line 2: "[text](#section)"
-    did_open(&client, "file:///vault/a.md", "## Section\n\n[text](#section)\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "## Section\n\n[text](#section)\n",
+    );
 
     send_request(
         &client,
@@ -1416,7 +1570,10 @@ fn test_same_file_anchor_definition() {
         GotoDefinitionResponse::Array(locs) if locs.len() == 1 => locs.into_iter().next().unwrap(),
         other => panic!("unexpected response shape: {:?}", other),
     };
-    assert!(loc.uri.as_str().ends_with("a.md"), "should navigate within the same file");
+    assert!(
+        loc.uri.as_str().ends_with("a.md"),
+        "should navigate within the same file"
+    );
     assert_eq!(loc.range.start.line, 0, "should land on the heading line");
 
     do_shutdown(&client, 3);
@@ -1428,7 +1585,11 @@ fn test_same_file_anchor_definition_missing() {
     let client = spawn_server();
     do_initialize(&client);
 
-    did_open(&client, "file:///vault/a.md", "## Section\n\n[text](#missing)\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "## Section\n\n[text](#missing)\n",
+    );
 
     send_request(
         &client,
@@ -1450,7 +1611,10 @@ fn test_same_file_anchor_definition_missing() {
     };
     assert!(loc.uri.as_str().ends_with("a.md"));
     assert_eq!(loc.range.start.line, 0);
-    assert_eq!(loc.range.start.character, 0, "missing anchor falls back to top of file");
+    assert_eq!(
+        loc.range.start.character, 0,
+        "missing anchor falls back to top of file"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -1461,7 +1625,11 @@ fn test_same_file_anchor_broken_diagnostic() {
     let client = spawn_server();
     do_initialize(&client);
 
-    did_open(&client, "file:///vault/a.md", "## Real\n\n[text](#missing)\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "## Real\n\n[text](#missing)\n",
+    );
 
     let diags = sync_and_collect_diagnostics(&client, 2);
     let file_diags = diags
@@ -1470,7 +1638,10 @@ fn test_same_file_anchor_broken_diagnostic() {
         .last()
         .expect("expected diagnostics for a.md");
     assert_eq!(file_diags.diagnostics.len(), 1);
-    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(
+        file_diags.diagnostics[0].severity,
+        Some(DiagnosticSeverity::WARNING)
+    );
     assert!(
         file_diags.diagnostics[0].message.contains("#missing"),
         "message should contain '#missing', got: {}",
@@ -1486,12 +1657,20 @@ fn test_same_file_anchor_valid_no_diagnostic() {
     let client = spawn_server();
     do_initialize(&client);
 
-    did_open(&client, "file:///vault/a.md", "## Existing\n\n[text](#existing)\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "## Existing\n\n[text](#existing)\n",
+    );
 
     let diags = sync_and_collect_diagnostics(&client, 2);
-    let file_diags: Vec<_> =
-        diags.iter().filter(|d| d.uri.as_str().ends_with("a.md")).collect();
-    let last = file_diags.last().expect("expected diagnostics published for a.md");
+    let file_diags: Vec<_> = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .collect();
+    let last = file_diags
+        .last()
+        .expect("expected diagnostics published for a.md");
     assert!(
         last.diagnostics.is_empty(),
         "expected no diagnostics for valid bare anchor, got {:?}",
@@ -1508,7 +1687,11 @@ fn test_same_file_anchor_completion() {
     do_initialize(&client);
 
     // Line 0: "## My Section", Line 1: "## Another", Line 2: "", Line 3: "[see](#"
-    did_open(&client, "file:///vault/a.md", "## My Section\n## Another\n\n[see](#");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "## My Section\n## Another\n\n[see](#",
+    );
 
     send_request(
         &client,
@@ -1528,7 +1711,11 @@ fn test_same_file_anchor_completion() {
         CompletionResponse::List(list) => list.items,
     };
 
-    assert_eq!(items.len(), 2, "expected 2 heading completions from current file");
+    assert_eq!(
+        items.len(),
+        2,
+        "expected 2 heading completions from current file"
+    );
     let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
     assert!(labels.contains(&"My Section"));
     assert!(labels.contains(&"Another"));
@@ -1544,7 +1731,11 @@ fn test_same_file_anchor_references_on_heading() {
     do_initialize(&client);
 
     // Line 0: "## Introduction", Line 2: "[go to intro](#introduction)"
-    did_open(&client, "file:///vault/a.md", "## Introduction\n\n[go to intro](#introduction)\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "## Introduction\n\n[go to intro](#introduction)\n",
+    );
 
     send_request(
         &client,
@@ -1587,7 +1778,10 @@ fn test_code_lens_updates_after_index_change() {
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let lenses: Vec<serde_json::Value> =
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
-    assert_eq!(lenses[0]["command"]["title"].as_str().unwrap_or(""), "↑ 1 backlink");
+    assert_eq!(
+        lenses[0]["command"]["title"].as_str().unwrap_or(""),
+        "↑ 1 backlink"
+    );
 
     // Add a second linking note.
     did_open(&client, "file:///vault/b.md", "[link](target.md)\n");
@@ -1602,7 +1796,10 @@ fn test_code_lens_updates_after_index_change() {
     let resp = recv_response(&client, lsp_server::RequestId::from(3i32));
     let lenses: Vec<serde_json::Value> =
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
-    assert_eq!(lenses[0]["command"]["title"].as_str().unwrap_or(""), "↑ 2 backlinks");
+    assert_eq!(
+        lenses[0]["command"]["title"].as_str().unwrap_or(""),
+        "↑ 2 backlinks"
+    );
 
     do_shutdown(&client, 4);
 }
@@ -1648,7 +1845,11 @@ fn test_schema_key_completion() {
     };
 
     assert!(!items.is_empty(), "expected schema key items");
-    assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::FIELD)));
+    assert!(
+        items
+            .iter()
+            .all(|i| i.kind == Some(CompletionItemKind::FIELD))
+    );
     assert!(items.iter().any(|i| i.label == "status"));
     assert!(items.iter().any(|i| i.label == "type"));
 
@@ -1693,7 +1894,11 @@ fn test_schema_value_completion() {
     };
 
     assert_eq!(items.len(), 2, "expected exactly two enum values");
-    assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+    assert!(
+        items
+            .iter()
+            .all(|i| i.kind == Some(CompletionItemKind::VALUE))
+    );
     assert!(items.iter().any(|i| i.label == "draft"));
     assert!(items.iter().any(|i| i.label == "published"));
 
@@ -1725,7 +1930,10 @@ fn test_schema_required_key_missing_diagnostic() {
         .last()
         .expect("no diagnostics published for a.md");
     assert_eq!(file_diags.diagnostics.len(), 1);
-    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(
+        file_diags.diagnostics[0].severity,
+        Some(DiagnosticSeverity::WARNING)
+    );
     assert!(
         file_diags.diagnostics[0].message.contains("status"),
         "unexpected message: {}",
@@ -1760,7 +1968,10 @@ fn test_schema_invalid_value_diagnostic() {
         .last()
         .expect("no diagnostics published for a.md");
     assert_eq!(file_diags.diagnostics.len(), 1);
-    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(
+        file_diags.diagnostics[0].severity,
+        Some(DiagnosticSeverity::WARNING)
+    );
     assert!(
         file_diags.diagnostics[0].message.contains("Draft"),
         "unexpected message: {}",
@@ -1793,7 +2004,9 @@ fn test_schema_valid_note_no_diagnostic() {
         .iter()
         .filter(|d| d.uri.as_str().ends_with("a.md"))
         .collect();
-    let last = file_diags.last().expect("no diagnostics published for a.md");
+    let last = file_diags
+        .last()
+        .expect("no diagnostics published for a.md");
     assert!(
         last.diagnostics.is_empty(),
         "valid note should have no warnings, got {:?}",
@@ -1820,7 +2033,11 @@ fn test_schema_require_frontmatter_warns_on_missing_block() {
         }),
     );
 
-    did_open(&client, "file:///vault/a.md", "just prose, no frontmatter\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "just prose, no frontmatter\n",
+    );
 
     let diags = sync_and_collect_diagnostics(&client, 2);
     let file_diags = diags
@@ -1829,10 +2046,16 @@ fn test_schema_require_frontmatter_warns_on_missing_block() {
         .last()
         .expect("no diagnostics published for a.md");
     assert_eq!(file_diags.diagnostics.len(), 1);
-    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(
+        file_diags.diagnostics[0].severity,
+        Some(DiagnosticSeverity::WARNING)
+    );
     assert_eq!(
         file_diags.diagnostics[0].range.start,
-        lsp_types::Position { line: 0, character: 0 }
+        lsp_types::Position {
+            line: 0,
+            character: 0
+        }
     );
 
     do_shutdown(&client, 3);
@@ -1864,7 +2087,10 @@ fn test_schema_warn_unknown_keys() {
         .last()
         .expect("no diagnostics published for a.md");
     assert_eq!(file_diags.diagnostics.len(), 1);
-    assert_eq!(file_diags.diagnostics[0].severity, Some(DiagnosticSeverity::WARNING));
+    assert_eq!(
+        file_diags.diagnostics[0].severity,
+        Some(DiagnosticSeverity::WARNING)
+    );
     assert!(
         file_diags.diagnostics[0].message.contains("foobar"),
         "unexpected message: {}",
@@ -1880,14 +2106,20 @@ fn test_no_schema_no_extra_diagnostics() {
     let client = spawn_server();
     do_initialize(&client);
 
-    did_open(&client, "file:///vault/a.md", "---\narbitrary: value\nother: thing\n---\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "---\narbitrary: value\nother: thing\n---\n",
+    );
 
     let diags = sync_and_collect_diagnostics(&client, 2);
     let file_diags: Vec<_> = diags
         .iter()
         .filter(|d| d.uri.as_str().ends_with("a.md"))
         .collect();
-    let last = file_diags.last().expect("no diagnostics published for a.md");
+    let last = file_diags
+        .last()
+        .expect("no diagnostics published for a.md");
     assert!(
         last.diagnostics.is_empty(),
         "no schema should produce no diagnostics, got {:?}",
@@ -1928,11 +2160,22 @@ fn folding_ranges_round_trip() {
     // ## First (line 0) ends at line 1 (before ## Second at line 2)
     let first = ranges.iter().find(|r| r["startLine"] == 0);
     assert!(first.is_some(), "expected a fold starting at line 0");
-    assert_eq!(first.unwrap()["endLine"], 1, "## First section should end at line 1");
+    assert_eq!(
+        first.unwrap()["endLine"],
+        1,
+        "## First section should end at line 1"
+    );
     // Code fence (line 3..5) should appear
     let fence = ranges.iter().find(|r| r["startLine"] == 3);
-    assert!(fence.is_some(), "expected a fold for the code fence at line 3");
-    assert_eq!(fence.unwrap()["endLine"], 5, "code fence should end at line 5");
+    assert!(
+        fence.is_some(),
+        "expected a fold for the code fence at line 3"
+    );
+    assert_eq!(
+        fence.unwrap()["endLine"],
+        5,
+        "code fence should end at line 5"
+    );
 
     do_shutdown(&client, 3);
 }
@@ -1970,7 +2213,10 @@ fn selection_range_round_trip() {
             break;
         }
     }
-    assert_eq!(node["range"]["start"]["line"], 0, "outermost range must start at line 0");
+    assert_eq!(
+        node["range"]["start"]["line"], 0,
+        "outermost range must start at line 0"
+    );
     assert_eq!(node["range"]["start"]["character"], 0);
 
     do_shutdown(&client, 3);
@@ -2002,7 +2248,11 @@ fn inlay_hints_round_trip() {
     let hints: Vec<serde_json::Value> =
         serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
 
-    assert_eq!(hints.len(), 1, "expected one inlay hint for the titled link");
+    assert_eq!(
+        hints.len(),
+        1,
+        "expected one inlay hint for the titled link"
+    );
     let label = hints[0]["label"].as_str().unwrap_or("");
     assert_eq!(label, "-> My Note");
 
@@ -2017,7 +2267,11 @@ fn code_lens_heading_round_trip() {
 
     // a.md has a heading "## Target" that b.md links to via bare anchor from the same file,
     // and c.md links via cross-file anchor.
-    did_open(&client, "file:///vault/a.md", "## Target\ncontent\n[same](#target)\n");
+    did_open(
+        &client,
+        "file:///vault/a.md",
+        "## Target\ncontent\n[same](#target)\n",
+    );
     did_open(&client, "file:///vault/b.md", "[link](a.md#target)\n");
 
     send_request(
@@ -2038,9 +2292,17 @@ fn code_lens_heading_round_trip() {
             .map(|t| t.contains("anchor"))
             .unwrap_or(false)
     });
-    assert!(heading_lens.is_some(), "expected a heading anchor lens; got: {lenses:?}");
-    let title = heading_lens.unwrap()["command"]["title"].as_str().unwrap_or("");
-    assert!(title.contains('2'), "heading lens should count 2 anchor links; got: {title}");
+    assert!(
+        heading_lens.is_some(),
+        "expected a heading anchor lens; got: {lenses:?}"
+    );
+    let title = heading_lens.unwrap()["command"]["title"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        title.contains('2'),
+        "heading lens should count 2 anchor links; got: {title}"
+    );
 
     do_shutdown(&client, 3);
 }

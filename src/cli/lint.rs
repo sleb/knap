@@ -37,7 +37,10 @@ pub fn run(path: &Path, json: bool) -> anyhow::Result<()> {
         .into_iter()
         .filter_map(|target| {
             let diagnostics = handlers::compute_diagnostics(&target, &idx, &config);
-            (!diagnostics.is_empty()).then_some(FileDiagnostics { path: target, diagnostics })
+            (!diagnostics.is_empty()).then_some(FileDiagnostics {
+                path: target,
+                diagnostics,
+            })
         })
         .collect();
     files.sort_by(|a, b| a.path.cmp(&b.path));
@@ -46,7 +49,11 @@ pub fn run(path: &Path, json: bool) -> anyhow::Result<()> {
     let file_count = files.len();
 
     if json {
-        let report = LintReport { diagnostics: files, problem_count, file_count };
+        let report = LintReport {
+            diagnostics: files,
+            problem_count,
+            file_count,
+        };
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         for file in &files {

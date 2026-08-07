@@ -1,10 +1,10 @@
 use std::path::Path;
 
-use lsp_types::{Position, Range};
 use super::{
-    extract_frontmatter, CodeFence, Frontmatter, FrontmatterField, Heading, LineIndex,
-    MarkdownLink, parse, Tag,
+    CodeFence, Frontmatter, FrontmatterField, Heading, LineIndex, MarkdownLink, Tag,
+    extract_frontmatter, parse,
 };
+use lsp_types::{Position, Range};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -13,7 +13,10 @@ fn pos(line: u32, character: u32) -> Position {
 }
 
 fn range(start: (u32, u32), end: (u32, u32)) -> Range {
-    Range { start: pos(start.0, start.1), end: pos(end.0, end.1) }
+    Range {
+        start: pos(start.0, start.1),
+        end: pos(end.0, end.1),
+    }
 }
 
 fn md_links(content: &str) -> Vec<MarkdownLink> {
@@ -371,7 +374,14 @@ fn frontmatter_title_absent() {
     // Block exists but has no title key.
     let content = "---\ntags: [foo, bar]\n---\nBody.\n";
     let fm = extract_frontmatter(content).expect("should have frontmatter");
-    assert_eq!(fm, Frontmatter { title: None, tags: vec![], fields: vec![] });
+    assert_eq!(
+        fm,
+        Frontmatter {
+            title: None,
+            tags: vec![],
+            fields: vec![]
+        }
+    );
 }
 
 #[test]
@@ -560,8 +570,8 @@ fn fields_double_quoted_value() {
     //  line 1: title: "My Note"      bytes 4..21
     //  'M' is at byte 4 + len("title: \"") = 4+8 = 12
     let vr = result[0].value_range.expect("expected value_range");
-    assert_eq!(vr.start, pos(1, 8));  // inside opening quote
-    assert_eq!(vr.end,   pos(1, 15)); // before closing quote
+    assert_eq!(vr.start, pos(1, 8)); // inside opening quote
+    assert_eq!(vr.end, pos(1, 15)); // before closing quote
 }
 
 #[test]
@@ -578,7 +588,7 @@ fn fields_key_range_correct() {
     let result = fields("---\nstatus: draft\n---\n");
     let kr = result[0].key_range;
     assert_eq!(kr.start, pos(1, 0));
-    assert_eq!(kr.end,   pos(1, 6)); // "status" is 6 chars
+    assert_eq!(kr.end, pos(1, 6)); // "status" is 6 chars
 }
 
 #[test]
@@ -588,7 +598,7 @@ fn fields_value_range_correct() {
     let result = fields("---\nstatus: draft\n---\n");
     let vr = result[0].value_range.expect("expected value_range");
     assert_eq!(vr.start, pos(1, 8));
-    assert_eq!(vr.end,   pos(1, 13)); // "draft" is 5 chars
+    assert_eq!(vr.end, pos(1, 13)); // "draft" is 5 chars
 }
 
 #[test]

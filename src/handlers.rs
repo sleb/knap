@@ -5,18 +5,15 @@ use crossbeam_channel::Sender;
 use log::warn;
 use lsp_server::{Message, Notification};
 use lsp_types::{
-    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
-    CodeLens, CodeLensParams, Command,
-    CompletionItem, CompletionItemKind, CompletionParams, CompletionTextEdit, CreateFile,
+    CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams, CodeLens, CodeLensParams,
+    Command, CompletionItem, CompletionItemKind, CompletionParams, CompletionTextEdit, CreateFile,
     CreateFileOptions, Diagnostic, DiagnosticSeverity, DocumentChangeOperation, DocumentChanges,
     DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeKind,
-    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse,
-    InlayHint, InlayHintLabel, InlayHintParams,
-    Location, OneOf, OptionalVersionedTextDocumentIdentifier, Position, PrepareRenameResponse,
-    PublishDiagnosticsParams, Range, ReferenceParams,
-    RenameFilesParams, RenameParams, ResourceOp, SelectionRange, SelectionRangeParams,
-    SymbolInformation, SymbolKind, TextDocumentEdit,
-    TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
+    FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, InlayHint, InlayHintLabel,
+    InlayHintParams, Location, OneOf, OptionalVersionedTextDocumentIdentifier, Position,
+    PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams,
+    RenameParams, ResourceOp, SelectionRange, SelectionRangeParams, SymbolInformation, SymbolKind,
+    TextDocumentEdit, TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
 };
 
 use crate::index::{self, NoteIndex, ResolvedLink};
@@ -60,7 +57,11 @@ fn escape_link_target(target: &str) -> String {
 const DIAG_SOURCE: &str = "knap";
 
 /// Compute LSP diagnostics for `path` against the current index state.
-pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate::config::Config) -> Vec<Diagnostic> {
+pub(crate) fn compute_diagnostics(
+    path: &Path,
+    index: &NoteIndex,
+    config: &crate::config::Config,
+) -> Vec<Diagnostic> {
     let Some(note) = index.get_note(path) else {
         return vec![];
     };
@@ -85,11 +86,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
                     }
                     let found = index
                         .get_note(&target_path)
-                        .map(|n| {
-                            n.headings
-                                .iter()
-                                .any(|h| slug(&h.text) == slug(anchor))
-                        })
+                        .map(|n| n.headings.iter().any(|h| slug(&h.text) == slug(anchor)))
                         .unwrap_or(false);
                     if !found {
                         let range = link.anchor_range.unwrap_or(link.range);
@@ -109,8 +106,14 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
     let schema = &config.frontmatter_schema;
     if !schema.fields.is_empty() || schema.require_frontmatter || schema.warn_unknown_keys {
         let zero = Range {
-            start: Position { line: 0, character: 0 },
-            end: Position { line: 0, character: 0 },
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 0,
+            },
         };
         match &note.frontmatter {
             None => {
@@ -130,9 +133,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
             }
             Some(fm) => {
                 for (key, sf) in &schema.fields {
-                    if sf.required
-                        && !fm.fields.iter().any(|f| f.key.eq_ignore_ascii_case(key))
-                    {
+                    if sf.required && !fm.fields.iter().any(|f| f.key.eq_ignore_ascii_case(key)) {
                         diagnostics.push(Diagnostic {
                             range: zero,
                             severity: Some(DiagnosticSeverity::WARNING),
@@ -143,7 +144,11 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
                     }
                 }
                 for field in &fm.fields {
-                    match schema.fields.iter().find(|(k, _)| k.eq_ignore_ascii_case(&field.key)) {
+                    match schema
+                        .fields
+                        .iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case(&field.key))
+                    {
                         Some((_, sf)) => {
                             if let (Some(allowed), Some(value), Some(value_range)) =
                                 (&sf.values, &field.value, field.value_range)
@@ -166,10 +171,7 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
                                 diagnostics.push(Diagnostic {
                                     range: field.key_range,
                                     severity: Some(DiagnosticSeverity::WARNING),
-                                    message: format!(
-                                        "Unknown frontmatter key: '{}'",
-                                        field.key
-                                    ),
+                                    message: format!("Unknown frontmatter key: '{}'", field.key),
                                     source: Some(DIAG_SOURCE.to_owned()),
                                     ..Default::default()
                                 });
@@ -185,7 +187,12 @@ pub(crate) fn compute_diagnostics(path: &Path, index: &NoteIndex, config: &crate
 }
 
 /// Publish `textDocument/publishDiagnostics` notifications for every path in `paths`.
-pub(crate) fn publish_diagnostics(paths: &HashSet<PathBuf>, index: &NoteIndex, config: &crate::config::Config, sender: &Sender<Message>) {
+pub(crate) fn publish_diagnostics(
+    paths: &HashSet<PathBuf>,
+    index: &NoteIndex,
+    config: &crate::config::Config,
+    sender: &Sender<Message>,
+) {
     for path in paths {
         let diagnostics = compute_diagnostics(path, index, config);
         let params = PublishDiagnosticsParams {
@@ -263,10 +270,16 @@ fn check_tag_trigger(content: &str, pos: Position) -> Option<(String, Range)> {
             };
             let partial_start = bracket_byte + 1 + partial_offset_in_content;
             let start_char = byte_to_utf16_offset(line, partial_start);
-            return Some((partial, Range {
-                start: Position { line: pos.line, character: start_char },
-                end: pos,
-            }));
+            return Some((
+                partial,
+                Range {
+                    start: Position {
+                        line: pos.line,
+                        character: start_char,
+                    },
+                    end: pos,
+                },
+            ));
         }
 
         if !trimmed.starts_with('-') {
@@ -278,10 +291,16 @@ fn check_tag_trigger(content: &str, pos: Position) -> Option<(String, Range)> {
             }
             let partial = line[value_start..cursor_byte].to_string();
             let start_char = byte_to_utf16_offset(line, value_start);
-            return Some((partial, Range {
-                start: Position { line: pos.line, character: start_char },
-                end: pos,
-            }));
+            return Some((
+                partial,
+                Range {
+                    start: Position {
+                        line: pos.line,
+                        character: start_char,
+                    },
+                    end: pos,
+                },
+            ));
         }
     }
 
@@ -311,10 +330,16 @@ fn check_tag_trigger(content: &str, pos: Position) -> Option<(String, Range)> {
         }
         let partial = line[partial_start..cursor_byte].to_string();
         let start_char = byte_to_utf16_offset(line, partial_start);
-        return Some((partial, Range {
-            start: Position { line: pos.line, character: start_char },
-            end: pos,
-        }));
+        return Some((
+            partial,
+            Range {
+                start: Position {
+                    line: pos.line,
+                    character: start_char,
+                },
+                end: pos,
+            },
+        ));
     }
 
     None
@@ -379,7 +404,11 @@ fn relative_path(from_dir: &Path, to: &Path) -> String {
     let from: Vec<Component> = from_dir.components().collect();
     let to_comps: Vec<Component> = to.components().collect();
 
-    let common = from.iter().zip(to_comps.iter()).take_while(|(a, b)| a == b).count();
+    let common = from
+        .iter()
+        .zip(to_comps.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
 
     let mut result = PathBuf::new();
     for _ in 0..(from.len() - common) {
@@ -413,7 +442,10 @@ fn frontmatter_cursor_line(content: &str, pos: Position) -> Option<(&str, usize)
 /// frontmatter value position (after the `:` on a key-value line).
 /// Returns `None` for the `tags:` key (handled by `check_tag_trigger`),
 /// for complex values (inline list, block scalar), or outside the frontmatter block.
-fn check_frontmatter_value_trigger(content: &str, pos: Position) -> Option<(String, String, Range)> {
+fn check_frontmatter_value_trigger(
+    content: &str,
+    pos: Position,
+) -> Option<(String, String, Range)> {
     let (line, cursor_byte) = frontmatter_cursor_line(content, pos)?;
     let colon_byte = line.find(':')?;
     if cursor_byte <= colon_byte {
@@ -430,7 +462,10 @@ fn check_frontmatter_value_trigger(content: &str, pos: Position) -> Option<(Stri
 
     let after_colon = &line[colon_byte + 1..];
     let trimmed_value = after_colon.trim_start();
-    if trimmed_value.starts_with('[') || trimmed_value.starts_with('|') || trimmed_value.starts_with('>') {
+    if trimmed_value.starts_with('[')
+        || trimmed_value.starts_with('|')
+        || trimmed_value.starts_with('>')
+    {
         return None;
     }
 
@@ -444,7 +479,10 @@ fn check_frontmatter_value_trigger(content: &str, pos: Position) -> Option<(Stri
 
     let start_char = byte_to_utf16_offset(line, value_start);
     let replace_range = Range {
-        start: Position { line: pos.line, character: start_char },
+        start: Position {
+            line: pos.line,
+            character: start_char,
+        },
         end: pos,
     };
     Some((key, partial, replace_range))
@@ -474,7 +512,10 @@ fn check_frontmatter_key_trigger(content: &str, pos: Position) -> Option<(String
     };
     let start_char = byte_to_utf16_offset(line, leading_ws);
     let replace_range = Range {
-        start: Position { line: pos.line, character: start_char },
+        start: Position {
+            line: pos.line,
+            character: start_char,
+        },
         end: pos,
     };
     Some((partial, replace_range))
@@ -493,7 +534,11 @@ fn heading_completion_item(h: &parser::Heading) -> CompletionItem {
 }
 
 /// Handle `textDocument/completion`: link paths, anchors, and tag values.
-pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, config: &crate::config::Config) -> Vec<CompletionItem> {
+pub(crate) fn handle_completion(
+    params: CompletionParams,
+    index: &NoteIndex,
+    config: &crate::config::Config,
+) -> Vec<CompletionItem> {
     let pos = params.text_document_position.position;
     let Some(path) = uri_to_path(&params.text_document_position.text_document.uri) else {
         return vec![];
@@ -504,7 +549,8 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, con
 
     // Tag completion: cursor is inside a frontmatter `tags:` value.
     if let Some((partial, replace_range)) = check_tag_trigger(&note.content, pos) {
-        let used: std::collections::HashSet<String> = note.frontmatter
+        let used: std::collections::HashSet<String> = note
+            .frontmatter
             .as_ref()
             .map(|fm| fm.tags.iter().map(|t| t.name.to_lowercase()).collect())
             .unwrap_or_default();
@@ -525,9 +571,13 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, con
     }
 
     // Frontmatter value completion: cursor is in a scalar value position.
-    if let Some((key, partial, replace_range)) = check_frontmatter_value_trigger(&note.content, pos) {
+    if let Some((key, partial, replace_range)) = check_frontmatter_value_trigger(&note.content, pos)
+    {
         let schema = &config.frontmatter_schema;
-        if let Some((_, sf)) = schema.fields.iter().find(|(k, _)| k.eq_ignore_ascii_case(&key))
+        if let Some((_, sf)) = schema
+            .fields
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(&key))
             && let Some(allowed) = &sf.values
         {
             return allowed
@@ -565,131 +615,140 @@ pub(crate) fn handle_completion(params: CompletionParams, index: &NoteIndex, con
 
     // Directory completion: `](` or `](partial/` → immediate children of base_dir.
     if let Some(partial) = check_dir_trigger(&note.content, pos) {
-    let note_dir = path.parent().expect("indexed path must have a parent");
-    let base_dir = if partial.ends_with('/') || partial.is_empty() {
-        index::normalize_path(&note_dir.join(&*partial))
-    } else {
-        let p = std::path::Path::new(&partial);
-        index::normalize_path(&note_dir.join(p.parent().unwrap_or(std::path::Path::new(""))))
-    };
+        let note_dir = path.parent().expect("indexed path must have a parent");
+        let base_dir = if partial.ends_with('/') || partial.is_empty() {
+            index::normalize_path(&note_dir.join(&*partial))
+        } else {
+            let p = std::path::Path::new(&partial);
+            index::normalize_path(&note_dir.join(p.parent().unwrap_or(std::path::Path::new(""))))
+        };
 
-    // Collect owned copies so we can borrow index freely afterwards.
-    let note_paths: Vec<PathBuf> = index.all_notes().map(|n| n.path.clone()).collect();
-    let attach_paths: Vec<PathBuf> = index.all_attachment_paths().map(Path::to_path_buf).collect();
+        // Collect owned copies so we can borrow index freely afterwards.
+        let note_paths: Vec<PathBuf> = index.all_notes().map(|n| n.path.clone()).collect();
+        let attach_paths: Vec<PathBuf> = index
+            .all_attachment_paths()
+            .map(Path::to_path_buf)
+            .collect();
 
-    let mut dirs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    let mut files: Vec<PathBuf> = vec![];
+        let mut dirs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let mut files: Vec<PathBuf> = vec![];
 
-    for file_path in note_paths.iter().chain(attach_paths.iter()) {
-        if file_path.as_path() == path.as_path() {
-            continue;
-        }
-        let rel = relative_path(&base_dir, file_path);
-        let first = rel.split('/').next().unwrap_or("");
-        if first == rel && !rel.is_empty() {
-            files.push(file_path.clone());
-        } else if !first.is_empty() {
-            dirs.insert(first.to_string());
-        }
-    }
-
-    // Compute the TextEdit range: from right after `](` to the cursor.
-    let line_text = note.content.lines().nth(pos.line as usize).unwrap_or("");
-    let cursor_byte = utf16_to_byte_offset(line_text, pos.character);
-    let open_byte = line_text[..cursor_byte]
-        .rfind("](")
-        .expect("check_dir_trigger guarantees ](");
-    let start_char = byte_to_utf16_offset(line_text, open_byte + 2);
-    let replace_range = Range {
-        start: Position { line: pos.line, character: start_char },
-        end: pos,
-    };
-
-    let mut items: Vec<CompletionItem> = Vec::new();
-
-    for dir_name in &dirs {
-        let abs_dir = index::normalize_path(&base_dir.join(dir_name));
-        let full_rel = relative_path(note_dir, &abs_dir) + "/";
-        items.push(CompletionItem {
-            label: format!("{dir_name}/"),
-            kind: Some(CompletionItemKind::FOLDER),
-            filter_text: Some(dir_name.clone()),
-            sort_text: Some(format!("0_{dir_name}")),
-            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                range: replace_range,
-                new_text: full_rel,
-            })),
-            ..Default::default()
-        });
-    }
-
-    // Track immediate file paths so we can skip them in the global list.
-    let immediate_set: std::collections::HashSet<&PathBuf> = files.iter().collect();
-
-    for file_path in &files {
-        let full_rel = relative_path(note_dir, file_path);
-        let file_name = file_path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| full_rel.clone());
-        let (label, detail) = match index.get_note(file_path) {
-            Some(n) => {
-                let title = n.frontmatter.as_ref().and_then(|fm| fm.title.clone());
-                (title.clone().unwrap_or_else(|| file_name.clone()), title.map(|_| file_name.clone()))
+        for file_path in note_paths.iter().chain(attach_paths.iter()) {
+            if file_path.as_path() == path.as_path() {
+                continue;
             }
-            None => (file_name.clone(), None),
-        };
-        items.push(CompletionItem {
-            label,
-            kind: Some(CompletionItemKind::FILE),
-            filter_text: Some(file_name.clone()),
-            sort_text: Some(format!("1_{file_name}")),
-            detail,
-            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                range: replace_range,
-                new_text: escape_link_target(&full_rel),
-            })),
-            ..Default::default()
-        });
-    }
-
-    // Global items: every workspace file not already shown as an immediate child.
-    // These let the user jump directly to any file without drilling through dirs.
-    for file_path in note_paths.iter().chain(attach_paths.iter()) {
-        if file_path.as_path() == path.as_path() {
-            continue;
+            let rel = relative_path(&base_dir, file_path);
+            let first = rel.split('/').next().unwrap_or("");
+            if first == rel && !rel.is_empty() {
+                files.push(file_path.clone());
+            } else if !first.is_empty() {
+                dirs.insert(first.to_string());
+            }
         }
-        if immediate_set.contains(file_path) {
-            continue;
-        }
-        let full_rel = relative_path(note_dir, file_path);
-        let file_name = file_path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| full_rel.clone());
-        let label = match index.get_note(file_path) {
-            Some(n) => n
-                .frontmatter
-                .as_ref()
-                .and_then(|fm| fm.title.clone())
-                .unwrap_or_else(|| file_name.clone()),
-            None => file_name.clone(),
-        };
-        items.push(CompletionItem {
-            label,
-            kind: Some(CompletionItemKind::FILE),
-            filter_text: Some(full_rel.clone()),
-            sort_text: Some(format!("2_{full_rel}")),
-            detail: Some(full_rel.clone()),
-            text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                range: replace_range,
-                new_text: escape_link_target(&full_rel),
-            })),
-            ..Default::default()
-        });
-    }
 
-    return items;
+        // Compute the TextEdit range: from right after `](` to the cursor.
+        let line_text = note.content.lines().nth(pos.line as usize).unwrap_or("");
+        let cursor_byte = utf16_to_byte_offset(line_text, pos.character);
+        let open_byte = line_text[..cursor_byte]
+            .rfind("](")
+            .expect("check_dir_trigger guarantees ](");
+        let start_char = byte_to_utf16_offset(line_text, open_byte + 2);
+        let replace_range = Range {
+            start: Position {
+                line: pos.line,
+                character: start_char,
+            },
+            end: pos,
+        };
+
+        let mut items: Vec<CompletionItem> = Vec::new();
+
+        for dir_name in &dirs {
+            let abs_dir = index::normalize_path(&base_dir.join(dir_name));
+            let full_rel = relative_path(note_dir, &abs_dir) + "/";
+            items.push(CompletionItem {
+                label: format!("{dir_name}/"),
+                kind: Some(CompletionItemKind::FOLDER),
+                filter_text: Some(dir_name.clone()),
+                sort_text: Some(format!("0_{dir_name}")),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: replace_range,
+                    new_text: full_rel,
+                })),
+                ..Default::default()
+            });
+        }
+
+        // Track immediate file paths so we can skip them in the global list.
+        let immediate_set: std::collections::HashSet<&PathBuf> = files.iter().collect();
+
+        for file_path in &files {
+            let full_rel = relative_path(note_dir, file_path);
+            let file_name = file_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| full_rel.clone());
+            let (label, detail) = match index.get_note(file_path) {
+                Some(n) => {
+                    let title = n.frontmatter.as_ref().and_then(|fm| fm.title.clone());
+                    (
+                        title.clone().unwrap_or_else(|| file_name.clone()),
+                        title.map(|_| file_name.clone()),
+                    )
+                }
+                None => (file_name.clone(), None),
+            };
+            items.push(CompletionItem {
+                label,
+                kind: Some(CompletionItemKind::FILE),
+                filter_text: Some(file_name.clone()),
+                sort_text: Some(format!("1_{file_name}")),
+                detail,
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: replace_range,
+                    new_text: escape_link_target(&full_rel),
+                })),
+                ..Default::default()
+            });
+        }
+
+        // Global items: every workspace file not already shown as an immediate child.
+        // These let the user jump directly to any file without drilling through dirs.
+        for file_path in note_paths.iter().chain(attach_paths.iter()) {
+            if file_path.as_path() == path.as_path() {
+                continue;
+            }
+            if immediate_set.contains(file_path) {
+                continue;
+            }
+            let full_rel = relative_path(note_dir, file_path);
+            let file_name = file_path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| full_rel.clone());
+            let label = match index.get_note(file_path) {
+                Some(n) => n
+                    .frontmatter
+                    .as_ref()
+                    .and_then(|fm| fm.title.clone())
+                    .unwrap_or_else(|| file_name.clone()),
+                None => file_name.clone(),
+            };
+            items.push(CompletionItem {
+                label,
+                kind: Some(CompletionItemKind::FILE),
+                filter_text: Some(full_rel.clone()),
+                sort_text: Some(format!("2_{full_rel}")),
+                detail: Some(full_rel.clone()),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: replace_range,
+                    new_text: escape_link_target(&full_rel),
+                })),
+                ..Default::default()
+            });
+        }
+
+        return items;
     }
 
     // Frontmatter key completion: cursor is in a key position inside the frontmatter block.
@@ -734,7 +793,10 @@ fn tag_locations(tag_name: &str, index: &NoteIndex) -> Vec<Location> {
                 .iter()
                 .flat_map(|fm| fm.tags.iter())
                 .filter(|t| t.name.eq_ignore_ascii_case(tag_name))
-                .map(|t| Location { uri: uri.clone(), range: t.range })
+                .map(|t| Location {
+                    uri: uri.clone(),
+                    range: t.range,
+                })
                 .collect::<Vec<_>>()
         })
         .collect()
@@ -840,7 +902,10 @@ pub(crate) fn handle_references(params: ReferenceParams, index: &NoteIndex) -> V
             if link.target.is_empty()
                 && link.anchor.as_deref().map(slug).as_deref() == Some(&heading_slug)
             {
-                locs.push(Location { uri: path_to_uri(&path), range: link.range });
+                locs.push(Location {
+                    uri: path_to_uri(&path),
+                    range: link.range,
+                });
             }
         }
         for located in index.links_to(&path) {
@@ -868,7 +933,10 @@ pub(crate) fn handle_references(params: ReferenceParams, index: &NoteIndex) -> V
 // ─── Rename ───────────────────────────────────────────────────────────────────
 
 #[allow(clippy::mutable_key_type)] // lsp_types::Uri has interior mutability; HashMap<Uri, _> is the LSP-spec type
-pub(crate) fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIndex) -> WorkspaceEdit {
+pub(crate) fn handle_will_rename_files(
+    params: RenameFilesParams,
+    index: &NoteIndex,
+) -> WorkspaceEdit {
     use crate::index::{is_url_like, normalize_path};
 
     let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
@@ -896,7 +964,10 @@ pub(crate) fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIn
             changes
                 .entry(path_to_uri(&located.source_path))
                 .or_default()
-                .push(TextEdit { range: located.md_link.target_range, new_text: new_target });
+                .push(TextEdit {
+                    range: located.md_link.target_range,
+                    new_text: new_target,
+                });
         }
 
         // Outgoing: links inside the renamed file that point to other files may
@@ -912,13 +983,19 @@ pub(crate) fn handle_will_rename_files(params: RenameFilesParams, index: &NoteIn
                     changes
                         .entry(path_to_uri(&old_path))
                         .or_default()
-                        .push(TextEdit { range: link.target_range, new_text: new_target });
+                        .push(TextEdit {
+                            range: link.target_range,
+                            new_text: new_target,
+                        });
                 }
             }
         }
     }
 
-    WorkspaceEdit { changes: Some(changes), ..Default::default() }
+    WorkspaceEdit {
+        changes: Some(changes),
+        ..Default::default()
+    }
 }
 
 // ─── Document Symbols ─────────────────────────────────────────────────────────
@@ -936,7 +1013,10 @@ pub(crate) fn handle_document_symbols(
         .map(|h| SymbolInformation {
             name: h.text.clone(),
             kind: SymbolKind::STRING,
-            location: Location { uri: path_to_uri(&path), range: h.range },
+            location: Location {
+                uri: path_to_uri(&path),
+                range: h.range,
+            },
             tags: None,
             deprecated: None,
             container_name: None,
@@ -962,9 +1042,16 @@ pub(crate) fn handle_workspace_symbols(
                     Some(SymbolInformation {
                         name: h.text.clone(),
                         kind: SymbolKind::STRING,
-                        location: Location { uri: path_to_uri(&note.path), range: h.range },
+                        location: Location {
+                            uri: path_to_uri(&note.path),
+                            range: h.range,
+                        },
                         container_name: Some(
-                            note.path.file_name().unwrap_or_default().to_string_lossy().into_owned()
+                            note.path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .into_owned(),
                         ),
                         tags: None,
                         deprecated: None,
@@ -977,15 +1064,25 @@ pub(crate) fn handle_workspace_symbols(
         .collect();
 
     for note in index.all_notes() {
-        let Some(fm) = note.frontmatter.as_ref() else { continue };
+        let Some(fm) = note.frontmatter.as_ref() else {
+            continue;
+        };
         let uri = path_to_uri(&note.path);
-        let container = note.path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let container = note
+            .path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         for tag in &fm.tags {
             if query.is_empty() || tag.name.to_lowercase().contains(&query) {
                 symbols.push(SymbolInformation {
                     name: tag.name.clone(),
                     kind: SymbolKind::KEY,
-                    location: Location { uri: uri.clone(), range: tag.range },
+                    location: Location {
+                        uri: uri.clone(),
+                        range: tag.range,
+                    },
                     container_name: Some(container.clone()),
                     tags: None,
                     deprecated: None,
@@ -1020,18 +1117,24 @@ pub(crate) fn handle_prepare_rename(
             placeholder: tag.name.clone(),
         });
     }
-    let heading = note.headings.iter().find(|h| {
-        h.range.start.line <= pos.line && pos.line <= h.range.end.line
-    })?;
+    let heading = note
+        .headings
+        .iter()
+        .find(|h| h.range.start.line <= pos.line && pos.line <= h.range.end.line)?;
     let placeholder = {
-        let line_text = note.content.lines()
+        let line_text = note
+            .content
+            .lines()
             .nth(heading.text_range.start.line as usize)
             .unwrap_or("");
         let start = utf16_to_byte_offset(line_text, heading.text_range.start.character);
         let end = utf16_to_byte_offset(line_text, heading.text_range.end.character);
         line_text[start..end].to_string()
     };
-    Some(PrepareRenameResponse::RangeWithPlaceholder { range: heading.text_range, placeholder })
+    Some(PrepareRenameResponse::RangeWithPlaceholder {
+        range: heading.text_range,
+        placeholder,
+    })
 }
 
 #[allow(clippy::mutable_key_type)]
@@ -1075,12 +1178,18 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
                     changes
                         .entry(other_uri.clone())
                         .or_default()
-                        .push(TextEdit { range: t.range, new_text: new_name.clone() });
+                        .push(TextEdit {
+                            range: t.range,
+                            new_text: new_name.clone(),
+                        });
                 }
             }
         }
 
-        return Some(WorkspaceEdit { changes: Some(changes), ..Default::default() });
+        return Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        });
     }
 
     let heading = note
@@ -1097,7 +1206,10 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
     changes
         .entry(path_to_uri(&path))
         .or_default()
-        .push(TextEdit { range: heading.text_range, new_text: new_name.clone() });
+        .push(TextEdit {
+            range: heading.text_range,
+            new_text: new_name.clone(),
+        });
 
     // b. Anchor-only self-links inside the same file (target == "").
     for link in &note.md_links {
@@ -1107,28 +1219,39 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
         if link.anchor.as_deref().map(slug).as_deref() != Some(old_slug.as_str()) {
             continue;
         }
-        let Some(anchor_range) = link.anchor_range else { continue };
+        let Some(anchor_range) = link.anchor_range else {
+            continue;
+        };
         changes
             .entry(path_to_uri(&path))
             .or_default()
-            .push(TextEdit { range: anchor_range, new_text: new_slug.clone() });
+            .push(TextEdit {
+                range: anchor_range,
+                new_text: new_slug.clone(),
+            });
     }
 
     // c. Incoming links from other files that reference this heading by anchor.
     for located in index.links_to(&path) {
-        if located.md_link.anchor.as_deref().map(slug).as_deref()
-            != Some(old_slug.as_str())
-        {
+        if located.md_link.anchor.as_deref().map(slug).as_deref() != Some(old_slug.as_str()) {
             continue;
         }
-        let Some(anchor_range) = located.md_link.anchor_range else { continue };
+        let Some(anchor_range) = located.md_link.anchor_range else {
+            continue;
+        };
         changes
             .entry(path_to_uri(&located.source_path))
             .or_default()
-            .push(TextEdit { range: anchor_range, new_text: new_slug.clone() });
+            .push(TextEdit {
+                range: anchor_range,
+                new_text: new_slug.clone(),
+            });
     }
 
-    Some(WorkspaceEdit { changes: Some(changes), ..Default::default() })
+    Some(WorkspaceEdit {
+        changes: Some(changes),
+        ..Default::default()
+    })
 }
 
 // ─── Code Actions ─────────────────────────────────────────────────────────────
@@ -1158,14 +1281,16 @@ pub(crate) fn handle_code_actions(
             ResolvedLink::Broken => {
                 let clean_target = index::unescape_link_target(&link.target);
                 let new_path = new_note_path(&clean_target, &path, config);
-                let mut ops = vec![DocumentChangeOperation::Op(ResourceOp::Create(CreateFile {
-                    uri: path_to_uri(&new_path),
-                    options: Some(CreateFileOptions {
-                        ignore_if_exists: Some(true),
-                        overwrite: None,
-                    }),
-                    annotation_id: None,
-                }))];
+                let mut ops = vec![DocumentChangeOperation::Op(ResourceOp::Create(
+                    CreateFile {
+                        uri: path_to_uri(&new_path),
+                        options: Some(CreateFileOptions {
+                            ignore_if_exists: Some(true),
+                            overwrite: None,
+                        }),
+                        annotation_id: None,
+                    },
+                ))];
                 let escaped_target = escape_link_target(&clean_target);
                 if escaped_target != link.target {
                     ops.push(DocumentChangeOperation::Edit(TextDocumentEdit {
@@ -1225,14 +1350,22 @@ pub(crate) fn handle_code_actions(
 }
 
 fn new_note_path(link_target: &str, source: &Path, config: &crate::config::Config) -> PathBuf {
-    let path = match config.new_note_dir.as_deref().zip(config.index_roots.first()) {
+    let path = match config
+        .new_note_dir
+        .as_deref()
+        .zip(config.index_roots.first())
+    {
         Some((dir, root)) => {
             let stem = Path::new(link_target).file_name().unwrap_or_default();
             root.join(dir).join(stem)
         }
         None => index::normalize_path(&source.parent().unwrap_or(source).join(link_target)),
     };
-    if path.extension().is_none() { path.with_extension("md") } else { path }
+    if path.extension().is_none() {
+        path.with_extension("md")
+    } else {
+        path
+    }
 }
 
 // ─── Code Lens ────────────────────────────────────────────────────────────────
@@ -1262,7 +1395,10 @@ pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec
             })
             .collect();
 
-        let anchor = Position { line: 0, character: 0 };
+        let anchor = Position {
+            line: 0,
+            character: 0,
+        };
         let command = Command {
             title: format!("↑ {} backlink{}", count, if count == 1 { "" } else { "s" }),
             command: "editor.action.showReferences".to_string(),
@@ -1273,7 +1409,10 @@ pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec
             ]),
         };
         lenses.push(CodeLens {
-            range: Range { start: anchor, end: anchor },
+            range: Range {
+                start: anchor,
+                end: anchor,
+            },
             command: Some(command),
             data: None,
         });
@@ -1284,22 +1423,29 @@ pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec
         let heading_slug = slug(&heading.text);
 
         // Same-file bare anchor links targeting this heading.
-        let same_file_locs: Vec<Location> = note.md_links.iter()
+        let same_file_locs: Vec<Location> = note
+            .md_links
+            .iter()
             .filter(|l| {
                 l.target.is_empty()
-                    && l.anchor.as_deref().map(slug).as_deref()
-                        == Some(heading_slug.as_str())
+                    && l.anchor.as_deref().map(slug).as_deref() == Some(heading_slug.as_str())
             })
-            .map(|l| Location { uri: path_to_uri(&path), range: l.range })
+            .map(|l| Location {
+                uri: path_to_uri(&path),
+                range: l.range,
+            })
             .collect();
 
         // Cross-file anchor links targeting this heading.
-        let cross_file_locs: Vec<Location> = backlinks.iter()
+        let cross_file_locs: Vec<Location> = backlinks
+            .iter()
             .filter(|l| {
-                l.md_link.anchor.as_deref().map(slug).as_deref()
-                    == Some(heading_slug.as_str())
+                l.md_link.anchor.as_deref().map(slug).as_deref() == Some(heading_slug.as_str())
             })
-            .map(|l| Location { uri: path_to_uri(&l.source_path), range: l.md_link.range })
+            .map(|l| Location {
+                uri: path_to_uri(&l.source_path),
+                range: l.md_link.range,
+            })
             .collect();
 
         let all_locs: Vec<Location> = same_file_locs.into_iter().chain(cross_file_locs).collect();
@@ -1309,7 +1455,11 @@ pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec
 
         let count = all_locs.len();
         let command = Command {
-            title: format!("↑ {} anchor link{}", count, if count == 1 { "" } else { "s" }),
+            title: format!(
+                "↑ {} anchor link{}",
+                count,
+                if count == 1 { "" } else { "s" }
+            ),
             command: "editor.action.showReferences".to_string(),
             arguments: Some(vec![
                 serde_json::to_value(path_to_uri(&path)).expect("URI serializable"),
@@ -1318,7 +1468,10 @@ pub(crate) fn handle_code_lens(params: CodeLensParams, index: &NoteIndex) -> Vec
             ]),
         };
         lenses.push(CodeLens {
-            range: Range { start: heading.range.start, end: heading.range.start },
+            range: Range {
+                start: heading.range.start,
+                end: heading.range.start,
+            },
             command: Some(command),
             data: None,
         });
@@ -1426,8 +1579,14 @@ fn word_range_at(line: &str, cursor_char: u32, line_num: u32) -> Option<Range> {
     let end_char = byte_to_utf16_offset(line, end_byte);
 
     Some(Range {
-        start: Position { line: line_num, character: start_char },
-        end: Position { line: line_num, character: end_char },
+        start: Position {
+            line: line_num,
+            character: start_char,
+        },
+        end: Position {
+            line: line_num,
+            character: end_char,
+        },
     })
 }
 
@@ -1439,8 +1598,14 @@ fn paragraph_range(content: &str, cursor_line: u32) -> Range {
 
     if total == 0 {
         return Range {
-            start: Position { line: 0, character: 0 },
-            end: Position { line: 0, character: 0 },
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 0,
+            },
         };
     }
 
@@ -1477,8 +1642,14 @@ fn paragraph_range(content: &str, cursor_line: u32) -> Range {
     let end_char = byte_to_utf16_offset(end_line_text, end_line_text.len());
 
     Range {
-        start: Position { line: para_start, character: 0 },
-        end: Position { line: para_end, character: end_char },
+        start: Position {
+            line: para_start,
+            character: 0,
+        },
+        end: Position {
+            line: para_end,
+            character: end_char,
+        },
     }
 }
 
@@ -1486,7 +1657,11 @@ fn paragraph_range(content: &str, cursor_line: u32) -> Range {
 /// Section extends from the heading line down to the line before the next
 /// heading at the same or shallower level, or end of document.
 /// Returns `None` if the cursor is not within any heading section.
-fn heading_section_range(content: &str, headings: &[crate::parser::Heading], cursor_line: u32) -> Option<Range> {
+fn heading_section_range(
+    content: &str,
+    headings: &[crate::parser::Heading],
+    cursor_line: u32,
+) -> Option<Range> {
     // Find the innermost heading that starts at or before cursor_line.
     let heading = headings
         .iter()
@@ -1512,7 +1687,9 @@ fn heading_section_range(content: &str, headings: &[crate::parser::Heading], cur
                 // Walk backward from next_heading_line-1 to skip blank lines.
                 let mut end = next_heading_line - 1;
                 while end > section_start && end < total && lines[end as usize].trim().is_empty() {
-                    if end == 0 { break; }
+                    if end == 0 {
+                        break;
+                    }
                     end -= 1;
                 }
                 end
@@ -1535,24 +1712,30 @@ fn heading_section_range(content: &str, headings: &[crate::parser::Heading], cur
     let end_char = byte_to_utf16_offset(end_line_text, end_line_text.len());
 
     Some(Range {
-        start: Position { line: section_start, character: 0 },
-        end: Position { line: end_line, character: end_char },
+        start: Position {
+            line: section_start,
+            character: 0,
+        },
+        end: Position {
+            line: end_line,
+            character: end_char,
+        },
     })
 }
 
 /// Build a `SelectionRange` chain (innermost → outermost) for a single cursor
 /// position. The chain is: word? → link? → paragraph → section? → document.
 /// Adjacent duplicate ranges are collapsed.
-fn build_selection_chain(
-    pos: Position,
-    note: &crate::parser::Note,
-) -> SelectionRange {
+fn build_selection_chain(pos: Position, note: &crate::parser::Note) -> SelectionRange {
     let lines: Vec<&str> = note.content.lines().collect();
     let total_lines = lines.len() as u32;
 
     // ── Document range (always outermost) ────────────────────────────────────
     let doc_end = if total_lines == 0 {
-        Position { line: 0, character: 0 }
+        Position {
+            line: 0,
+            character: 0,
+        }
     } else {
         let last_line = lines[(total_lines - 1) as usize];
         Position {
@@ -1561,7 +1744,10 @@ fn build_selection_chain(
         }
     };
     let doc_range = Range {
-        start: Position { line: 0, character: 0 },
+        start: Position {
+            line: 0,
+            character: 0,
+        },
         end: doc_end,
     };
 
@@ -1625,10 +1811,18 @@ pub(crate) fn handle_selection_range(
     index: &NoteIndex,
 ) -> Vec<SelectionRange> {
     let Some(path) = uri_to_path(&params.text_document.uri) else {
-        return params.positions.iter().map(|_| SelectionRange::default()).collect();
+        return params
+            .positions
+            .iter()
+            .map(|_| SelectionRange::default())
+            .collect();
     };
     let Some(note) = index.get_note(&path) else {
-        return params.positions.iter().map(|_| SelectionRange::default()).collect();
+        return params
+            .positions
+            .iter()
+            .map(|_| SelectionRange::default())
+            .collect();
     };
 
     params
@@ -1711,7 +1905,12 @@ pub(crate) fn uri_to_path(uri: &lsp_types::Uri) -> Option<PathBuf> {
 /// Panics if `path` is not absolute.
 pub(crate) fn path_to_uri(path: &Path) -> lsp_types::Uri {
     url::Url::from_file_path(path)
-        .unwrap_or_else(|_| panic!("path_to_uri: path must be absolute, got: {}", path.display()))
+        .unwrap_or_else(|_| {
+            panic!(
+                "path_to_uri: path must be absolute, got: {}",
+                path.display()
+            )
+        })
         .as_str()
         .parse()
         .expect("file URL should parse as Uri")
@@ -1740,7 +1939,9 @@ mod tests {
     fn make_completion_params(path: &str, line: u32, character: u32) -> CompletionParams {
         CompletionParams {
             text_document_position: lsp_types::TextDocumentPositionParams {
-                text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+                text_document: lsp_types::TextDocumentIdentifier {
+                    uri: file_uri(path),
+                },
                 position: Position { line, character },
             },
             work_done_progress_params: Default::default(),
@@ -1752,7 +1953,9 @@ mod tests {
     fn make_definition_params(path: &str, line: u32, character: u32) -> GotoDefinitionParams {
         GotoDefinitionParams {
             text_document_position_params: lsp_types::TextDocumentPositionParams {
-                text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+                text_document: lsp_types::TextDocumentIdentifier {
+                    uri: file_uri(path),
+                },
                 position: Position { line, character },
             },
             work_done_progress_params: Default::default(),
@@ -1763,12 +1966,16 @@ mod tests {
     fn make_references_params(path: &str, line: u32, character: u32) -> ReferenceParams {
         ReferenceParams {
             text_document_position: lsp_types::TextDocumentPositionParams {
-                text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+                text_document: lsp_types::TextDocumentIdentifier {
+                    uri: file_uri(path),
+                },
                 position: Position { line, character },
             },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
-            context: lsp_types::ReferenceContext { include_declaration: false },
+            context: lsp_types::ReferenceContext {
+                include_declaration: false,
+            },
         }
     }
 
@@ -1808,7 +2015,11 @@ mod tests {
     fn diagnostics_broken_link() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "[text](missing.md)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("missing.md"));
     }
@@ -1818,7 +2029,11 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/b.md", ""));
         idx.seed(note("/vault/a.md", "[text](b.md)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
         assert!(diags.is_empty());
     }
 
@@ -1827,7 +2042,11 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/b.md", "## Existing\n"));
         idx.seed(note("/vault/a.md", "[text](b.md#Missing)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("Missing"));
     }
@@ -1837,7 +2056,11 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/b.md", "## Existing\n"));
         idx.seed(note("/vault/a.md", "[text](b.md#Existing)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
         assert!(diags.is_empty());
     }
 
@@ -1845,16 +2068,33 @@ mod tests {
     fn diagnostics_anchor_only_skipped() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "[text](#)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
-        assert!(diags.is_empty(), "empty anchor slug should not produce diagnostics");
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert!(
+            diags.is_empty(),
+            "empty anchor slug should not produce diagnostics"
+        );
     }
 
     #[test]
     fn diagnostics_external_url_with_anchor_no_warning() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "[text](https://example.com/page#section)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
-        assert!(diags.is_empty(), "external URLs with # fragments should not produce diagnostics");
+        idx.seed(note(
+            "/vault/a.md",
+            "[text](https://example.com/page#section)",
+        ));
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert!(
+            diags.is_empty(),
+            "external URLs with # fragments should not produce diagnostics"
+        );
     }
 
     // ── handle_completion ─────────────────────────────────────────────────────
@@ -1896,11 +2136,17 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
         // sub/ appears as a FOLDER item for drilling in
-        assert!(items.iter().any(|i| {
-            i.kind == Some(CompletionItemKind::FOLDER) && i.label == "sub/"
-        }));
+        assert!(
+            items
+                .iter()
+                .any(|i| { i.kind == Some(CompletionItemKind::FOLDER) && i.label == "sub/" })
+        );
         // sub/b.md also appears as a global FILE item for jumping directly
-        assert!(items.iter().any(|i| text_edit_new_text(i) == Some("sub/b.md")));
+        assert!(
+            items
+                .iter()
+                .any(|i| text_edit_new_text(i) == Some("sub/b.md"))
+        );
     }
 
     #[test]
@@ -1911,7 +2157,10 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
         // b.md is a sibling — appears with title as label, filename as filter_text
-        let item = items.iter().find(|i| text_edit_new_text(i) == Some("b.md")).unwrap();
+        let item = items
+            .iter()
+            .find(|i| text_edit_new_text(i) == Some("b.md"))
+            .unwrap();
         assert_eq!(item.label, "My Note");
         assert_eq!(item.detail.as_deref(), Some("b.md"));
     }
@@ -1924,7 +2173,11 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
         // img.png is a sibling attachment — appears as a FILE item
-        assert!(items.iter().any(|i| text_edit_new_text(i) == Some("img.png")));
+        assert!(
+            items
+                .iter()
+                .any(|i| text_edit_new_text(i) == Some("img.png"))
+        );
     }
 
     #[test]
@@ -1963,7 +2216,11 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
-        assert!(items.iter().any(|i| text_edit_new_text(i) == Some("<sub/My File.md>")));
+        assert!(
+            items
+                .iter()
+                .any(|i| text_edit_new_text(i) == Some("<sub/My File.md>"))
+        );
     }
 
     #[test]
@@ -2101,7 +2358,10 @@ mod tests {
         let edit = handle_will_rename_files(params, &idx);
         let changes = edit.changes.unwrap();
         let a_uri = file_uri("/vault/sub/a.md");
-        assert!(changes.contains_key(&a_uri), "a.md should have outgoing edits");
+        assert!(
+            changes.contains_key(&a_uri),
+            "a.md should have outgoing edits"
+        );
         assert_eq!(changes[&a_uri].len(), 1);
         assert_eq!(changes[&a_uri][0].new_text, "b.md");
     }
@@ -2117,9 +2377,15 @@ mod tests {
         let changes = edit.changes.unwrap();
         let b_uri = file_uri("/vault/b.md");
         let a_uri = file_uri("/vault/a.md");
-        assert!(changes.contains_key(&b_uri), "b.md should have incoming edit");
+        assert!(
+            changes.contains_key(&b_uri),
+            "b.md should have incoming edit"
+        );
         assert_eq!(changes[&b_uri][0].new_text, "sub/a.md");
-        assert!(changes.contains_key(&a_uri), "a.md should have outgoing edit");
+        assert!(
+            changes.contains_key(&a_uri),
+            "a.md should have outgoing edit"
+        );
         assert_eq!(changes[&a_uri][0].new_text, "../c.md");
     }
 
@@ -2159,7 +2425,9 @@ mod tests {
 
     fn make_document_symbol_params(path: &str) -> DocumentSymbolParams {
         DocumentSymbolParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: file_uri(path),
+            },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         }
@@ -2175,7 +2443,10 @@ mod tests {
     #[test]
     fn document_symbols_returns_all_headings() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "# Heading One\n## Heading Two\n### Heading Three\n"));
+        idx.seed(note(
+            "/vault/a.md",
+            "# Heading One\n## Heading Two\n### Heading Three\n",
+        ));
         let params = make_document_symbol_params("/vault/a.md");
         let syms = unwrap_flat(handle_document_symbols(params, &idx));
         assert_eq!(syms.len(), 3);
@@ -2281,9 +2552,15 @@ mod tests {
 
     // ── handle_prepare_rename ─────────────────────────────────────────────────
 
-    fn make_prepare_rename_params(path: &str, line: u32, character: u32) -> TextDocumentPositionParams {
+    fn make_prepare_rename_params(
+        path: &str,
+        line: u32,
+        character: u32,
+    ) -> TextDocumentPositionParams {
         TextDocumentPositionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: file_uri(path),
+            },
             position: Position { line, character },
         }
     }
@@ -2360,8 +2637,20 @@ mod tests {
         match resp.expect("expected Some") {
             PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } => {
                 assert_eq!(placeholder, "rust");
-                assert_eq!(range.start, Position { line: 1, character: 6 });
-                assert_eq!(range.end, Position { line: 1, character: 10 });
+                assert_eq!(
+                    range.start,
+                    Position {
+                        line: 1,
+                        character: 6
+                    }
+                );
+                assert_eq!(
+                    range.end,
+                    Position {
+                        line: 1,
+                        character: 10
+                    }
+                );
             }
             other => panic!("unexpected variant: {:?}", other),
         }
@@ -2397,7 +2686,11 @@ mod tests {
         let go_range = fm.tags[1].range;
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", content));
-        let params = make_prepare_rename_params("/vault/a.md", go_range.start.line, go_range.start.character);
+        let params = make_prepare_rename_params(
+            "/vault/a.md",
+            go_range.start.line,
+            go_range.start.character,
+        );
         let resp = handle_prepare_rename(params, &idx);
         match resp.expect("expected Some") {
             PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } => {
@@ -2416,7 +2709,11 @@ mod tests {
         let tag_range = parsed.frontmatter.as_ref().unwrap().tags[0].range;
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", content));
-        let params = make_prepare_rename_params("/vault/a.md", tag_range.start.line, tag_range.start.character);
+        let params = make_prepare_rename_params(
+            "/vault/a.md",
+            tag_range.start.line,
+            tag_range.start.character,
+        );
         let resp = handle_prepare_rename(params, &idx);
         match resp.expect("expected Some") {
             PrepareRenameResponse::RangeWithPlaceholder { range, placeholder } => {
@@ -2459,10 +2756,17 @@ mod tests {
 
     // ── handle_rename ─────────────────────────────────────────────────────────
 
-    fn make_rename_heading_params(path: &str, line: u32, character: u32, new_name: &str) -> RenameParams {
+    fn make_rename_heading_params(
+        path: &str,
+        line: u32,
+        character: u32,
+        new_name: &str,
+    ) -> RenameParams {
         RenameParams {
             text_document_position: TextDocumentPositionParams {
-                text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+                text_document: lsp_types::TextDocumentIdentifier {
+                    uri: file_uri(path),
+                },
                 position: Position { line, character },
             },
             new_name: new_name.to_string(),
@@ -2481,7 +2785,9 @@ mod tests {
         let changes = edit.changes.unwrap();
         let a_uri = file_uri("/vault/a.md");
         assert!(
-            changes[&a_uri].iter().any(|e| e.range == text_range && e.new_text == "New Heading"),
+            changes[&a_uri]
+                .iter()
+                .any(|e| e.range == text_range && e.new_text == "New Heading"),
             "heading text_range should be rewritten to new_name (human-readable)"
         );
     }
@@ -2495,14 +2801,20 @@ mod tests {
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
         let b_uri = file_uri("/vault/b.md");
-        assert!(changes.contains_key(&b_uri), "incoming slug anchor in b.md should be updated");
+        assert!(
+            changes.contains_key(&b_uri),
+            "incoming slug anchor in b.md should be updated"
+        );
         assert!(changes[&b_uri].iter().any(|e| e.new_text == "new-heading"));
     }
 
     #[test]
     fn rename_heading_updates_self_anchor() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "# Old Heading\n\n[link](#old-heading)\n"));
+        idx.seed(note(
+            "/vault/a.md",
+            "# Old Heading\n\n[link](#old-heading)\n",
+        ));
         let params = make_rename_heading_params("/vault/a.md", 0, 5, "New Heading");
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
@@ -2526,7 +2838,10 @@ mod tests {
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
         let b_uri = file_uri("/vault/b.md");
-        assert!(changes.contains_key(&b_uri), "slug of OLD-HEADING should match Old Heading");
+        assert!(
+            changes.contains_key(&b_uri),
+            "slug of OLD-HEADING should match Old Heading"
+        );
     }
 
     #[test]
@@ -2538,7 +2853,10 @@ mod tests {
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
         let b_uri = file_uri("/vault/b.md");
-        assert!(!changes.contains_key(&b_uri), "non-matching anchor should not be updated");
+        assert!(
+            !changes.contains_key(&b_uri),
+            "non-matching anchor should not be updated"
+        );
     }
 
     #[test]
@@ -2563,8 +2881,14 @@ mod tests {
         let params = make_rename_heading_params("/vault/a.md", 1, 7, "systems");
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
-        assert!(changes.contains_key(&file_uri("/vault/a.md")), "a.md missing");
-        assert!(changes.contains_key(&file_uri("/vault/b.md")), "b.md missing");
+        assert!(
+            changes.contains_key(&file_uri("/vault/a.md")),
+            "a.md missing"
+        );
+        assert!(
+            changes.contains_key(&file_uri("/vault/b.md")),
+            "b.md missing"
+        );
     }
 
     #[test]
@@ -2577,9 +2901,18 @@ mod tests {
         let params = make_rename_heading_params("/vault/a.md", 1, 7, "systems");
         let edit = handle_rename(params, &idx).expect("expected Some");
         let changes = edit.changes.unwrap();
-        assert!(changes.contains_key(&file_uri("/vault/a.md")), "a.md missing");
-        assert!(changes.contains_key(&file_uri("/vault/b.md")), "b.md missing");
-        assert!(changes.contains_key(&file_uri("/vault/c.md")), "c.md missing");
+        assert!(
+            changes.contains_key(&file_uri("/vault/a.md")),
+            "a.md missing"
+        );
+        assert!(
+            changes.contains_key(&file_uri("/vault/b.md")),
+            "b.md missing"
+        );
+        assert!(
+            changes.contains_key(&file_uri("/vault/c.md")),
+            "c.md missing"
+        );
     }
 
     #[test]
@@ -2587,7 +2920,11 @@ mod tests {
         // The TextEdit range must match the tag's parsed range, not a heading range.
         let content = "---\ntags: rust\n---\n";
         let tag_range = note("/vault/a.md", content)
-            .frontmatter.as_ref().unwrap().tags[0].range;
+            .frontmatter
+            .as_ref()
+            .unwrap()
+            .tags[0]
+            .range;
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", content));
         let params = make_rename_heading_params("/vault/a.md", 1, 7, "systems");
@@ -2595,7 +2932,9 @@ mod tests {
         let changes = edit.changes.unwrap();
         let edits = &changes[&file_uri("/vault/a.md")];
         assert!(
-            edits.iter().any(|e| e.range == tag_range && e.new_text == "systems"),
+            edits
+                .iter()
+                .any(|e| e.range == tag_range && e.new_text == "systems"),
             "expected edit at tag range"
         );
     }
@@ -2626,16 +2965,24 @@ mod tests {
         let content = "---\ntags: rust\n---\n";
         let path = write_temp("knap_test_rn_tag_disk.md", content);
         let tag_range = note(path.to_str().unwrap(), content)
-            .frontmatter.as_ref().unwrap().tags[0].range;
+            .frontmatter
+            .as_ref()
+            .unwrap()
+            .tags[0]
+            .range;
         let idx = NoteIndex::default(); // empty index
         let params = make_rename_heading_params(path.to_str().unwrap(), 1, 7, "systems");
         let edit = handle_rename(params, &idx).expect("expected Some");
         std::fs::remove_file(&path).ok();
         let changes = edit.changes.unwrap();
         let uri = path_to_uri(&path);
-        let edits = changes.get(&uri).expect("expected edits for disk-only note");
+        let edits = changes
+            .get(&uri)
+            .expect("expected edits for disk-only note");
         assert!(
-            edits.iter().any(|e| e.range == tag_range && e.new_text == "systems"),
+            edits
+                .iter()
+                .any(|e| e.range == tag_range && e.new_text == "systems"),
             "disk-only note must be updated"
         );
     }
@@ -2654,7 +3001,9 @@ mod tests {
         let changes = edit.changes.unwrap();
         let edits = &changes[&file_uri("/vault/a.md")];
         assert!(
-            edits.iter().any(|e| e.range == heading_text_range && e.new_text == "New Heading"),
+            edits
+                .iter()
+                .any(|e| e.range == heading_text_range && e.new_text == "New Heading"),
             "heading text edit missing"
         );
     }
@@ -2689,7 +3038,10 @@ mod tests {
         let params = make_prepare_rename_params(path.to_str().unwrap(), 2, 0);
         let resp = handle_prepare_rename(params, &idx);
         std::fs::remove_file(&path).ok();
-        assert!(resp.is_none(), "cursor on prose should return None even with disk fallback");
+        assert!(
+            resp.is_none(),
+            "cursor on prose should return None even with disk fallback"
+        );
     }
 
     #[test]
@@ -2717,14 +3069,24 @@ mod tests {
         std::fs::remove_file(&path).ok();
         let changes = edit.changes.unwrap();
         // Only the file itself should have edits — no incoming links since the index is empty.
-        assert_eq!(changes.len(), 1, "expected edits only for the renamed file, not for other files");
+        assert_eq!(
+            changes.len(),
+            1,
+            "expected edits only for the renamed file, not for other files"
+        );
     }
 
     // ── handle_code_actions ───────────────────────────────────────────────────
 
-    fn make_code_action_params(path: &str, line: u32, character: u32) -> lsp_types::CodeActionParams {
+    fn make_code_action_params(
+        path: &str,
+        line: u32,
+        character: u32,
+    ) -> lsp_types::CodeActionParams {
         lsp_types::CodeActionParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: file_uri(path),
+            },
             range: Range {
                 start: Position { line, character },
                 end: Position { line, character },
@@ -2735,7 +3097,10 @@ mod tests {
         }
     }
 
-    fn make_config(index_roots: Vec<std::path::PathBuf>, new_note_dir: Option<&str>) -> crate::config::Config {
+    fn make_config(
+        index_roots: Vec<std::path::PathBuf>,
+        new_note_dir: Option<&str>,
+    ) -> crate::config::Config {
         crate::config::Config {
             index_roots,
             extensions: vec!["md".to_string()],
@@ -2744,13 +3109,18 @@ mod tests {
         }
     }
 
-    fn extract_create_file(action: &lsp_types::CodeActionOrCommand) -> Option<&lsp_types::CreateFile> {
+    fn extract_create_file(
+        action: &lsp_types::CodeActionOrCommand,
+    ) -> Option<&lsp_types::CreateFile> {
         match action {
             lsp_types::CodeActionOrCommand::CodeAction(a) => {
                 let edit = a.edit.as_ref()?;
                 if let Some(lsp_types::DocumentChanges::Operations(ops)) = &edit.document_changes {
                     for op in ops {
-                        if let lsp_types::DocumentChangeOperation::Op(lsp_types::ResourceOp::Create(cf)) = op {
+                        if let lsp_types::DocumentChangeOperation::Op(
+                            lsp_types::ResourceOp::Create(cf),
+                        ) = op
+                        {
                             return Some(cf);
                         }
                     }
@@ -2790,7 +3160,8 @@ mod tests {
         assert_eq!(actions.len(), 1);
         let cf = extract_create_file(&actions[0]).unwrap();
         assert!(cf.uri.as_str().ends_with("/vault/My%20File.md"));
-        let te = extract_text_edit(&actions[0]).expect("expected a TextDocumentEdit for the link text");
+        let te =
+            extract_text_edit(&actions[0]).expect("expected a TextDocumentEdit for the link text");
         assert_eq!(te.new_text, "<My File>");
     }
 
@@ -2885,7 +3256,10 @@ mod tests {
         let actions = handle_code_actions(params, &idx, &config);
         assert_eq!(actions.len(), 1);
         let cf = extract_create_file(&actions[0]).unwrap();
-        assert_eq!(cf.options.as_ref().and_then(|o| o.ignore_if_exists), Some(true));
+        assert_eq!(
+            cf.options.as_ref().and_then(|o| o.ignore_if_exists),
+            Some(true)
+        );
     }
 
     #[test]
@@ -3007,7 +3381,10 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link](missing.md#"));
         let params = make_completion_params("/vault/a.md", 0, 18);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
-        assert!(items.is_empty(), "unresolvable path should yield no completions");
+        assert!(
+            items.is_empty(),
+            "unresolvable path should yield no completions"
+        );
     }
 
     #[test]
@@ -3017,7 +3394,10 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link](b.md#"));
         let params = make_completion_params("/vault/a.md", 0, 12);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
-        assert!(items.is_empty(), "file with no headings should yield no completions");
+        assert!(
+            items.is_empty(),
+            "file with no headings should yield no completions"
+        );
     }
 
     #[test]
@@ -3029,7 +3409,10 @@ mod tests {
         // cursor at character 11, right after `#`
         let params = make_completion_params("/vault/a.md", 0, 11);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
-        assert!(items.is_empty(), "hash in prose should not trigger anchor completion");
+        assert!(
+            items.is_empty(),
+            "hash in prose should not trigger anchor completion"
+        );
     }
 
     // ── check_dir_trigger ─────────────────────────────────────────────────────
@@ -3037,28 +3420,52 @@ mod tests {
     #[test]
     fn check_dir_trigger_empty_after_open() {
         // cursor immediately after `](`
-        let result = check_dir_trigger("[x](", Position { line: 0, character: 4 });
+        let result = check_dir_trigger(
+            "[x](",
+            Position {
+                line: 0,
+                character: 4,
+            },
+        );
         assert_eq!(result, Some(String::new()));
     }
 
     #[test]
     fn check_dir_trigger_partial_path() {
         // cursor after the trailing `/`
-        let result = check_dir_trigger("[x](subdir/", Position { line: 0, character: 11 });
+        let result = check_dir_trigger(
+            "[x](subdir/",
+            Position {
+                line: 0,
+                character: 11,
+            },
+        );
         assert_eq!(result, Some("subdir/".to_string()));
     }
 
     #[test]
     fn check_dir_trigger_none_outside_link() {
         // `/` typed on a bare text line — no `](` before it
-        let result = check_dir_trigger("some text /", Position { line: 0, character: 11 });
+        let result = check_dir_trigger(
+            "some text /",
+            Position {
+                line: 0,
+                character: 11,
+            },
+        );
         assert!(result.is_none());
     }
 
     #[test]
     fn check_dir_trigger_none_in_anchor_context() {
         // `#` after path puts us in anchor territory; dir trigger must yield None
-        let result = check_dir_trigger("[x](path#", Position { line: 0, character: 9 });
+        let result = check_dir_trigger(
+            "[x](path#",
+            Position {
+                line: 0,
+                character: 9,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -3087,9 +3494,9 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
         assert!(
-            items.iter().any(|i| {
-                i.kind == Some(CompletionItemKind::FOLDER) && i.label == "subdir/"
-            }),
+            items
+                .iter()
+                .any(|i| { i.kind == Some(CompletionItemKind::FOLDER) && i.label == "subdir/" }),
             "subdirectory should appear as FOLDER item"
         );
     }
@@ -3100,7 +3507,10 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
-        assert!(items.is_empty(), "current note must not appear in its own completions");
+        assert!(
+            items.is_empty(),
+            "current note must not appear in its own completions"
+        );
     }
 
     #[test]
@@ -3112,8 +3522,7 @@ mod tests {
         let items = handle_completion(params, &idx, &crate::config::Config::default());
         assert!(
             items.iter().any(|i| {
-                i.kind == Some(CompletionItemKind::FOLDER)
-                    && text_edit_new_text(i) == Some("../")
+                i.kind == Some(CompletionItemKind::FOLDER) && text_edit_new_text(i) == Some("../")
             }),
             "should offer `../` folder item when files exist above"
         );
@@ -3134,7 +3543,11 @@ mod tests {
             }),
             "drilling into subdir/ should show its children"
         );
-        assert!(!items.iter().any(|i| i.kind == Some(CompletionItemKind::FOLDER)));
+        assert!(
+            !items
+                .iter()
+                .any(|i| i.kind == Some(CompletionItemKind::FOLDER))
+        );
     }
 
     #[test]
@@ -3153,7 +3566,10 @@ mod tests {
             _ => panic!("expected Edit variant"),
         };
         // range starts right after `](` (character 7) and ends at cursor (14)
-        assert_eq!(edit.range.start.character, 7, "range should start right after ](");
+        assert_eq!(
+            edit.range.start.character, 7,
+            "range should start right after ]("
+        );
         assert_eq!(edit.range.end.character, 14, "range should end at cursor");
         assert_eq!(edit.new_text, "subdir/b.md");
     }
@@ -3196,18 +3612,36 @@ mod tests {
     fn tag_trigger_bare_scalar() {
         let content = "---\ntags: par\n---\n";
         // cursor after "par" (line 1, character 10)
-        let result = check_tag_trigger(content, Position { line: 1, character: 10 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 10,
+            },
+        );
         assert!(result.is_some());
         let (partial, range) = result.unwrap();
         assert_eq!(partial, "par");
-        assert_eq!(range.start, Position { line: 1, character: 6 });
+        assert_eq!(
+            range.start,
+            Position {
+                line: 1,
+                character: 6
+            }
+        );
     }
 
     #[test]
     fn tag_trigger_bare_scalar_empty() {
         let content = "---\ntags: \n---\n";
         // cursor right after the space (character 6)
-        let result = check_tag_trigger(content, Position { line: 1, character: 6 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 6,
+            },
+        );
         assert!(result.is_some());
         let (partial, _) = result.unwrap();
         assert_eq!(partial, "");
@@ -3217,7 +3651,13 @@ mod tests {
     fn tag_trigger_inline_list_partial() {
         let content = "---\ntags: [rust, we\n---\n";
         // cursor after "we" (character 17); "tags: [rust, we" → w is at byte 13
-        let result = check_tag_trigger(content, Position { line: 1, character: 17 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 17,
+            },
+        );
         assert!(result.is_some());
         let (partial, range) = result.unwrap();
         assert_eq!(partial, "we");
@@ -3228,7 +3668,13 @@ mod tests {
     fn tag_trigger_inline_list_first_item() {
         let content = "---\ntags: [ru\n---\n";
         // cursor after "ru" (character 10)
-        let result = check_tag_trigger(content, Position { line: 1, character: 10 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 10,
+            },
+        );
         assert!(result.is_some());
         let (partial, _) = result.unwrap();
         assert_eq!(partial, "ru");
@@ -3238,7 +3684,13 @@ mod tests {
     fn tag_trigger_inline_list_past_bracket_returns_none() {
         // cursor is past the closing `]`
         let content = "---\ntags: [rust]\n---\n";
-        let result = check_tag_trigger(content, Position { line: 1, character: 15 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 15,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -3246,7 +3698,13 @@ mod tests {
     fn tag_trigger_block_list_item() {
         let content = "---\ntags:\n  - rus\n---\n";
         // cursor after "rus" on line 2 (character 7)
-        let result = check_tag_trigger(content, Position { line: 2, character: 7 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 2,
+                character: 7,
+            },
+        );
         assert!(result.is_some());
         let (partial, range) = result.unwrap();
         assert_eq!(partial, "rus");
@@ -3257,7 +3715,13 @@ mod tests {
     fn tag_trigger_block_list_second_item() {
         let content = "---\ntags:\n  - rust\n  - we\n---\n";
         // cursor after "we" on line 3 (character 6)
-        let result = check_tag_trigger(content, Position { line: 3, character: 6 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 3,
+                character: 6,
+            },
+        );
         assert!(result.is_some());
         let (partial, _) = result.unwrap();
         assert_eq!(partial, "we");
@@ -3267,7 +3731,13 @@ mod tests {
     fn tag_trigger_block_list_wrong_key_returns_none() {
         let content = "---\ncategories:\n  - foo\n---\n";
         // cursor on line 2 under `categories:`, not `tags:`
-        let result = check_tag_trigger(content, Position { line: 2, character: 7 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 2,
+                character: 7,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -3275,14 +3745,26 @@ mod tests {
     fn tag_trigger_outside_frontmatter_returns_none() {
         let content = "---\ntags: rust\n---\ntags: body\n";
         // cursor on line 3 (body), not in frontmatter
-        let result = check_tag_trigger(content, Position { line: 3, character: 10 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 3,
+                character: 10,
+            },
+        );
         assert!(result.is_none());
     }
 
     #[test]
     fn tag_trigger_no_frontmatter_returns_none() {
         let content = "tags: rust\n";
-        let result = check_tag_trigger(content, Position { line: 0, character: 10 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 0,
+                character: 10,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -3290,7 +3772,13 @@ mod tests {
     fn tag_trigger_on_closing_marker_returns_none() {
         let content = "---\ntags: rust\n---\n";
         // cursor on closing `---` line (line 2)
-        let result = check_tag_trigger(content, Position { line: 2, character: 2 });
+        let result = check_tag_trigger(
+            content,
+            Position {
+                line: 2,
+                character: 2,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -3315,7 +3803,10 @@ mod tests {
         idx.seed(note("/vault/a.md", "---\ntags: [rust, \n---\n"));
         let params = make_completion_params("/vault/a.md", 1, 15);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
-        assert!(!items.iter().any(|i| i.label == "rust"), "rust already used, must be excluded");
+        assert!(
+            !items.iter().any(|i| i.label == "rust"),
+            "rust already used, must be excluded"
+        );
         assert!(items.iter().any(|i| i.label == "web"), "web should appear");
     }
 
@@ -3338,7 +3829,11 @@ mod tests {
         idx.seed(note("/vault/a.md", "---\ntags: \n---\n"));
         let params = make_completion_params("/vault/a.md", 1, 6);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
-        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+        assert!(
+            items
+                .iter()
+                .all(|i| i.kind == Some(CompletionItemKind::VALUE))
+        );
     }
 
     #[test]
@@ -3354,7 +3849,10 @@ mod tests {
             CompletionTextEdit::Edit(te) => te,
             _ => panic!("expected Edit"),
         };
-        assert_eq!(edit.range.start.character, 6, "replace should start after 'tags: '");
+        assert_eq!(
+            edit.range.start.character, 6,
+            "replace should start after 'tags: '"
+        );
         assert_eq!(edit.range.end.character, 8, "replace should end at cursor");
         assert_eq!(edit.new_text, "rust");
     }
@@ -3368,7 +3866,11 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 1, 6);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
         // Should return path-completion items (no trigger context), not tag items
-        assert!(!items.iter().any(|i| i.kind == Some(CompletionItemKind::VALUE)));
+        assert!(
+            !items
+                .iter()
+                .any(|i| i.kind == Some(CompletionItemKind::VALUE))
+        );
     }
 
     #[test]
@@ -3464,8 +3966,14 @@ mod tests {
         idx.seed(note("/vault/a.md", "---\ntags: rust\n---\n# Heading\n"));
         let params = make_workspace_symbol_params("");
         let syms = handle_workspace_symbols(params, &idx);
-        assert!(syms.iter().any(|s| s.name == "rust" && s.kind == SymbolKind::KEY));
-        assert!(syms.iter().any(|s| s.name == "Heading" && s.kind == SymbolKind::STRING));
+        assert!(
+            syms.iter()
+                .any(|s| s.name == "rust" && s.kind == SymbolKind::KEY)
+        );
+        assert!(
+            syms.iter()
+                .any(|s| s.name == "Heading" && s.kind == SymbolKind::STRING)
+        );
     }
 
     #[test]
@@ -3525,7 +4033,9 @@ mod tests {
 
     fn make_code_lens_params(path: &str) -> CodeLensParams {
         CodeLensParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: file_uri(path),
+            },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         }
@@ -3584,8 +4094,20 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link](b.md)\n"));
         let lenses = handle_code_lens(make_code_lens_params("/vault/b.md"), &idx);
         assert_eq!(lenses.len(), 1);
-        assert_eq!(lenses[0].range.start, Position { line: 0, character: 0 });
-        assert_eq!(lenses[0].range.end, Position { line: 0, character: 0 });
+        assert_eq!(
+            lenses[0].range.start,
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
+        assert_eq!(
+            lenses[0].range.end,
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
     }
 
     #[test]
@@ -3607,7 +4129,11 @@ mod tests {
         idx.seed(note("/vault/a.md", "# My Section\n\n[link](#my-section)\n"));
         let lenses = handle_code_lens(make_code_lens_params("/vault/a.md"), &idx);
         // Expect one heading lens (no backlinks, so no backlinks lens)
-        assert_eq!(lenses.len(), 1, "should have one heading lens for the same-file anchor");
+        assert_eq!(
+            lenses.len(),
+            1,
+            "should have one heading lens for the same-file anchor"
+        );
         let cmd = lenses[0].command.as_ref().unwrap();
         assert_eq!(cmd.title, "↑ 1 anchor link");
         let args = cmd.arguments.as_ref().unwrap();
@@ -3648,7 +4174,10 @@ mod tests {
         idx.seed(note("/vault/a.md", "# My Section\n\nsome prose\n"));
         let lenses = handle_code_lens(make_code_lens_params("/vault/a.md"), &idx);
         // No backlinks and no anchor links → no lenses at all.
-        assert!(lenses.is_empty(), "heading with no anchor links should produce no lens");
+        assert!(
+            lenses.is_empty(),
+            "heading with no anchor links should produce no lens"
+        );
     }
 
     #[test]
@@ -3708,7 +4237,10 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 3, 7);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
         assert_eq!(items.len(), 2);
-        let slugs: Vec<_> = items.iter().filter_map(|i| i.insert_text.as_deref()).collect();
+        let slugs: Vec<_> = items
+            .iter()
+            .filter_map(|i| i.insert_text.as_deref())
+            .collect();
         assert!(slugs.contains(&"alpha"));
         assert!(slugs.contains(&"beta"));
     }
@@ -3762,7 +4294,11 @@ mod tests {
     fn diagnostics_bare_anchor_valid() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "## Existing\n\n[text](#existing)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
         assert!(diags.is_empty());
     }
 
@@ -3770,7 +4306,11 @@ mod tests {
     fn diagnostics_bare_anchor_broken() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "## Existing\n\n[text](#missing)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
         assert_eq!(diags.len(), 1);
         assert!(diags[0].message.contains("#missing"));
     }
@@ -3779,7 +4319,11 @@ mod tests {
     fn diagnostics_bare_anchor_no_headings() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "[text](#anything)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
         assert_eq!(diags.len(), 1);
     }
 
@@ -3787,7 +4331,11 @@ mod tests {
     fn diagnostics_bare_anchor_empty_slug_no_diagnostic() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "[text](#)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
         assert!(diags.is_empty());
     }
 
@@ -3800,7 +4348,11 @@ mod tests {
     fn diagnostics_same_file_anchor_valid_no_warning() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "## Section One\n\n[§1](#section-one)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
         assert!(diags.is_empty());
     }
 
@@ -3808,7 +4360,11 @@ mod tests {
     fn diagnostics_same_file_anchor_missing_emits_heading_not_found() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "## Section One\n\n[§1](#nope)"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].message, "Heading not found: '#nope'");
     }
@@ -3843,7 +4399,12 @@ mod tests {
         // cursor on `[§1](#section-one)` in a.md
         let params = make_references_params("/vault/a.md", 2, 3);
         let locs = handle_references(params, &idx);
-        assert_eq!(locs.len(), 1, "expected the backlink from b.md, got {:?}", locs);
+        assert_eq!(
+            locs.len(),
+            1,
+            "expected the backlink from b.md, got {:?}",
+            locs
+        );
         assert!(locs[0].uri.as_str().ends_with("b.md"));
     }
 
@@ -3896,7 +4457,13 @@ mod tests {
     fn check_frontmatter_value_trigger_basic() {
         let content = "---\nstatus: dr\n---\n";
         // "status: dr" — "dr" starts at byte 8, cursor after "dr" = character 10
-        let result = check_frontmatter_value_trigger(content, Position { line: 1, character: 10 });
+        let result = check_frontmatter_value_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 10,
+            },
+        );
         assert!(result.is_some());
         let (key, partial, _range) = result.unwrap();
         assert_eq!(key, "status");
@@ -3907,7 +4474,13 @@ mod tests {
     fn check_frontmatter_value_trigger_empty_partial() {
         let content = "---\nstatus: \n---\n";
         // "status: " — cursor right after the space, character 8
-        let result = check_frontmatter_value_trigger(content, Position { line: 1, character: 8 });
+        let result = check_frontmatter_value_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 8,
+            },
+        );
         assert!(result.is_some());
         let (key, partial, _range) = result.unwrap();
         assert_eq!(key, "status");
@@ -3918,14 +4491,26 @@ mod tests {
     fn check_frontmatter_value_trigger_before_colon() {
         let content = "---\nstatus: draft\n---\n";
         // cursor at character 3 — before the colon at position 6
-        let result = check_frontmatter_value_trigger(content, Position { line: 1, character: 3 });
+        let result = check_frontmatter_value_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 3,
+            },
+        );
         assert!(result.is_none());
     }
 
     #[test]
     fn check_frontmatter_value_trigger_no_frontmatter() {
         let content = "status: draft\n";
-        let result = check_frontmatter_value_trigger(content, Position { line: 0, character: 13 });
+        let result = check_frontmatter_value_trigger(
+            content,
+            Position {
+                line: 0,
+                character: 13,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -3933,7 +4518,13 @@ mod tests {
     fn check_frontmatter_value_trigger_outside_block() {
         let content = "---\nstatus: ok\n---\nstatus: draft\n";
         // cursor on line 3, which is after the closing ---
-        let result = check_frontmatter_value_trigger(content, Position { line: 3, character: 13 });
+        let result = check_frontmatter_value_trigger(
+            content,
+            Position {
+                line: 3,
+                character: 13,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -3941,7 +4532,13 @@ mod tests {
     fn check_frontmatter_value_trigger_tags_key() {
         let content = "---\ntags: \n---\n";
         // cursor at character 6, after "tags: "
-        let result = check_frontmatter_value_trigger(content, Position { line: 1, character: 6 });
+        let result = check_frontmatter_value_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 6,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -3949,7 +4546,13 @@ mod tests {
     fn check_frontmatter_value_trigger_inline_list() {
         let content = "---\nstatus: [a, b]\n---\n";
         // cursor inside the brackets at character 12
-        let result = check_frontmatter_value_trigger(content, Position { line: 1, character: 12 });
+        let result = check_frontmatter_value_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 12,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -3959,7 +4562,13 @@ mod tests {
     fn check_frontmatter_key_trigger_basic() {
         let content = "---\nstat\n---\n";
         // cursor after "stat" at character 4
-        let result = check_frontmatter_key_trigger(content, Position { line: 1, character: 4 });
+        let result = check_frontmatter_key_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 4,
+            },
+        );
         assert!(result.is_some());
         let (partial, _range) = result.unwrap();
         assert_eq!(partial, "stat");
@@ -3969,7 +4578,13 @@ mod tests {
     fn check_frontmatter_key_trigger_blank_line() {
         let content = "---\n\n---\n";
         // cursor at line 1, character 0
-        let result = check_frontmatter_key_trigger(content, Position { line: 1, character: 0 });
+        let result = check_frontmatter_key_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 0,
+            },
+        );
         assert!(result.is_some());
         let (partial, _range) = result.unwrap();
         assert_eq!(partial, "");
@@ -3979,7 +4594,13 @@ mod tests {
     fn check_frontmatter_key_trigger_on_list_item() {
         let content = "---\n  - foo\n---\n";
         // cursor on list item at character 6
-        let result = check_frontmatter_key_trigger(content, Position { line: 1, character: 6 });
+        let result = check_frontmatter_key_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 6,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -3987,14 +4608,26 @@ mod tests {
     fn check_frontmatter_key_trigger_in_value() {
         let content = "---\nstatus: dr\n---\n";
         // cursor after ": " on "status: dr" at character 10
-        let result = check_frontmatter_key_trigger(content, Position { line: 1, character: 10 });
+        let result = check_frontmatter_key_trigger(
+            content,
+            Position {
+                line: 1,
+                character: 10,
+            },
+        );
         assert!(result.is_none());
     }
 
     #[test]
     fn check_frontmatter_key_trigger_no_frontmatter() {
         let content = "stat\n";
-        let result = check_frontmatter_key_trigger(content, Position { line: 0, character: 4 });
+        let result = check_frontmatter_key_trigger(
+            content,
+            Position {
+                line: 0,
+                character: 4,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -4002,7 +4635,13 @@ mod tests {
     fn check_frontmatter_key_trigger_on_closing_delimiter() {
         let content = "---\nstatus: draft\n---\n";
         // cursor on the closing --- line (line 2)
-        let result = check_frontmatter_key_trigger(content, Position { line: 2, character: 0 });
+        let result = check_frontmatter_key_trigger(
+            content,
+            Position {
+                line: 2,
+                character: 0,
+            },
+        );
         assert!(result.is_none());
     }
 
@@ -4041,7 +4680,11 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 1, 0);
         let items = handle_completion(params, &idx, &config);
         assert_eq!(items.len(), 2);
-        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::FIELD)));
+        assert!(
+            items
+                .iter()
+                .all(|i| i.kind == Some(CompletionItemKind::FIELD))
+        );
         assert!(items.iter().any(|i| i.label == "status"));
         assert!(items.iter().any(|i| i.label == "type"));
     }
@@ -4121,8 +4764,18 @@ mod tests {
         let config = make_schema_with_required("status", None);
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("status"), "message: {}", diags[0].message);
-        assert_eq!(diags[0].range.start, Position { line: 0, character: 0 });
+        assert!(
+            diags[0].message.contains("status"),
+            "message: {}",
+            diags[0].message
+        );
+        assert_eq!(
+            diags[0].range.start,
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
     }
 
     #[test]
@@ -4141,7 +4794,11 @@ mod tests {
         let config = make_schema_config(vec![("status", Some(vec!["draft", "published"]))]);
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
         assert_eq!(diags.len(), 1, "case mismatch should produce a warning");
-        assert!(diags[0].message.contains("Draft"), "message: {}", diags[0].message);
+        assert!(
+            diags[0].message.contains("Draft"),
+            "message: {}",
+            diags[0].message
+        );
     }
 
     #[test]
@@ -4159,7 +4816,10 @@ mod tests {
         idx.seed(note("/vault/a.md", "no frontmatter here\n"));
         let config = make_schema_with_required("status", None);
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
-        assert!(diags.is_empty(), "require_frontmatter=false should not warn when frontmatter absent");
+        assert!(
+            diags.is_empty(),
+            "require_frontmatter=false should not warn when frontmatter absent"
+        );
     }
 
     #[test]
@@ -4170,7 +4830,10 @@ mod tests {
             frontmatter_schema: crate::config::FrontmatterSchema {
                 fields: vec![(
                     "status".to_string(),
-                    crate::config::SchemaField { values: None, required: true },
+                    crate::config::SchemaField {
+                        values: None,
+                        required: true,
+                    },
                 )],
                 require_frontmatter: true,
                 ..Default::default()
@@ -4179,8 +4842,18 @@ mod tests {
         };
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("status"), "message: {}", diags[0].message);
-        assert_eq!(diags[0].range.start, Position { line: 0, character: 0 });
+        assert!(
+            diags[0].message.contains("status"),
+            "message: {}",
+            diags[0].message
+        );
+        assert_eq!(
+            diags[0].range.start,
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
     }
 
     #[test]
@@ -4198,7 +4871,13 @@ mod tests {
         idx.seed(note("/vault/a.md", "---\nfoobar: x\n---\n"));
         let config = crate::config::Config {
             frontmatter_schema: crate::config::FrontmatterSchema {
-                fields: vec![("status".to_string(), crate::config::SchemaField { values: None, required: false })],
+                fields: vec![(
+                    "status".to_string(),
+                    crate::config::SchemaField {
+                        values: None,
+                        required: false,
+                    },
+                )],
                 warn_unknown_keys: true,
                 ..Default::default()
             },
@@ -4206,7 +4885,11 @@ mod tests {
         };
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
         assert_eq!(diags.len(), 1);
-        assert!(diags[0].message.contains("foobar"), "message: {}", diags[0].message);
+        assert!(
+            diags[0].message.contains("foobar"),
+            "message: {}",
+            diags[0].message
+        );
     }
 
     #[test]
@@ -4216,7 +4899,10 @@ mod tests {
         idx.seed(note("/vault/a.md", "---\nstatus: [a, b]\n---\n"));
         let config = make_schema_config(vec![("status", Some(vec!["draft", "published"]))]);
         let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
-        assert!(diags.is_empty(), "complex (list) value should not trigger enum diagnostic");
+        assert!(
+            diags.is_empty(),
+            "complex (list) value should not trigger enum diagnostic"
+        );
     }
 
     #[test]
@@ -4244,9 +4930,19 @@ mod tests {
     #[test]
     fn schema_empty_no_diagnostics() {
         let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/a.md", "---\narbitrary: value\nother: thing\n---\n"));
-        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &crate::config::Config::default());
-        assert!(diags.is_empty(), "empty schema should produce no diagnostics");
+        idx.seed(note(
+            "/vault/a.md",
+            "---\narbitrary: value\nother: thing\n---\n",
+        ));
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert!(
+            diags.is_empty(),
+            "empty schema should produce no diagnostics"
+        );
     }
 
     // ── Step 4: schema value completions ──────────────────────────────────────
@@ -4260,7 +4956,11 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 1, 8);
         let items = handle_completion(params, &idx, &config);
         assert_eq!(items.len(), 2);
-        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+        assert!(
+            items
+                .iter()
+                .all(|i| i.kind == Some(CompletionItemKind::VALUE))
+        );
         assert!(items.iter().any(|i| i.label == "draft"));
         assert!(items.iter().any(|i| i.label == "published"));
     }
@@ -4331,14 +5031,20 @@ mod tests {
         let items = handle_completion(params, &idx, &config);
         // tag trigger fires first; results are VALUE items from the tag list
         assert!(items.iter().any(|i| i.label == "rust"));
-        assert!(items.iter().all(|i| i.kind == Some(CompletionItemKind::VALUE)));
+        assert!(
+            items
+                .iter()
+                .all(|i| i.kind == Some(CompletionItemKind::VALUE))
+        );
     }
 
     // ── handle_folding_ranges ─────────────────────────────────────────────────
 
     fn make_folding_params(path: &str) -> FoldingRangeParams {
         FoldingRangeParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: file_uri(path),
+            },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
         }
@@ -4348,7 +5054,9 @@ mod tests {
 
     fn make_selection_range_params(path: &str, positions: Vec<Position>) -> SelectionRangeParams {
         SelectionRangeParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: file_uri(path),
+            },
             positions,
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
@@ -4360,15 +5068,23 @@ mod tests {
     fn make_inlay_hint_params(path: &str, range: Range) -> InlayHintParams {
         InlayHintParams {
             work_done_progress_params: Default::default(),
-            text_document: lsp_types::TextDocumentIdentifier { uri: file_uri(path) },
+            text_document: lsp_types::TextDocumentIdentifier {
+                uri: file_uri(path),
+            },
             range,
         }
     }
 
     fn full_range() -> Range {
         Range {
-            start: Position { line: 0, character: 0 },
-            end: Position { line: 9999, character: 9999 },
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 9999,
+                character: 9999,
+            },
         }
     }
 
@@ -4384,7 +5100,10 @@ mod tests {
         let params = make_folding_params("/vault/a.md");
         let ranges = handle_folding_ranges(params, &idx);
         // First H2 (line 0) should end at line 1 (line before next H2 at line 2)
-        let first = ranges.iter().find(|r| r.start_line == 0).expect("range for first H2");
+        let first = ranges
+            .iter()
+            .find(|r| r.start_line == 0)
+            .expect("range for first H2");
         assert_eq!(first.end_line, 1);
         assert_eq!(first.kind, Some(FoldingRangeKind::Region));
     }
@@ -4402,7 +5121,10 @@ mod tests {
         let params = make_folding_params("/vault/a.md");
         let ranges = handle_folding_ranges(params, &idx);
         // H3 at line 2 ends at line 3 (line before ## Sibling at line 4)
-        let h3 = ranges.iter().find(|r| r.start_line == 2).expect("range for H3");
+        let h3 = ranges
+            .iter()
+            .find(|r| r.start_line == 2)
+            .expect("range for H3");
         assert_eq!(h3.end_line, 3);
     }
 
@@ -4445,7 +5167,10 @@ mod tests {
         idx.seed(note("/vault/a.md", content));
         let params = make_folding_params("/vault/a.md");
         let ranges = handle_folding_ranges(params, &idx);
-        let fence = ranges.iter().find(|r| r.start_line == 1).expect("code fence range");
+        let fence = ranges
+            .iter()
+            .find(|r| r.start_line == 1)
+            .expect("code fence range");
         assert_eq!(fence.end_line, 3);
         assert_eq!(fence.kind, Some(FoldingRangeKind::Region));
     }
@@ -4484,15 +5209,31 @@ mod tests {
         // Cursor in the middle of "hello" → word range should be [0,0..0,5)
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "hello world\n"));
-        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 0, character: 2 }]);
+        let params = make_selection_range_params(
+            "/vault/a.md",
+            vec![Position {
+                line: 0,
+                character: 2,
+            }],
+        );
         let result = handle_selection_range(params, &idx);
         assert_eq!(result.len(), 1);
         let ranges = collect_ranges(&result[0]);
         // Innermost should be the word "hello"
-        assert_eq!(ranges[0], Range {
-            start: Position { line: 0, character: 0 },
-            end: Position { line: 0, character: 5 },
-        }, "innermost range should be the word 'hello'");
+        assert_eq!(
+            ranges[0],
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 0
+                },
+                end: Position {
+                    line: 0,
+                    character: 5
+                },
+            },
+            "innermost range should be the word 'hello'"
+        );
     }
 
     #[test]
@@ -4501,17 +5242,32 @@ mod tests {
         // Cursor on the space between words → no word range level
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", "hello world\n"));
-        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 0, character: 5 }]);
+        let params = make_selection_range_params(
+            "/vault/a.md",
+            vec![Position {
+                line: 0,
+                character: 5,
+            }],
+        );
         let result = handle_selection_range(params, &idx);
         assert_eq!(result.len(), 1);
         let ranges = collect_ranges(&result[0]);
         // Innermost should be paragraph (not a word) — it spans the whole line.
         // Verify no range is a single word (i.e. the 5-char "hello" range is absent).
         let word_range = Range {
-            start: Position { line: 0, character: 0 },
-            end: Position { line: 0, character: 5 },
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 5,
+            },
         };
-        assert!(!ranges.contains(&word_range), "word range should be absent when cursor is on whitespace");
+        assert!(
+            !ranges.contains(&word_range),
+            "word range should be absent when cursor is on whitespace"
+        );
     }
 
     #[test]
@@ -4520,20 +5276,38 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/b.md", ""));
         idx.seed(note("/vault/a.md", "[hello](b.md)\n"));
-        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 0, character: 1 }]);
+        let params = make_selection_range_params(
+            "/vault/a.md",
+            vec![Position {
+                line: 0,
+                character: 1,
+            }],
+        );
         let result = handle_selection_range(params, &idx);
         assert_eq!(result.len(), 1);
         let ranges = collect_ranges(&result[0]);
         // Should contain word range for "hello" [0,1..0,6)
         let word_range = Range {
-            start: Position { line: 0, character: 1 },
-            end: Position { line: 0, character: 6 },
+            start: Position {
+                line: 0,
+                character: 1,
+            },
+            end: Position {
+                line: 0,
+                character: 6,
+            },
         };
-        assert!(ranges.contains(&word_range), "word range for 'hello' should be present; got: {ranges:?}");
+        assert!(
+            ranges.contains(&word_range),
+            "word range for 'hello' should be present; got: {ranges:?}"
+        );
         // Should also contain the full link range [0,0..0,13)
         let parsed = crate::test_helpers::note("/vault/a.md", "[hello](b.md)\n");
         let link_range = parsed.md_links[0].range;
-        assert!(ranges.contains(&link_range), "link range should be present; got: {ranges:?}");
+        assert!(
+            ranges.contains(&link_range),
+            "link range should be present; got: {ranges:?}"
+        );
         // word range must come before (inner to) link range
         let word_idx = ranges.iter().position(|r| r == &word_range).unwrap();
         let link_idx = ranges.iter().position(|r| r == &link_range).unwrap();
@@ -4548,15 +5322,30 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", content));
         // Cursor on "middle para line A" (line 3)
-        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 3, character: 0 }]);
+        let params = make_selection_range_params(
+            "/vault/a.md",
+            vec![Position {
+                line: 3,
+                character: 0,
+            }],
+        );
         let result = handle_selection_range(params, &idx);
         assert_eq!(result.len(), 1);
         let ranges = collect_ranges(&result[0]);
         let expected_para = Range {
-            start: Position { line: 3, character: 0 },
-            end: Position { line: 4, character: "middle para line B".len() as u32 },
+            start: Position {
+                line: 3,
+                character: 0,
+            },
+            end: Position {
+                line: 4,
+                character: "middle para line B".len() as u32,
+            },
         };
-        assert!(ranges.contains(&expected_para), "paragraph range should span lines 3-4; got: {ranges:?}");
+        assert!(
+            ranges.contains(&expected_para),
+            "paragraph range should span lines 3-4; got: {ranges:?}"
+        );
     }
 
     #[test]
@@ -4568,20 +5357,39 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", content));
         // Cursor on "some text here" (line 2, char 0) — inside "## First" section.
-        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 2, character: 0 }]);
+        let params = make_selection_range_params(
+            "/vault/a.md",
+            vec![Position {
+                line: 2,
+                character: 0,
+            }],
+        );
         let result = handle_selection_range(params, &idx);
         assert_eq!(result.len(), 1);
         let ranges = collect_ranges(&result[0]);
         // The section range for "## First" should start at line 0 and end
         // before "## Second" (line 4). Trailing blank (line 3) is trimmed,
         // so end should be line 2 ("some text here").
-        let section_start = Position { line: 0, character: 0 };
-        let has_section = ranges.iter().any(|r| r.start == section_start && r.end.line < 4);
-        assert!(has_section, "section range should be present starting at heading; got: {ranges:?}");
+        let section_start = Position {
+            line: 0,
+            character: 0,
+        };
+        let has_section = ranges
+            .iter()
+            .any(|r| r.start == section_start && r.end.line < 4);
+        assert!(
+            has_section,
+            "section range should be present starting at heading; got: {ranges:?}"
+        );
         // Section range should not be the full document range.
         let doc_range = *ranges.last().unwrap();
-        let section_range = ranges.iter().find(|r| r.start == section_start && *r != &doc_range);
-        assert!(section_range.is_some(), "section range should differ from document range; got: {ranges:?}");
+        let section_range = ranges
+            .iter()
+            .find(|r| r.start == section_start && *r != &doc_range);
+        assert!(
+            section_range.is_some(),
+            "section range should differ from document range; got: {ranges:?}"
+        );
     }
 
     #[test]
@@ -4589,17 +5397,38 @@ mod tests {
         let content = "# Hello\n\nsome text\n";
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", content));
-        let params = make_selection_range_params("/vault/a.md", vec![Position { line: 2, character: 0 }]);
+        let params = make_selection_range_params(
+            "/vault/a.md",
+            vec![Position {
+                line: 2,
+                character: 0,
+            }],
+        );
         let result = handle_selection_range(params, &idx);
         assert_eq!(result.len(), 1);
         let ranges = collect_ranges(&result[0]);
         let outermost = ranges.last().unwrap();
-        assert_eq!(outermost.start, Position { line: 0, character: 0 }, "outermost start must be (0,0)");
+        assert_eq!(
+            outermost.start,
+            Position {
+                line: 0,
+                character: 0
+            },
+            "outermost start must be (0,0)"
+        );
         // End must be at the last character of the document.
         let lines: Vec<&str> = content.lines().collect();
         let last_line = lines.last().unwrap();
-        assert_eq!(outermost.end.line, (lines.len() - 1) as u32, "outermost end line must be last line");
-        assert_eq!(outermost.end.character, last_line.len() as u32, "outermost end char must be end of last line");
+        assert_eq!(
+            outermost.end.line,
+            (lines.len() - 1) as u32,
+            "outermost end line must be last line"
+        );
+        assert_eq!(
+            outermost.end.character,
+            last_line.len() as u32,
+            "outermost end char must be end of last line"
+        );
     }
 
     #[test]
@@ -4608,13 +5437,26 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a.md", content));
         let positions = vec![
-            Position { line: 0, character: 2 },
-            Position { line: 2, character: 0 },
-            Position { line: 2, character: 4 },
+            Position {
+                line: 0,
+                character: 2,
+            },
+            Position {
+                line: 2,
+                character: 0,
+            },
+            Position {
+                line: 2,
+                character: 4,
+            },
         ];
         let params = make_selection_range_params("/vault/a.md", positions.clone());
         let result = handle_selection_range(params, &idx);
-        assert_eq!(result.len(), positions.len(), "result vec must match positions length");
+        assert_eq!(
+            result.len(),
+            positions.len(),
+            "result vec must match positions length"
+        );
     }
 
     #[test]
@@ -4650,7 +5492,10 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link](b.md)"));
         let params = make_inlay_hint_params("/vault/a.md", full_range());
         let hints = handle_inlay_hints(params, &idx);
-        assert!(hints.is_empty(), "note without title should produce no hints");
+        assert!(
+            hints.is_empty(),
+            "note without title should produce no hints"
+        );
     }
 
     #[test]
@@ -4668,7 +5513,10 @@ mod tests {
         idx.seed(note("/vault/a.md", "[link](https://example.com)"));
         let params = make_inlay_hint_params("/vault/a.md", full_range());
         let hints = handle_inlay_hints(params, &idx);
-        assert!(hints.is_empty(), "external URL link should produce no hints");
+        assert!(
+            hints.is_empty(),
+            "external URL link should produce no hints"
+        );
     }
 
     #[test]
@@ -4678,12 +5526,21 @@ mod tests {
         // The link is on line 0; request only line 1+
         idx.seed(note("/vault/a.md", "[link](b.md)"));
         let narrow_range = Range {
-            start: Position { line: 1, character: 0 },
-            end: Position { line: 9999, character: 9999 },
+            start: Position {
+                line: 1,
+                character: 0,
+            },
+            end: Position {
+                line: 9999,
+                character: 9999,
+            },
         };
         let params = make_inlay_hint_params("/vault/a.md", narrow_range);
         let hints = handle_inlay_hints(params, &idx);
-        assert!(hints.is_empty(), "hint outside requested range should be excluded");
+        assert!(
+            hints.is_empty(),
+            "hint outside requested range should be excluded"
+        );
     }
 
     #[test]

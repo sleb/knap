@@ -2,22 +2,21 @@
 // See docs/design/components/protocol-handler.md
 
 use anyhow::Result;
-use log::{debug, info, warn};
 use crossbeam_channel::Sender;
+use log::{debug, info, warn};
 use lsp_server::{Connection, Message, Notification, Request, Response};
 use lsp_types::{
     CodeActionParams, CodeActionProviderCapability, CodeLensOptions, CodeLensParams,
-    CompletionOptions, CompletionParams,
-    DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
+    CompletionOptions, CompletionParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
     DidChangeWatchedFilesRegistrationOptions, DidOpenTextDocumentParams, DocumentSymbolParams,
     FileChangeType, FileOperationFilter, FileOperationPattern, FileOperationRegistrationOptions,
     FileSystemWatcher, FoldingRangeParams, FoldingRangeProviderCapability, GlobPattern,
-    GotoDefinitionParams, InlayHintParams, InitializeParams,
-    InitializeResult, OneOf, ReferenceParams, Registration, RegistrationParams, RelativePattern,
-    RenameFilesParams, RenameOptions, RenameParams, SelectionRangeParams,
-    SelectionRangeProviderCapability, ServerCapabilities, ServerInfo, TextDocumentPositionParams,
-    TextDocumentSyncCapability, TextDocumentSyncKind, Uri,
-    WorkspaceFileOperationsServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
+    GotoDefinitionParams, InitializeParams, InitializeResult, InlayHintParams, OneOf,
+    ReferenceParams, Registration, RegistrationParams, RelativePattern, RenameFilesParams,
+    RenameOptions, RenameParams, SelectionRangeParams, SelectionRangeProviderCapability,
+    ServerCapabilities, ServerInfo, TextDocumentPositionParams, TextDocumentSyncCapability,
+    TextDocumentSyncKind, Uri, WorkspaceFileOperationsServerCapabilities,
+    WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
 
 use crate::config::Config;
@@ -49,14 +48,15 @@ pub fn run(connection: Connection) -> Result<()> {
         .as_ref()
         .and_then(|c| c.version.as_deref())
         .unwrap_or("unknown");
-    info!("initialize: client={} version={}", client_name, client_version);
+    info!(
+        "initialize: client={} version={}",
+        client_name, client_version
+    );
 
     let config = crate::config::for_lsp(&init_params)?;
 
     let capabilities = ServerCapabilities {
-        text_document_sync: Some(TextDocumentSyncCapability::Kind(
-            TextDocumentSyncKind::FULL,
-        )),
+        text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
         completion_provider: Some(CompletionOptions {
             trigger_characters: Some(vec![
                 "(".to_string(),
@@ -67,7 +67,9 @@ pub fn run(connection: Connection) -> Result<()> {
             ..Default::default()
         }),
         code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
-        code_lens_provider: Some(CodeLensOptions { resolve_provider: Some(false) }),
+        code_lens_provider: Some(CodeLensOptions {
+            resolve_provider: Some(false),
+        }),
         folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
         selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
         inlay_hint_provider: Some(OneOf::Left(true)),
@@ -118,7 +120,12 @@ pub fn run(connection: Connection) -> Result<()> {
     let exts: Vec<&str> = config.extensions.iter().map(|s| s.as_str()).collect();
     let (mut index, initial_delta) = index::build(&config.index_roots, &exts);
     info!("index ready: {} notes", index.all_notes().count());
-    handlers::publish_diagnostics(&initial_delta.affected_paths, &index, &config, &connection.sender);
+    handlers::publish_diagnostics(
+        &initial_delta.affected_paths,
+        &index,
+        &config,
+        &connection.sender,
+    );
 
     for msg in &connection.receiver {
         match msg {
@@ -188,7 +195,12 @@ fn register_file_watcher(
     Ok(())
 }
 
-fn dispatch_request(req: Request, connection: &Connection, index: &NoteIndex, config: &Config) -> Result<()> {
+fn dispatch_request(
+    req: Request,
+    connection: &Connection,
+    index: &NoteIndex,
+    config: &Config,
+) -> Result<()> {
     match req.method.as_str() {
         "textDocument/codeLens" => {
             let lenses = serde_json::from_value::<CodeLensParams>(req.params)
@@ -327,7 +339,12 @@ fn dispatch_notification(
     }
 }
 
-fn on_did_open(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>, config: &Config) {
+fn on_did_open(
+    notif: Notification,
+    index: &mut NoteIndex,
+    sender: &Sender<Message>,
+    config: &Config,
+) {
     let params: DidOpenTextDocumentParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -335,13 +352,20 @@ fn on_did_open(notif: Notification, index: &mut NoteIndex, sender: &Sender<Messa
             return;
         }
     };
-    let Some(path) = uri_to_path(&params.text_document.uri) else { return; };
+    let Some(path) = uri_to_path(&params.text_document.uri) else {
+        return;
+    };
     let note = parser::parse(&path, &params.text_document.text);
     let delta = index.index(note);
     handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
 }
 
-fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Message>, config: &Config) {
+fn on_did_change(
+    notif: Notification,
+    index: &mut NoteIndex,
+    sender: &Sender<Message>,
+    config: &Config,
+) {
     let params: DidChangeTextDocumentParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -360,7 +384,9 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
     if iter.next().is_some() {
         warn!("didChange: received >1 content changes; only the first is used (Full sync)");
     }
-    let Some(path) = uri_to_path(&params.text_document.uri) else { return; };
+    let Some(path) = uri_to_path(&params.text_document.uri) else {
+        return;
+    };
     let note = parser::parse(&path, &content);
     let delta = index.index(note);
     handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
@@ -368,7 +394,9 @@ fn on_did_change(notif: Notification, index: &mut NoteIndex, sender: &Sender<Mes
 
 fn should_skip_path(path: &std::path::Path) -> bool {
     path.components().any(|c| {
-        let std::path::Component::Normal(name) = c else { return false };
+        let std::path::Component::Normal(name) = c else {
+            return false;
+        };
         crate::index::should_skip_dir(&name.to_string_lossy())
     })
 }
@@ -388,7 +416,9 @@ fn on_did_change_watched_files(
         }
     };
     for event in params.changes {
-        let Some(path) = uri_to_path(&event.uri) else { continue; };
+        let Some(path) = uri_to_path(&event.uri) else {
+            continue;
+        };
         if should_skip_path(&path) {
             continue;
         }

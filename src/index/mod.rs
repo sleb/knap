@@ -117,8 +117,10 @@ pub fn normalize_path(path: &Path) -> PathBuf {
     let mut out: Vec<Component> = Vec::with_capacity(path.components().count());
     for c in path.components() {
         match c {
-            Component::CurDir => {}           // drop `.`
-            Component::ParentDir => { out.pop(); } // resolve `..`
+            Component::CurDir => {} // drop `.`
+            Component::ParentDir => {
+                out.pop();
+            } // resolve `..`
             c => out.push(c),
         }
     }
@@ -176,10 +178,13 @@ impl NoteIndex {
                 .join(&link.target);
             let candidate = normalize_path(&candidate);
             if self.all_files.contains(&candidate) {
-                self.links_to.entry(candidate.clone()).or_default().push(LocatedLink {
-                    source_path: note.path.clone(),
-                    md_link: link.clone(),
-                });
+                self.links_to
+                    .entry(candidate.clone())
+                    .or_default()
+                    .push(LocatedLink {
+                        source_path: note.path.clone(),
+                        md_link: link.clone(),
+                    });
                 affected.insert(candidate);
             }
         }
@@ -203,7 +208,9 @@ impl NoteIndex {
         affected.insert(note.path.clone());
         self.by_path.insert(note.path.clone(), note);
 
-        IndexDelta { affected_paths: affected }
+        IndexDelta {
+            affected_paths: affected,
+        }
     }
 
     /// When a new file is added to `all_files`, links in other notes that
@@ -245,7 +252,10 @@ impl NoteIndex {
             self.links_to
                 .entry(new_path.to_path_buf())
                 .or_default()
-                .push(LocatedLink { source_path: source_path.clone(), md_link });
+                .push(LocatedLink {
+                    source_path: source_path.clone(),
+                    md_link,
+                });
             affected.insert(source_path);
         }
 
@@ -255,7 +265,9 @@ impl NoteIndex {
     /// Remove a note from the index.
     pub fn remove(&mut self, path: &Path) -> IndexDelta {
         let affected = self.remove_internal(path);
-        IndexDelta { affected_paths: affected }
+        IndexDelta {
+            affected_paths: affected,
+        }
     }
 
     fn remove_internal(&mut self, path: &Path) -> AffectedPaths {
@@ -321,7 +333,10 @@ impl NoteIndex {
 
     /// All non-note files registered in the workspace (images, PDFs, etc.).
     pub fn all_attachment_paths(&self) -> impl Iterator<Item = &Path> {
-        self.all_files.iter().filter(|p| !self.by_path.contains_key(*p)).map(PathBuf::as_path)
+        self.all_files
+            .iter()
+            .filter(|p| !self.by_path.contains_key(*p))
+            .map(PathBuf::as_path)
     }
 
     /// All notes carrying the given tag (case-insensitive match).
@@ -352,7 +367,11 @@ impl NoteIndex {
                 let headings = note
                     .headings
                     .iter()
-                    .map(|h| HeadingSummary { text: h.text.clone(), level: h.level, range: h.range })
+                    .map(|h| HeadingSummary {
+                        text: h.text.clone(),
+                        level: h.level,
+                        range: h.range,
+                    })
                     .collect();
                 let links = note
                     .md_links
@@ -362,14 +381,28 @@ impl NoteIndex {
                             ResolvedLink::Found(p) => Some(p),
                             ResolvedLink::Broken => None,
                         };
-                        LinkSummary { target: link.target.clone(), anchor: link.anchor.clone(), resolved }
+                        LinkSummary {
+                            target: link.target.clone(),
+                            anchor: link.anchor.clone(),
+                            resolved,
+                        }
                     })
                     .collect();
-                let mut backlinks: Vec<PathBuf> =
-                    self.links_to(&note.path).iter().map(|l| l.source_path.clone()).collect();
+                let mut backlinks: Vec<PathBuf> = self
+                    .links_to(&note.path)
+                    .iter()
+                    .map(|l| l.source_path.clone())
+                    .collect();
                 backlinks.sort();
 
-                NoteSummary { path: note.path.clone(), title, tags, headings, links, backlinks }
+                NoteSummary {
+                    path: note.path.clone(),
+                    title,
+                    tags,
+                    headings,
+                    links,
+                    backlinks,
+                }
             })
             .collect();
 
@@ -391,7 +424,9 @@ impl NoteIndex {
     pub fn add_attachment(&mut self, path: PathBuf) -> IndexDelta {
         self.all_files.insert(path.clone());
         let affected = self.recheck_incoming(&path);
-        IndexDelta { affected_paths: affected }
+        IndexDelta {
+            affected_paths: affected,
+        }
     }
 
     /// Remove a non-note file from `all_files`. Notes that linked to it now
@@ -412,7 +447,9 @@ impl NoteIndex {
         }
         self.links_to.retain(|_, v| !v.is_empty());
         affected.insert(path.to_path_buf());
-        IndexDelta { affected_paths: affected }
+        IndexDelta {
+            affected_paths: affected,
+        }
     }
 }
 
@@ -443,7 +480,12 @@ pub fn build(roots: &[PathBuf], extensions: &[&str]) -> (NoteIndex, IndexDelta) 
         }
     }
 
-    (index, IndexDelta { affected_paths: all_affected })
+    (
+        index,
+        IndexDelta {
+            affected_paths: all_affected,
+        },
+    )
 }
 
 fn walk_files(root: &Path) -> Vec<PathBuf> {
@@ -453,7 +495,9 @@ fn walk_files(root: &Path) -> Vec<PathBuf> {
 }
 
 fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let Ok(ft) = entry.file_type() else { continue };
         if ft.is_dir() {

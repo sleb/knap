@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::index::{build, walk_files, NoteIndex, ResolvedLink};
+use crate::index::{NoteIndex, ResolvedLink, build, walk_files};
 use crate::test_helpers::note;
 
 fn pb(s: &str) -> PathBuf {
@@ -258,7 +258,10 @@ fn index_by_tag_removed() {
     let mut idx = NoteIndex::default();
     idx.seed(note("/vault/a.md", "---\ntags: [rust]\n---\n"));
     let _ = idx.remove(Path::new("/vault/a.md"));
-    assert!(idx.all_tags().next().is_none(), "expected no tags after removal");
+    assert!(
+        idx.all_tags().next().is_none(),
+        "expected no tags after removal"
+    );
 }
 
 #[test]
@@ -283,7 +286,11 @@ fn all_tags_distinct() {
 fn duplicate_tags_within_note_not_double_counted() {
     let mut idx = NoteIndex::default();
     idx.seed(note("/vault/a.md", "---\ntags: [rust, rust]\n---\n"));
-    assert_eq!(idx.notes_by_tag("rust").count(), 1, "duplicate tag should only produce one entry");
+    assert_eq!(
+        idx.notes_by_tag("rust").count(),
+        1,
+        "duplicate tag should only produce one entry"
+    );
 }
 
 #[test]
@@ -307,7 +314,10 @@ fn report_includes_all_notes_sorted_by_path() {
 
     let report = idx.report();
     let paths: Vec<&PathBuf> = report.notes.iter().map(|n| &n.path).collect();
-    assert_eq!(paths, vec![&pb("/vault/a.md"), &pb("/vault/m.md"), &pb("/vault/z.md")]);
+    assert_eq!(
+        paths,
+        vec![&pb("/vault/a.md"), &pb("/vault/m.md"), &pb("/vault/z.md")]
+    );
 }
 
 #[test]
@@ -316,7 +326,11 @@ fn report_link_summary_marks_broken_links() {
     idx.seed(note("/vault/a.md", "[missing](missing.md)\n"));
 
     let report = idx.report();
-    let note = report.notes.iter().find(|n| n.path == pb("/vault/a.md")).unwrap();
+    let note = report
+        .notes
+        .iter()
+        .find(|n| n.path == pb("/vault/a.md"))
+        .unwrap();
     assert_eq!(note.links.len(), 1);
     assert_eq!(note.links[0].target, "missing.md");
     assert_eq!(note.links[0].resolved, None);
@@ -329,7 +343,11 @@ fn report_link_summary_marks_resolved_links() {
     idx.seed(note("/vault/a.md", "[real](b.md)\n"));
 
     let report = idx.report();
-    let note = report.notes.iter().find(|n| n.path == pb("/vault/a.md")).unwrap();
+    let note = report
+        .notes
+        .iter()
+        .find(|n| n.path == pb("/vault/a.md"))
+        .unwrap();
     assert_eq!(note.links.len(), 1);
     assert_eq!(note.links[0].target, "b.md");
     assert_eq!(note.links[0].resolved, Some(pb("/vault/b.md")));
@@ -352,7 +370,10 @@ fn report_tags_map_groups_by_tag() {
 fn walk_files_strips_leading_curdir_from_root() {
     let root = Path::new("./tests/fixtures/lint_clean");
     let files = walk_files(root);
-    assert!(!files.is_empty(), "expected walk_files to find fixture files");
+    assert!(
+        !files.is_empty(),
+        "expected walk_files to find fixture files"
+    );
     for path in &files {
         assert_ne!(
             path.components().next(),
