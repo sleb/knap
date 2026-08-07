@@ -313,7 +313,7 @@ updated to invoke `knap lsp` before this release shipped.
 | US-D04 | `knap lint [path] [--json]` — headless link/anchor/frontmatter diagnostics |
 | US-D05 | `knap index <path> --json` — structured workspace snapshot for agents      |
 
-See `docs/design/releases/v0.11/design.md` for the full design.
+See `docs/design/releases/archive/v0.11/design.md` for the full design.
 
 ---
 
