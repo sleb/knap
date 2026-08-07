@@ -55,7 +55,8 @@ the files stay clean.
 ┌──────────────────────────────────────────────────────┐
 │                         CLI                          │
 │    lsp · lint · index · parse · check · version ·    │
-│   rename-file · rename-heading · rename-tag · fix    │
+│    rename-file · rename-heading · rename-tag ·       │
+│                  fix (planned, v0.13)                │
 └──────────────────────────────────────────────────────┘
                   │ WorkspaceEdit
                   │ (headless commands only —
@@ -102,7 +103,7 @@ differently depending on whether an editor is involved:
 
 ```rust
 fn for_lsp(init_params: &InitializeParams) -> Result<Config>   // knap lsp
-fn for_path(root: &Path, extensions_override: Option<Vec<String>>) -> Result<Config> // knap lint, knap index
+fn for_path(root: &Path, extensions_override: Option<Vec<String>>) -> Result<Config> // knap lint, knap index, knap rename-*
 ```
 
 - `for_lsp` — `index_roots` from `workspaceFolders` in the `initialize`
@@ -114,9 +115,11 @@ fn for_path(root: &Path, extensions_override: Option<Vec<String>>) -> Result<Con
   `initializationOptions` payload keeps the existing lenient behavior —
   `warn!` and default that field — since it's an editor-side concern the
   user doesn't directly author, unlike a `knap.toml` they wrote themselves.
-- `for_path` — used by `lint`/`index`, no editor involved. If the given path
-  is a file, its parent directory is the root; `knap.toml` is looked up
-  there only (no ancestor-directory search).
+- `for_path` — used by `lint`/`index`, and by the `rename-*` subcommands
+  (always given `cwd`, never the target file — see the CLI section below),
+  no editor involved. If the given path is a file, its parent directory is
+  the root; `knap.toml` is looked up there only (no ancestor-directory
+  search).
 
 Configuration is resolved once, at startup, and fixed for the lifetime of
 the session — `workspace/didChangeConfiguration` is not processed.

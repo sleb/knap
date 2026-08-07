@@ -89,24 +89,24 @@ Converts byte offsets (what pulldown-cmark produces) to LSP line/character
 positions.
 
 ```rust
-pub struct LineIndex {
+pub struct LineIndex<'a> {
     /// Byte offset of the start of each line.
     /// line_starts[0] = 0 (start of file)
     /// line_starts[n] = byte offset of line n
     line_starts: Vec<usize>,
-    /// Full source content, retained to compute UTF-16 character offsets.
-    content: String,
+    /// Borrowed source content, used to compute UTF-16 character offsets.
+    content: &'a str,
 }
 
-impl LineIndex {
-    pub fn new(content: &str) -> Self {
+impl<'a> LineIndex<'a> {
+    pub fn new(content: &'a str) -> Self {
         let mut starts = vec![0];
         for (offset, ch) in content.char_indices() {
             if ch == '\n' {
                 starts.push(offset + 1);
             }
         }
-        LineIndex { line_starts: starts, content: content.to_string() }
+        LineIndex { line_starts: starts, content }
     }
 
     pub fn position(&self, byte_offset: usize) -> Position {
@@ -124,10 +124,41 @@ impl LineIndex {
     pub fn range(&self, byte_range: Range<usize>) -> LspRange {
         LspRange { start: self.position(byte_range.start), end: self.position(byte_range.end) }
     }
+
+    /// The inverse of `position`: converts an LSP `Position` back to a byte
+    /// offset into `content`. Clamps to `content.len()` when `position` is
+    /// past the end of the content, rather than panicking — e.g. a stale
+    /// position computed before an edit that shrank the file. Added in
+    /// v0.12 for the Edit Applicator (`edit::apply`), which needs to turn a
+    /// handler-computed `TextEdit`'s `Position` range back into a byte range
+    /// it can splice with `String::replace_range`.
+    pub fn offset(&self, position: Position) -> usize {
+        let Some(&line_start) = self.line_starts.get(position.line as usize) else {
+            return self.content.len();
+        };
+        let line_end = self
+            .line_starts
+            .get(position.line as usize + 1)
+            .map_or(self.content.len(), |&next| next);
+        let line = &self.content[line_start..line_end];
+
+        let mut units = 0u32;
+        for (byte_offset, ch) in line.char_indices() {
+            if units >= position.character {
+                return line_start + byte_offset;
+            }
+            units += ch.len_utf16() as u32;
+        }
+        line_start + line.len()
+    }
 }
 ```
 
 `partition_point` is a stable binary search available on slices since Rust 1.52.
+
+Unlike `position`/`range`, `LineIndex` borrows `content` rather than owning a
+copy of it — the lifetime parameter ties every `LineIndex` to the buffer it
+was built from.
 
 ---
 

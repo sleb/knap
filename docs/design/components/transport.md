@@ -32,7 +32,8 @@ We never touch stdin/stdout directly. All I/O goes through `Connection`.
 `main.rs` collapses to logging setup plus `knap::cli::run()` — it doesn't know
 about `Connection` directly. `knap::cli` (`src/cli/mod.rs`) owns clap parsing
 and dispatch to one subcommand module each: `lsp`, `lint`, `index`, `parse`,
-`check`, `version` (see [ARCHITECTURE.md](../../ARCHITECTURE.md) § CLI). A
+`rename` (`rename-file`/`rename-heading`/`rename-tag`), `check`, `version`
+(see [ARCHITECTURE.md](../../ARCHITECTURE.md) § CLI). A
 subcommand is required — clap exits non-zero with usage text on bare `knap`,
 there is no argument-free fallback to the LSP server. `src/cli/lsp.rs` is the
 only module that touches `Connection`; it owns the transport setup and hands

@@ -58,6 +58,38 @@ Used by:
 - **Code Actions** — "Create note" rewrites the broken link's text when its
   target needs wrapping
 
+### find_heading(), compute_heading_rename(), compute_tag_rename()
+
+Position-independent counterparts to the cursor-driven logic in `handle_rename`
+(below) — same edit computation, no `Position` required. Added in v0.12 so the
+headless `knap rename-heading`/`knap rename-tag` CLI subcommands can compute
+the exact same `WorkspaceEdit` an editor's rename dialog would produce,
+without a live LSP session or a cursor.
+
+```rust
+fn find_heading<'a>(note: &'a Note, query: &str) -> Option<&'a Heading>
+fn compute_heading_rename(
+    path: &Path,
+    note: &Note,
+    heading: &Heading,
+    new_name: &str,
+    index: &NoteIndex,
+) -> WorkspaceEdit
+fn compute_tag_rename(old_name: &str, new_name: &str, index: &NoteIndex) -> WorkspaceEdit
+```
+
+- `find_heading` — turns a `<old>` CLI argument into a `Heading`: exact text
+  match first (case-insensitive), then GFM slug match. `None` if neither
+  matches.
+- `compute_heading_rename` — the heading-text edit, same-file self-link
+  edits, and incoming cross-file anchor edits described under "Heading
+  rename" below, given the `Heading` directly instead of locating it from a
+  cursor position.
+- `compute_tag_rename` — an edit for every occurrence of `old_name` across
+  every note in `index.notes_by_tag(old_name)`. No "current file" special
+  case — that only exists for a cursor's unindexed buffer, which doesn't
+  apply to a purely index-driven caller.
+
 ---
 
 ## Completion (`textDocument/completion`)
@@ -379,6 +411,14 @@ nor a heading.
 
 **Priority order:** tag check first, then heading check.
 
+Both branches delegate the actual edit computation to a position-independent
+helper (see "Shared helpers" above) — `handle_rename` itself only locates
+_what_ is being renamed from the cursor position, then hands off. This split
+exists so `knap rename-heading`/`knap rename-tag` (the headless CLI
+subcommands, v0.12) can reuse the exact same computation without a cursor:
+they call `find_heading`/`compute_heading_rename` or `compute_tag_rename`
+directly.
+
 ### Tag rename
 
 When the cursor is on a frontmatter tag, collects `TextEdit`s for every
@@ -387,24 +427,31 @@ occurrence of that tag name (case-insensitive) across the workspace:
 1. **Current note** — always handled directly (covers both the indexed case and
    the disk-parse fallback). Iterates `note.frontmatter.tags`, matches via
    `eq_ignore_ascii_case`, pushes one `TextEdit` per matching tag.
-2. **Other indexed notes** — iterates `index.notes_by_tag(&old_name)`, skipping
-   `current_path`. For each note, iterates its frontmatter tags and pushes edits
-   for case-insensitive matches.
+2. **Other indexed notes** — delegates to `compute_tag_rename(&old_name,
+&new_name, index)`, then merges its edits in, skipping `current_path` (the
+   current note was already handled by step 1, with its disk-parse fallback
+   `compute_tag_rename` — index-only — can't cover).
 
 The replacement text is exactly the string the user typed — casing is not
 normalised.
 
 ### Heading rename
 
-1. **Heading text edit** — rewrites the heading text in place (preserving the
-   `## ` prefix) to the new name.
-2. **Self-link edits** — anchor-only links (`[text](#old-slug)`) within the
-   same file are rewritten to the new slug.
-3. **Incoming anchor edits** — for every note in the workspace that links to
-   this file via `index.links_to`, finds `[text](path#old-slug)` links whose
-   slug matches the old heading (via `slug()`) and rewrites the anchor to the
-   new slug. When the file was not in the index (disk-parse fallback), `links_to`
-   returns an empty slice and no incoming-link edits are produced.
+1. Locates the `Heading` under the cursor via the note's `headings` list
+   directly (not `find_heading`, which is text/slug based and has no cursor
+   position to work from).
+2. Delegates to `compute_heading_rename(&path, note, heading, &new_name,
+index)` for the edit itself:
+   - **Heading text edit** — rewrites the heading text in place (preserving
+     the `## ` prefix) to the new name.
+   - **Self-link edits** — anchor-only links (`[text](#old-slug)`) within the
+     same file are rewritten to the new slug.
+   - **Incoming anchor edits** — for every note in the workspace that links to
+     this file via `index.links_to`, finds `[text](path#old-slug)` links whose
+     slug matches the old heading (via `slug()`) and rewrites the anchor to
+     the new slug. When the file was not in the index (disk-parse fallback),
+     `links_to` returns an empty slice and no incoming-link edits are
+     produced.
 
 URL targets are skipped. Returns `Some(WorkspaceEdit { changes: Some(map) })`.
 

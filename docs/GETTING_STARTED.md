@@ -251,12 +251,19 @@ editor supports it). knap intercepts the rename via `workspace/willRenameFiles`
 and returns a workspace edit that rewrites every `[text](old-name.md)` link
 before the file moves.
 
+No editor open? `knap rename-file <old> <new>` does the same thing headlessly
+— see the ["Headless rename"](../../README.md#headless-rename-knap-rename-)
+section of the README.
+
 ### Rename a heading
 
 Place your cursor on a heading line and trigger Rename Symbol (`F2` in VS Code /
 Zed, `grn` in Neovim). All `[text](note.md#old-slug)` anchor links pointing at
 that heading — including self-links within the same file — are rewritten to the
 new slug atomically.
+
+The headless equivalent is `knap rename-heading <file> <old> <new>`, where
+`<old>` may be the heading's text or its slug.
 
 ### Document Symbols
 
@@ -374,7 +381,9 @@ automatically.
 `workspace/didChangeWatchedFiles` after it. Editors that go through their own
 file-tree UI (VS Code Explorer, Zed project panel) do this automatically.
 Terminal `mv` commands bypass the LSP and won't trigger link rewrites — reopen
-the affected files to refresh diagnostics.
+the affected files to refresh diagnostics, or use `knap rename-file <old>
+<new>` instead of `mv`, which moves the file and rewrites every affected link
+in one step.
 
 **Attachment links are still showing as broken after adding a file.** knap
 watches the entire workspace for file changes, so diagnostics should clear
