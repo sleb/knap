@@ -7,6 +7,7 @@ mod index;
 mod lint;
 mod lsp;
 mod parse;
+mod rename;
 mod version;
 
 #[derive(Parser)]
@@ -46,6 +47,13 @@ enum Commands {
         /// File to parse.
         path: PathBuf,
     },
+    /// Move a note, rewriting incoming and outgoing links.
+    RenameFile {
+        /// Existing path of the note.
+        old: PathBuf,
+        /// New path for the note. Must not already exist.
+        new: PathBuf,
+    },
     /// Run an in-process LSP smoke test.
     Check,
     /// Print the version.
@@ -60,6 +68,7 @@ pub fn run() -> anyhow::Result<()> {
         Commands::Lint { path, json } => lint::run(&path, json),
         Commands::Index { path, json } => index::run(&path, json),
         Commands::Parse { path } => parse::run(&path),
+        Commands::RenameFile { old, new } => rename::run_file(&old, &new),
         Commands::Check => check::run(),
         Commands::Version => {
             version::run();

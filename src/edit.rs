@@ -17,9 +17,6 @@ use crate::parser::LineIndex;
 
 /// Applies every change in `edit` to the filesystem and returns the number
 /// of files touched across both `changes` and `document_changes`.
-// Not yet called outside tests — `knap rename-file` (v0.12 step 5) is its
-// first caller.
-#[allow(dead_code)]
 pub(crate) fn apply(edit: &WorkspaceEdit) -> anyhow::Result<usize> {
     let mut touched = 0;
 
