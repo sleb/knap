@@ -24,7 +24,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.10.2](#v0102--escaped-link-targets-for-paths-with-spaces-released-2026-08-03) | Escaped Link Targets for Paths with Spaces | Released 2026-08-03 |
 | [v0.11](#v011--headless-cli-released-2026-08-04)                                  | Headless CLI                               | Released 2026-08-04 |
 | [v0.11.1](#v0111--lint--index-false-positives-released-2026-08-05)                | Lint & Index False Positives               | Released 2026-08-05 |
-| [v0.12](#v012--headless-rename)                                                   | Headless Rename                            | Planned             |
+| [v0.12](#v012--headless-rename-released-2026-08-07)                               | Headless Rename                            | Released 2026-08-07 |
 | [v0.13](#v013--agent-ergonomics)                                                  | Agent Ergonomics                           | Planned             |
 | [v0.14](#v014--daily-notes)                                                       | Daily Notes                                | Planned             |
 | [v0.15](#v015--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
@@ -336,7 +336,7 @@ See `docs/design/releases/archive/v0.11.1/plan.md` for the full implementation p
 
 ---
 
-## v0.12 — Headless Rename
+## v0.12 — Headless Rename _(released 2026-08-07)_
 
 **Goal:** An agent editing a workspace without a running editor session can
 rename a file, a heading, or a tag and get the same atomic, index-aware

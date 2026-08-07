@@ -5,6 +5,38 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.12.0] — 2026-08-07
+
+### Added
+
+- **Headless rename, for agents and scripts working without an editor.**
+  Three new CLI subcommands compute and apply the same `WorkspaceEdit`s the
+  editor's rename UI produces, in one step, with no LSP session required:
+  - `knap rename-file <old> <new>` — moves a note on disk and rewrites every
+    incoming and outgoing link affected by the move.
+  - `knap rename-heading <file> <old> <new>` — renames a heading (`<old>`
+    may be its text or GFM slug) and rewrites every same-file and
+    cross-file anchor link that targets it.
+  - `knap rename-tag <old> <new>` — rewrites every frontmatter occurrence of
+    a tag across the workspace, in all three YAML forms (bare scalar,
+    inline list, block list).
+
+  All three fail loudly and leave the filesystem untouched when their
+  target doesn't exist or already exists, and apply their edit atomically.
+  See the "Headless rename" section of the README for usage and examples.
+
+### Fixed
+
+- **`knap rename-file`/`knap rename-heading` now see the whole vault, not
+  just the target file's own directory.** Both were resolving their config
+  root from the target file's path — `config::for_path` treats a file
+  argument's parent directory as the entire index root, so any note (and
+  any incoming link) living outside that one directory was invisible to
+  the rename. Both now scope off the current directory instead, matching
+  `knap rename-tag`'s existing behavior.
+
+---
+
 ## [0.11.1] — 2026-08-05
 
 ### Fixed

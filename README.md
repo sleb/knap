@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.11.1-blue)
+![Version](https://img.shields.io/badge/version-0.12.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Tooling for Markdown notes, built on standard Markdown syntax with no
@@ -22,9 +22,9 @@ knap ships as a single binary with two faces:
   LSP-compatible editor: Neovim, VS Code, Helix, Zed, and others. Dedicated
   extensions are available for [VS Code](https://github.com/sleb/vscode-knap)
   and [Zed](https://github.com/sleb/zed-knap).
-- **`knap lint` / `knap index`** — the same engine, available headlessly from
-  the command line for CI, scripts, and coding agents that don't have an
-  editor in the loop.
+- **`knap lint` / `knap index` / `knap rename-*`** — the same engine,
+  available headlessly from the command line for CI, scripts, and coding
+  agents that don't have an editor in the loop.
 
 Both faces share one indexing and configuration core: `src/config.rs` loads
 `initializationOptions` or `knap.toml` the same way for every entry point, and
@@ -220,7 +220,7 @@ present, `knap.toml` fills in the rest.
 
 ## Status
 
-v0.11.1. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.12.0. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 
