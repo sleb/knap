@@ -92,6 +92,35 @@ pub fn run_heading(file: &Path, old: &str, new: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `knap rename-tag <old> <new>`: rewrites every frontmatter occurrence of a
+/// tag across the workspace, atomically.
+///
+/// No cursor, so no current-file/disk-fallback special case — every note
+/// carrying the tag comes from the index. `config::for_path(".")` scopes the
+/// workspace root the same way `knap lint`/`knap index` default to the
+/// current directory.
+pub fn run_tag(old: &str, new: &str) -> anyhow::Result<()> {
+    // `config::for_path` stores whatever root it's given as `index_roots`
+    // verbatim; a relative "." would make every `note.path` relative too,
+    // and `compute_tag_rename`'s `path_to_uri` requires absolute paths (same
+    // constraint `run_file` works around by absolutizing before indexing).
+    let cwd = absolute(Path::new("."))?;
+    let config = config::for_path(&cwd, None)?;
+    let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
+    let (idx, _) = index::build(&config.index_roots, &extensions);
+
+    anyhow::ensure!(
+        idx.notes_by_tag(old).next().is_some(),
+        "no note uses tag {old:?}"
+    );
+
+    let edit = handlers::compute_tag_rename(old, new, &idx);
+    let touched = edit::apply(&edit)?;
+    println!("#{old} → #{new} ({touched} file(s) touched)");
+
+    Ok(())
+}
+
 /// Resolves `path` to an absolute, normalized location without requiring it
 /// to exist (`Path::canonicalize` would fail for `new`, which by contract
 /// doesn't exist yet).

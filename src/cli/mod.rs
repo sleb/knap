@@ -64,6 +64,14 @@ enum Commands {
         /// New heading text.
         new: String,
     },
+    /// Rename a tag, rewriting every frontmatter occurrence across the
+    /// workspace.
+    RenameTag {
+        /// Existing tag name.
+        old: String,
+        /// New tag name.
+        new: String,
+    },
     /// Run an in-process LSP smoke test.
     Check,
     /// Print the version.
@@ -80,6 +88,7 @@ pub fn run() -> anyhow::Result<()> {
         Commands::Parse { path } => parse::run(&path),
         Commands::RenameFile { old, new } => rename::run_file(&old, &new),
         Commands::RenameHeading { file, old, new } => rename::run_heading(&file, &old, &new),
+        Commands::RenameTag { old, new } => rename::run_tag(&old, &new),
         Commands::Check => check::run(),
         Commands::Version => {
             version::run();
