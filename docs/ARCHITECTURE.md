@@ -29,7 +29,7 @@ the files stay clean.
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│                   LSP Client (Editor)                │
+│                 LSP Client (Editor)                  │
 └──────────────────────────────────────────────────────┘
                   │ JSON-RPC over stdio / TCP
 ┌──────────────────────────────────────────────────────┐
@@ -38,18 +38,36 @@ the files stay clean.
                            │
 ┌──────────────────────────────────────────────────────┐
 │                   Protocol Handler                   │
-│      lifecycle · capability negotiation · routing    │
+│     lifecycle · capability negotiation · routing     │
 └──────────────────────────────────────────────────────┘
                   │                    │
          ┌────────┴────────┐  ┌────────┴────────┐
          │    Request      │  │   Note Index    │
          │    Handlers     │◄─┤                 │
-         └─────────────────┘  └────────┬────────┘
-                                       │
-                              ┌────────┴───────┐
-                              │    Markdown    │
-                              │    Parser      │
-                              └────────────────┘
+         └────────┬────────┘  └────────┬────────┘
+                  │                    │
+    WorkspaceEdit │           ┌────────┴───────┐
+        (editor   │           │    Markdown    │
+      applies it) │           │    Parser      │
+                  ▼           └────────────────┘
+             (filesystem)
+
+┌──────────────────────────────────────────────────────┐
+│                         CLI                          │
+│    lsp · lint · index · parse · check · version ·    │
+│   rename-file · rename-heading · rename-tag · fix    │
+└──────────────────────────────────────────────────────┘
+                  │ WorkspaceEdit
+                  │ (headless commands only —
+                  │  no editor in the loop)
+                  ▼
+┌──────────────────────────────────────────────────────┐
+│                   Edit Applicator                    │
+│      edit::apply(WorkspaceEdit) → files touched      │
+└──────────────────────────────────────────────────────┘
+                  │
+                  ▼
+             (filesystem)
 ```
 
 ---
