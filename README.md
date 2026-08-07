@@ -189,7 +189,7 @@ present, `knap.toml` fills in the rest.
 
 ## Status
 
-v0.11.0. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.11.1. See the [roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 
