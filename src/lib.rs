@@ -3,6 +3,7 @@
 
 pub mod cli;
 pub mod config;
+pub mod edit;
 pub mod handlers;
 pub mod index;
 pub mod parser;

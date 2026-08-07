@@ -15,7 +15,7 @@ down untested code for the next step to build on.
 | 1 — `LineIndex::offset`                               | Done   |       |
 | 2 — Extract `compute_heading_rename` + `find_heading` | Done   |       |
 | 3 — Extract `compute_tag_rename`                      | Done   |       |
-| 4 — `edit::apply` (Edit Applicator)                   | Todo   |       |
+| 4 — `edit::apply` (Edit Applicator)                   | Done   |       |
 | 5 — `knap rename-file`                                | Todo   |       |
 | 6 — `knap rename-heading`                             | Todo   |       |
 | 7 — `knap rename-tag`                                 | Todo   |       |
