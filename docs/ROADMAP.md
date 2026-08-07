@@ -330,7 +330,7 @@ running v0.11's new headless CLI against knap's own repository.
 | #62   | `walk_dir()` normalizes collected paths, fixing false positives when linting/indexing a relative, `./`-prefixed root                                                                       |
 | #63   | `find_fallback_links()` excludes inline code spans                                                                                                                                         |
 
-See `docs/design/releases/v0.11.1/plan.md` for the full implementation plan.
+See `docs/design/releases/archive/v0.11.1/plan.md` for the full implementation plan.
 
 ---
 
