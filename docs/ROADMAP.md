@@ -24,8 +24,10 @@ from v0.1 alone and accumulate more with each release.
 | [v0.10.2](#v0102--escaped-link-targets-for-paths-with-spaces-released-2026-08-03) | Escaped Link Targets for Paths with Spaces | Released 2026-08-03 |
 | [v0.11](#v011--headless-cli-released-2026-08-04)                                  | Headless CLI                               | Released 2026-08-04 |
 | [v0.11.1](#v0111--lint--index-false-positives-released-2026-08-05)                | Lint & Index False Positives               | Released 2026-08-05 |
-| [v0.12](#v012--daily-notes)                                                       | Daily Notes                                | Planned             |
-| [v0.13](#v013--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
+| [v0.12](#v012--headless-rename)                                                   | Headless Rename                            | Planned             |
+| [v0.13](#v013--agent-ergonomics)                                                  | Agent Ergonomics                           | Planned             |
+| [v0.14](#v014--daily-notes)                                                       | Daily Notes                                | Planned             |
+| [v0.15](#v015--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
 
 ---
 
@@ -334,7 +336,64 @@ See `docs/design/releases/archive/v0.11.1/plan.md` for the full implementation p
 
 ---
 
-## v0.12 — Daily Notes
+## v0.12 — Headless Rename
+
+**Goal:** An agent editing a workspace without a running editor session can
+rename a file, a heading, or a tag and get the same atomic, index-aware
+rewrite of every affected link that the LSP `rename` handlers already give an
+editor user — without hand-tracking every affected file itself.
+
+`knap lint`/`knap index` (v0.11) gave agents read access to the same engine
+editors use. This release gives them write access to the one thing that was
+still LSP-only: the three refactors (`willRenameFiles`, heading `rename`, tag
+`rename`) that touch multiple files atomically. Everything else an editor's
+rename UI does — locating the item under a cursor — doesn't apply headlessly,
+since the CLI is told the target directly instead of inferring it from a
+position.
+
+| Story  | Feature                                                                                   |
+| ------ | ----------------------------------------------------------------------------------------- |
+| US-D08 | `knap rename-file <old> <new>` — move a note, rewrite incoming + outgoing links           |
+| US-D09 | `knap rename-heading <file> <old> <new>` — rewrite heading text + all anchor links        |
+| US-D10 | `knap rename-tag <old> <new>` — rewrite every frontmatter occurrence across the workspace |
+
+See `docs/design/releases/v0.12/design.md` for the full design.
+
+---
+
+## v0.13 — Agent Ergonomics
+
+**Goal:** Make the headless CLI's output something an agent can act on
+programmatically, not just read — and make repeated lint/index calls cheap
+enough to run after every edit.
+
+A fast-follow to v0.12's headless rename. Where v0.12 gave agents parity with
+the LSP's mutating capabilities, this release removes the friction points
+that show up once an agent is actually looping on `lint`/`index`/`rename-*` as
+its edit-verify cycle: diagnostics that can only be triaged by matching
+message prose, a full-workspace lint on every check, and no way to see one
+note's neighborhood without paging through the whole index snapshot.
+
+Candidate stories (to be scoped in detail via `/knap-design` when this release
+starts):
+
+- Stable `code` field on each `--json` lint diagnostic (`broken-link`,
+  `broken-anchor`, `missing-required-field`, `unknown-field`,
+  `missing-frontmatter`) so an agent can branch on a code instead of matching
+  message text
+- `knap lint --since <git-ref>` — scope linting to files changed since a ref
+- Scoped index query for a single file's neighborhood (backlinks, outgoing
+  links, headings, tags) instead of the full workspace snapshot
+- Headless quick-fix apply (`knap fix`) for the safe code actions (create a
+  missing file, replace a broken anchor with a suggested heading)
+- A `SKILL.md` documenting the agent lint/index/rename usage loop
+
+Also related, already in the Backlog below and worth folding in here when
+this release is scoped: **`--fail-on <severity>` threshold on `knap lint`**.
+
+---
+
+## v0.14 — Daily Notes
 
 **Goal:** Open today's journal entry with one command, creating it from a
 template if it doesn't exist.
@@ -352,7 +411,7 @@ template if it doesn't exist.
 
 ---
 
-## v0.13 — Extract to New Note
+## v0.15 — Extract to New Note
 
 **Goal:** Restructure notes without leaving your editor.
 

@@ -264,6 +264,41 @@ for any of them.
 
 ---
 
+### Edit Applicator
+
+`src/edit.rs`. The headless, in-process counterpart to what an LSP client
+does upon `workspace/applyEdit`: given an already-computed `WorkspaceEdit`,
+mutate real files on disk to match it.
+
+**Contract:**
+
+```
+apply(edit: WorkspaceEdit) → usize  // files touched; errors propagate, no silent skips
+```
+
+Executes, in order:
+
+1. `edit.changes` — plain per-file text edits (`HashMap<Uri, TextEdit[]>`,
+   unordered across files by construction; order within one file is derived
+   from each edit's range, not declaration order)
+2. `edit.document_changes` — an ordered `Vec`, executed in list order, mixing
+   `Edit` (a text edit, same application as above) and `Op` (a
+   `ResourceOp::Create`/`Rename`/`Delete` filesystem operation)
+
+Handlers already emit `document_changes` sequences that mix edits and
+resource ops — the "create missing file" code action
+(`handlers::handle_code_actions`) emits `[Op(Create), Edit(...)]` today, for
+a real LSP client to execute. `apply_edit::apply` is the same execution
+semantics, just run by knap itself instead of an editor, for commands where
+no editor is in the loop.
+
+Used only by headless CLI commands that mutate the workspace (`rename-file`,
+`rename-heading`, `rename-tag` — v0.12; `fix` — v0.13). Never called by
+`handlers.rs`, and never called by `knap lsp` — when a real editor is
+connected, the editor applies its own edits, and this module doesn't run.
+
+---
+
 ### Request Handlers
 
 One handler per LSP capability. Each handler is a pure function of the form:
@@ -325,8 +360,12 @@ by the Protocol Handler.
 
 ## Boundaries and Invariants
 
-- **Handlers never touch the filesystem.** All data access goes through the Note
-  Index.
+- **Handlers compute `WorkspaceEdit`s; they never apply them.** All data
+  access goes through the Note Index, and handlers never write to disk. Only
+  two things ever realize an edit by writing files: the real editor, over
+  LSP, when a session is live; and the Edit Applicator (`edit::apply`),
+  in-process, for headless CLI commands that mutate the workspace when no
+  editor is connected.
 - **The Parser is stateless.** It has no knowledge of the rest of the workspace
   — link resolution is the Index's job.
 - **The Transport Layer is LSP-agnostic.** It could serve any JSON-RPC protocol.

@@ -281,6 +281,38 @@ unresolvable, so I can verify link resolution without a running editor.
 the installed binary, so I can confirm which release is active without starting
 the LSP server.
 
+**US-D04** — As an agent or CI script, I can run `knap lint [path] [--json]` to
+get link/anchor/frontmatter diagnostics headlessly, so I can check whether an
+edit broke any links without a running editor.
+
+**US-D05** — As an agent, I can run `knap index <path> --json` to get a
+structured snapshot of the workspace (notes, headings, links, backlinks,
+tags), so I can get a fast structural view without grepping every file.
+
+**US-D06** — As an editor extension author, I invoke `knap lsp` explicitly to
+start the server; bare `knap` no longer falls back to it, so the CLI's other
+subcommands aren't shadowed by an implicit server start.
+
+**US-D07** — As a workspace owner, I can define a `knap.toml` at my workspace
+root, read the same way by `knap lsp`, `knap lint`, and `knap index`, so
+headless commands see the same configuration an editor session would.
+
+**US-D08** — As an agent, I can run `knap rename-file <old> <new>` to move a
+note and atomically rewrite every incoming link (from other notes) and
+outgoing link (from the moved note itself), so I can restructure a workspace
+without an editor session and without hand-tracking every affected file.
+
+**US-D09** — As an agent, I can run
+`knap rename-heading <file> <old> <new>` to rewrite a heading's text and every
+`[text](note.md#old-slug)` / `[text](#old-slug)` anchor link that targets it
+(same-file and cross-file), so a heading rename stays consistent across the
+workspace without an editor session. `<old>` matches either the heading's
+literal text or its GFM slug.
+
+**US-D10** — As an agent, I can run `knap rename-tag <old> <new>` to rewrite
+every frontmatter occurrence of a tag across the workspace atomically, so I
+can normalize taxonomy without an editor session.
+
 ---
 
 ## Deferred / Out of Scope
