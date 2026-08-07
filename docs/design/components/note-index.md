@@ -86,7 +86,7 @@ since the path may not exist on disk yet (e.g. during a Quick Fix preview).
 existing `<...>` wrapping and un-escapes backslash-escaped `<`, `>`, `\`
 inside it — `link.target` for an already-valid, already-wrapped link (e.g.
 `[text](<My File>)`, produced by completion or "Create note" when the path
-needs escaping, see `docs/design/releases/v0.10.2/design.md`) is the literal
+needs escaping, see `docs/design/releases/archive/v0.10.2/design.md`) is the literal
 wrapped string, since the parser records the raw text between `(` and `)`
 verbatim. Targets that were never wrapped pass through unchanged.
 

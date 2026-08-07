@@ -289,11 +289,11 @@ quick action — and are recognized as links at all when hand-typed without
 | #57   | Bug  | "Create note" quick action rewrites the broken link's text, not just the file it creates on disk                                                   |
 | #57   | Bug  | Bare, unwrapped link destinations with spaces/parens (`[text](My File)`) are recognized as (broken) links instead of silently parsed as plain text |
 
-See `docs/design/releases/v0.10.2/design.md` for the full design, including a
-correction to the initial premise (found during implementation) and the two
-related fixes it required — `link.target` unescaping and `new_note_path`'s
-missing `.md` extension — documented in `docs/design/releases/v0.10.2/plan.md`
-Step 3.5.
+See `docs/design/releases/archive/v0.10.2/design.md` for the full design,
+including a correction to the initial premise (found during implementation)
+and the two related fixes it required — `link.target` unescaping and
+`new_note_path`'s missing `.md` extension — documented in
+`docs/design/releases/archive/v0.10.2/plan.md` Step 3.5.
 
 ---
 
