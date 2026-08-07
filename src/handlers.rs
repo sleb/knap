@@ -1219,6 +1219,36 @@ pub(crate) fn compute_heading_rename(
     }
 }
 
+/// Compute the `WorkspaceEdit` for renaming tag `old_name` to `new_name`
+/// across every indexed note that carries it. No "current file" special
+/// case — that case only exists for a cursor's unindexed buffer, which
+/// doesn't apply to a purely index-driven caller like the CLI.
+#[allow(clippy::mutable_key_type)]
+pub(crate) fn compute_tag_rename(
+    old_name: &str,
+    new_name: &str,
+    index: &NoteIndex,
+) -> WorkspaceEdit {
+    let mut changes: HashMap<lsp_types::Uri, Vec<TextEdit>> = HashMap::new();
+
+    for note in index.notes_by_tag(old_name) {
+        let uri = path_to_uri(&note.path);
+        for t in note.frontmatter.iter().flat_map(|fm| &fm.tags) {
+            if t.name.eq_ignore_ascii_case(old_name) {
+                changes.entry(uri.clone()).or_default().push(TextEdit {
+                    range: t.range,
+                    new_text: new_name.to_string(),
+                });
+            }
+        }
+    }
+
+    WorkspaceEdit {
+        changes: Some(changes),
+        ..Default::default()
+    }
+}
+
 #[allow(clippy::mutable_key_type)]
 pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<WorkspaceEdit> {
     let path = uri_to_path(&params.text_document_position.text_document.uri)?;
@@ -1250,22 +1280,15 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
         }
 
         // All other indexed notes carrying this tag.
-        for other in index.notes_by_tag(&old_name) {
-            if other.path == path {
+        for (other_uri, edits) in compute_tag_rename(&old_name, &new_name, index)
+            .changes
+            .into_iter()
+            .flatten()
+        {
+            if other_uri == uri {
                 continue;
             }
-            let other_uri = path_to_uri(&other.path);
-            for t in other.frontmatter.iter().flat_map(|fm| &fm.tags) {
-                if t.name.eq_ignore_ascii_case(&old_name) {
-                    changes
-                        .entry(other_uri.clone())
-                        .or_default()
-                        .push(TextEdit {
-                            range: t.range,
-                            new_text: new_name.clone(),
-                        });
-                }
-            }
+            changes.entry(other_uri).or_default().extend(edits);
         }
 
         return Some(WorkspaceEdit {
@@ -2927,19 +2950,11 @@ mod tests {
 
     #[test]
     fn compute_heading_rename_updates_same_file_anchors() {
-        let n = note(
-            "/vault/a.md",
-            "# Old Heading\n\n[link](#old-heading)\n",
-        );
+        let n = note("/vault/a.md", "# Old Heading\n\n[link](#old-heading)\n");
         let idx = NoteIndex::default();
         let heading = &n.headings[0];
-        let edit = compute_heading_rename(
-            Path::new("/vault/a.md"),
-            &n,
-            heading,
-            "New Heading",
-            &idx,
-        );
+        let edit =
+            compute_heading_rename(Path::new("/vault/a.md"), &n, heading, "New Heading", &idx);
         let changes = edit.changes.unwrap();
         let a_uri = file_uri("/vault/a.md");
         assert!(changes[&a_uri].iter().any(|e| e.new_text == "New Heading"));
@@ -2953,16 +2968,40 @@ mod tests {
         idx.seed(note("/vault/b.md", "[link](a.md#old-heading)"));
         let a = note("/vault/a.md", "# Old Heading\n");
         let heading = &a.headings[0];
-        let edit = compute_heading_rename(
-            Path::new("/vault/a.md"),
-            &a,
-            heading,
-            "New Heading",
-            &idx,
-        );
+        let edit =
+            compute_heading_rename(Path::new("/vault/a.md"), &a, heading, "New Heading", &idx);
         let changes = edit.changes.unwrap();
         let b_uri = file_uri("/vault/b.md");
         assert!(changes[&b_uri].iter().any(|e| e.new_text == "new-heading"));
+    }
+
+    // ── compute_tag_rename ───────────────────────────────────────────────────
+
+    #[test]
+    fn compute_tag_rename_covers_all_notes() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\ntags: draft\n---\n"));
+        idx.seed(note("/vault/b.md", "---\ntags: [draft, rust]\n---\n"));
+        idx.seed(note(
+            "/vault/c.md",
+            "---\ntags:\n  - draft\n  - rust\n---\n",
+        ));
+        let edit = compute_tag_rename("draft", "published", &idx);
+        let changes = edit.changes.unwrap();
+        for path in ["/vault/a.md", "/vault/b.md", "/vault/c.md"] {
+            let uri = file_uri(path);
+            assert!(
+                changes[&uri].iter().any(|e| e.new_text == "published"),
+                "{path} missing edit"
+            );
+        }
+    }
+
+    #[test]
+    fn compute_tag_rename_no_notes_returns_empty_edit() {
+        let idx = NoteIndex::default();
+        let edit = compute_tag_rename("draft", "published", &idx);
+        assert!(edit.changes.unwrap().is_empty());
     }
 
     // ── rename_tag ────────────────────────────────────────────────────────────
