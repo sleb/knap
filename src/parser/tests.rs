@@ -274,6 +274,35 @@ fn line_index_utf16_multibyte() {
     assert_eq!(idx.position(4), pos(0, 2)); // byte 4 → UTF-16 col 2 ('X' + space)
 }
 
+#[test]
+fn offset_round_trips_with_position() {
+    // "ab\ncd\nef" — check several offsets, including mid-line and line-start.
+    let idx = LineIndex::new("ab\ncd\nef");
+    for byte_offset in [0usize, 1, 3, 4, 6, 7, 8] {
+        assert_eq!(
+            idx.offset(idx.position(byte_offset)),
+            byte_offset,
+            "round trip failed for byte offset {byte_offset}"
+        );
+    }
+}
+
+#[test]
+fn offset_handles_multibyte_line() {
+    // "— X" — em dash (U+2014) is 3 UTF-8 bytes but 1 UTF-16 code unit.
+    let idx = LineIndex::new("— X");
+    assert_eq!(idx.offset(pos(0, 0)), 0); // before em dash
+    assert_eq!(idx.offset(pos(0, 1)), 3); // after em dash, before space
+    assert_eq!(idx.offset(pos(0, 2)), 4); // before 'X'
+}
+
+#[test]
+fn offset_clamps_past_end_of_content() {
+    let idx = LineIndex::new("ab\ncd");
+    assert_eq!(idx.offset(pos(10, 0)), 5); // line far past the end
+    assert_eq!(idx.offset(pos(1, 10)), 5); // valid line, character past its end
+}
+
 // ── headings ──────────────────────────────────────────────────────────────────
 
 #[test]

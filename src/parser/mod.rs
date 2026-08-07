@@ -119,6 +119,29 @@ impl<'a> LineIndex<'a> {
             end: self.position(byte_range.end),
         }
     }
+
+    /// Converts an LSP `Position` back to a byte offset into `content`.
+    /// Clamps to `content.len()` when `position` is past the end of the
+    /// content (e.g. a stale position from an edit that shrank the file).
+    pub fn offset(&self, position: Position) -> usize {
+        let Some(&line_start) = self.line_starts.get(position.line as usize) else {
+            return self.content.len();
+        };
+        let line_end = self
+            .line_starts
+            .get(position.line as usize + 1)
+            .map_or(self.content.len(), |&next| next);
+        let line = &self.content[line_start..line_end];
+
+        let mut units = 0u32;
+        for (byte_offset, ch) in line.char_indices() {
+            if units >= position.character {
+                return line_start + byte_offset;
+            }
+            units += ch.len_utf16() as u32;
+        }
+        line_start + line.len()
+    }
 }
 
 pub fn parse(path: &Path, content: &str) -> Note {
