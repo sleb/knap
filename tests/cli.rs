@@ -1,7 +1,30 @@
+use std::path::Path;
 use std::process::Command;
 
 fn knap() -> Command {
     Command::new(env!("CARGO_BIN_EXE_knap"))
+}
+
+/// Copies a fixture directory into a fresh `tempfile` dir so a mutating test
+/// (rename, etc.) never touches the checked-in fixture.
+fn copy_fixture(name: &str) -> tempfile::TempDir {
+    let src = Path::new("tests/fixtures").join(name);
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    copy_dir(&src, dir.path());
+    dir
+}
+
+fn copy_dir(src: &Path, dst: &Path) {
+    for entry in std::fs::read_dir(src).expect("failed to read fixture dir") {
+        let entry = entry.expect("failed to read fixture entry");
+        let dest = dst.join(entry.file_name());
+        if entry.file_type().expect("failed to stat entry").is_dir() {
+            std::fs::create_dir(&dest).expect("failed to create subdir");
+            copy_dir(&entry.path(), &dest);
+        } else {
+            std::fs::copy(entry.path(), &dest).expect("failed to copy fixture file");
+        }
+    }
 }
 
 #[test]
@@ -214,6 +237,188 @@ fn index_text_output_resolves_same_file_anchor_link() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains('→'), "stdout was: {stdout}");
     assert!(!stdout.contains("broken"), "stdout was: {stdout}");
+}
+
+// ── rename-file ──────────────────────────────────────────────────────────
+
+#[test]
+fn rename_file_updates_incoming_and_outgoing() {
+    let dir = copy_fixture("rename_file");
+
+    let output = knap()
+        .args(["rename-file", "sub/old.md", "new.md"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(!dir.path().join("sub/old.md").exists());
+    let moved = std::fs::read_to_string(dir.path().join("new.md")).unwrap();
+    assert!(
+        moved.contains("(sibling.md)"),
+        "outgoing link not rewritten: {moved}"
+    );
+
+    let linker = std::fs::read_to_string(dir.path().join("linker.md")).unwrap();
+    assert!(
+        linker.contains("(new.md)"),
+        "incoming link not rewritten: {linker}"
+    );
+}
+
+#[test]
+fn rename_file_new_path_exists_errors() {
+    let dir = copy_fixture("rename_file");
+    let before = std::fs::read_to_string(dir.path().join("sub/old.md")).unwrap();
+
+    let output = knap()
+        .args(["rename-file", "sub/old.md", "linker.md"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+
+    assert!(dir.path().join("sub/old.md").exists());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("sub/old.md")).unwrap(),
+        before
+    );
+}
+
+// ── rename-heading ───────────────────────────────────────────────────────
+
+#[test]
+fn rename_heading_updates_same_and_cross_file() {
+    let dir = copy_fixture("rename_heading");
+
+    let output = knap()
+        .args(["rename-heading", "a.md", "Old Section", "New Section"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let a = std::fs::read_to_string(dir.path().join("a.md")).unwrap();
+    assert!(a.contains("# New Section"), "heading not renamed: {a}");
+    assert!(
+        a.contains("(#new-section)"),
+        "same-file anchor not rewritten: {a}"
+    );
+
+    let b = std::fs::read_to_string(dir.path().join("b.md")).unwrap();
+    assert!(
+        b.contains("(a.md#new-section)"),
+        "cross-file anchor not rewritten: {b}"
+    );
+}
+
+#[test]
+fn rename_heading_accepts_slug_or_text() {
+    for old in ["Old Section", "old-section"] {
+        let dir = copy_fixture("rename_heading");
+        let output = knap()
+            .args(["rename-heading", "a.md", old, "New Section"])
+            .current_dir(dir.path())
+            .output()
+            .expect("failed to run knap");
+        assert!(
+            output.status.success(),
+            "old={old:?} stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let a = std::fs::read_to_string(dir.path().join("a.md")).unwrap();
+        assert!(a.contains("# New Section"), "old={old:?} content: {a}");
+    }
+}
+
+#[test]
+fn rename_heading_not_found_errors() {
+    let dir = copy_fixture("rename_heading");
+    let before = std::fs::read_to_string(dir.path().join("a.md")).unwrap();
+
+    let output = knap()
+        .args(["rename-heading", "a.md", "No Such Heading", "New Section"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        before
+    );
+}
+
+// ── rename-tag ───────────────────────────────────────────────────────────
+
+#[test]
+fn rename_tag_updates_all_frontmatter_forms() {
+    let dir = copy_fixture("rename_tag");
+
+    let output = knap()
+        .args(["rename-tag", "draft", "published"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let a = std::fs::read_to_string(dir.path().join("a.md")).unwrap();
+    assert!(a.contains("tags: published"), "bare scalar: {a}");
+
+    let b = std::fs::read_to_string(dir.path().join("b.md")).unwrap();
+    assert!(b.contains("tags: [published, rust]"), "inline list: {b}");
+
+    let c = std::fs::read_to_string(dir.path().join("c.md")).unwrap();
+    assert!(c.contains("- published"), "block list: {c}");
+}
+
+#[test]
+fn rename_tag_not_used_errors() {
+    let dir = copy_fixture("rename_tag");
+    let before = std::fs::read_to_string(dir.path().join("a.md")).unwrap();
+
+    let output = knap()
+        .args(["rename-tag", "nonexistent", "published"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn rename_respects_knap_toml_extensions() {
+    let dir = copy_fixture("rename_knap_toml");
+
+    let output = knap()
+        .args(["rename-tag", "draft", "published"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let note = std::fs::read_to_string(dir.path().join("note.knap")).unwrap();
+    assert!(note.contains("tags: published"), "note was: {note}");
 }
 
 #[test]

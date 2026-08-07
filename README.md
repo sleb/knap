@@ -150,6 +150,39 @@ workspace without grepping.
 
 Usage: `knap index <path> [--json]`
 
+## Headless rename (`knap rename-*`)
+
+The same rename computations the editor's rename dialog uses
+(`workspace/rename`, `workspace/willRenameFiles`), run against a workspace
+without a client — the edit is computed and written to disk in one step.
+Useful for scripting a rename across a vault, or for an agent that needs to
+retarget links without opening an editor.
+
+```
+$ knap rename-file notes/old.md notes/new.md
+notes/old.md → notes/new.md (2 file(s) touched)
+
+$ knap rename-heading notes/a.md "Old Section" "New Section"
+"Old Section" → "New Section" in notes/a.md (2 file(s) touched)
+
+$ knap rename-tag draft published
+#draft → #published (3 file(s) touched)
+```
+
+- `knap rename-file <old> <new>` — moves `<old>` to `<new>` on disk and
+  rewrites every incoming and outgoing link affected by the move. Fails if
+  `<old>` doesn't exist or `<new>` already does.
+- `knap rename-heading <file> <old> <new>` — renames a heading in `<file>`
+  (`<old>` may be the heading's text or its GFM slug) and rewrites every
+  same-file and cross-file anchor link that targets it. Fails if no heading
+  in `<file>` matches `<old>`.
+- `knap rename-tag <old> <new>` — rewrites every frontmatter occurrence of
+  `<old>` across the workspace, in all three YAML tag forms (bare scalar,
+  inline list, block list). Fails if no note uses `<old>`.
+
+All three scope their index to the current directory (like `knap lint .`),
+apply their edit atomically, and print a summary line on success.
+
 ## Configuration
 
 Configuration (note subdirectory, file extensions, frontmatter schema) comes

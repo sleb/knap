@@ -10,7 +10,9 @@
 
 use std::fs;
 
-use lsp_types::{DocumentChangeOperation, DocumentChanges, OneOf, ResourceOp, TextEdit, WorkspaceEdit};
+use lsp_types::{
+    DocumentChangeOperation, DocumentChanges, OneOf, ResourceOp, TextEdit, WorkspaceEdit,
+};
 
 use crate::handlers::uri_to_path;
 use crate::parser::LineIndex;

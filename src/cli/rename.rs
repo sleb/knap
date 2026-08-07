@@ -32,7 +32,12 @@ pub fn run_file(old: &Path, new: &Path) -> anyhow::Result<()> {
     let old_uri = path_to_uri(&old_abs);
     let new_uri = path_to_uri(&new_abs);
 
-    let config = config::for_path(&old_abs, None)?;
+    // Scope off `cwd`, not `old_abs` — `config::for_path` treats a *file*
+    // argument's parent directory as the whole index root, which would
+    // silently drop every note outside `old`'s own directory (and any
+    // incoming link living there) from the index.
+    let cwd = absolute(Path::new("."))?;
+    let config = config::for_path(&cwd, None)?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
     let (idx, _) = index::build(&config.index_roots, &extensions);
 
@@ -68,7 +73,13 @@ pub fn run_heading(file: &Path, old: &str, new: &str) -> anyhow::Result<()> {
     anyhow::ensure!(file.exists(), "{}: no such file", file.display());
 
     let file_abs = absolute(file)?;
-    let config = config::for_path(&file_abs, None)?;
+
+    // Scope off `cwd`, not `file_abs` — see the matching comment in
+    // `run_file`: a file argument would otherwise narrow the index to just
+    // `file`'s own directory, missing cross-file anchor links from anywhere
+    // else in the vault.
+    let cwd = absolute(Path::new("."))?;
+    let config = config::for_path(&cwd, None)?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
     let (idx, _) = index::build(&config.index_roots, &extensions);
 
@@ -87,7 +98,10 @@ pub fn run_heading(file: &Path, old: &str, new: &str) -> anyhow::Result<()> {
 
     let edit = handlers::compute_heading_rename(&file_abs, note, heading, new, &idx);
     let touched = edit::apply(&edit)?;
-    println!("{old:?} → {new:?} in {} ({touched} file(s) touched)", file.display());
+    println!(
+        "{old:?} → {new:?} in {} ({touched} file(s) touched)",
+        file.display()
+    );
 
     Ok(())
 }

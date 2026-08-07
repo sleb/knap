@@ -1,0 +1,5 @@
+---
+tags: [draft, rust]
+---
+
+# B

@@ -254,21 +254,25 @@ exclusively — they do not touch the filesystem directly.
 ### CLI
 
 `src/cli/` — one module per subcommand (`mod.rs`, `lsp.rs`, `lint.rs`,
-`index.rs`, `parse.rs`, `check.rs`, `version.rs`), wired up with `clap`.
+`index.rs`, `parse.rs`, `check.rs`, `version.rs`, `rename.rs`), wired up
+with `clap`.
 `main.rs` is just logging setup plus `knap::cli::run()`. There is no
 argument-free fallback: a subcommand is required, and bare `knap` exits
 non-zero with usage text (clap's built-in behavior for a required
 subcommand). In particular, **`knap` no longer starts the LSP server on its
 own — use `knap lsp`.**
 
-| Subcommand | Usage                       | Available from                                       |
-| ---------- | --------------------------- | ---------------------------------------------------- |
-| `lsp`      | `knap lsp`                  | v0.11 (previously the bare-args default, since v0.1) |
-| `lint`     | `knap lint [path] [--json]` | v0.11                                                |
-| `index`    | `knap index <dir> [--json]` | v0.1, rewritten v0.11                                |
-| `parse`    | `knap parse <file>`         | v0.1                                                 |
-| `check`    | `knap check`                | v0.2                                                 |
-| `version`  | `knap version`              | v0.10.1                                              |
+| Subcommand       | Usage                                    | Available from                                       |
+| ---------------- | ---------------------------------------- | ---------------------------------------------------- |
+| `lsp`            | `knap lsp`                               | v0.11 (previously the bare-args default, since v0.1) |
+| `lint`           | `knap lint [path] [--json]`              | v0.11                                                |
+| `index`          | `knap index <dir> [--json]`              | v0.1, rewritten v0.11                                |
+| `parse`          | `knap parse <file>`                      | v0.1                                                 |
+| `rename-file`    | `knap rename-file <old> <new>`           | v0.12                                                |
+| `rename-heading` | `knap rename-heading <file> <old> <new>` | v0.12                                                |
+| `rename-tag`     | `knap rename-tag <old> <new>`            | v0.12                                                |
+| `check`          | `knap check`                             | v0.2                                                 |
+| `version`        | `knap version`                           | v0.10.1                                              |
 
 The CLI shares the same library crate as the server. `lsp` boots the same
 stdio server the LSP Client talks to. `lint` and `index` both resolve config
@@ -277,8 +281,13 @@ makes their behavior match the LSP for the same workspace, including
 `knap.toml`; `lint` then calls the existing `handlers::compute_diagnostics`
 per target file, and `index --json` serializes `NoteIndex::report()`.
 `parse` calls `parser::parse` directly; `check` spins up a full in-process
-server and exercises the LSP lifecycle as a smoke test. No editor is needed
-for any of them.
+server and exercises the LSP lifecycle as a smoke test. The three
+`rename-*` subcommands resolve config via `config::for_path(cwd, ..)` — the
+current directory, not the target file, since a file argument would
+otherwise narrow the index to just that file's own directory — reuse the
+same `handlers::` computation the LSP `rename`/`willRenameFiles` handlers
+use, and hand the resulting `WorkspaceEdit` to the Edit Applicator
+(`edit::apply`) to write it to disk. No editor is needed for any of them.
 
 ---
 
