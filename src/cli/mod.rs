@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 mod check;
+mod fix;
 mod index;
 mod lint;
 mod lsp;
@@ -21,6 +22,27 @@ struct Cli {
     command: Commands,
 }
 
+/// Severity threshold for `knap lint --fail-on`.
+#[derive(clap::ValueEnum, Clone, Copy)]
+#[value(rename_all = "lower")]
+pub enum FailOn {
+    Error,
+    Warning,
+    Info,
+    Hint,
+}
+
+impl FailOn {
+    pub fn rank(self) -> i32 {
+        match self {
+            FailOn::Error => 1,
+            FailOn::Warning => 2,
+            FailOn::Info => 3,
+            FailOn::Hint => 4,
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Start the LSP server on stdio.
@@ -33,6 +55,13 @@ enum Commands {
         /// Emit machine-readable JSON instead of text.
         #[arg(long)]
         json: bool,
+        /// Minimum severity that causes a non-zero exit.
+        #[arg(long, value_enum, default_value = "warning")]
+        fail_on: FailOn,
+        /// Only lint files changed since this git ref (tracked diffs plus
+        /// untracked new files). Requires a git repository.
+        #[arg(long)]
+        since: Option<String>,
     },
     /// Build and print the note index for a directory.
     Index {
@@ -76,6 +105,16 @@ enum Commands {
     Check,
     /// Print the version.
     Version,
+    /// Apply safe quick fixes (create missing files, resolve unambiguous
+    /// broken anchors) across a directory or a single file.
+    Fix {
+        /// File or directory to fix. Defaults to the current directory.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Print the planned fixes without changing anything on disk.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -83,7 +122,12 @@ pub fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Lsp => lsp::run(),
-        Commands::Lint { path, json } => lint::run(&path, json),
+        Commands::Lint {
+            path,
+            json,
+            fail_on,
+            since,
+        } => lint::run(&path, json, fail_on, since.as_deref()),
         Commands::Index { path, json } => index::run(&path, json),
         Commands::Parse { path } => parse::run(&path),
         Commands::RenameFile { old, new } => rename::run_file(&old, &new),
@@ -94,5 +138,6 @@ pub fn run() -> anyhow::Result<()> {
             version::run();
             Ok(())
         }
+        Commands::Fix { path, dry_run } => fix::run(&path, dry_run),
     }
 }

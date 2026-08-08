@@ -10,7 +10,8 @@ use lsp_types::{
     CreateFileOptions, Diagnostic, DiagnosticSeverity, DocumentChangeOperation, DocumentChanges,
     DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeKind,
     FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, InlayHint, InlayHintLabel,
-    InlayHintParams, Location, OneOf, OptionalVersionedTextDocumentIdentifier, Position,
+    InlayHintParams, Location, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier,
+    Position,
     PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams,
     RenameParams, ResourceOp, SelectionRange, SelectionRangeParams, SymbolInformation, SymbolKind,
     TextDocumentEdit, TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
@@ -23,7 +24,7 @@ use crate::parser;
 
 /// Convert heading text to a GitHub Flavored Markdown anchor slug.
 /// `## My Section` → `"my-section"`, `## Hello, World!` → `"hello-world"`.
-fn slug(text: &str) -> String {
+pub(crate) fn slug(text: &str) -> String {
     text.chars()
         .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-')
         .collect::<String>()
@@ -56,6 +57,13 @@ fn escape_link_target(target: &str) -> String {
 
 const DIAG_SOURCE: &str = "knap";
 
+const CODE_BROKEN_LINK: &str = "broken-link";
+const CODE_BROKEN_ANCHOR: &str = "broken-anchor";
+const CODE_MISSING_FRONTMATTER: &str = "missing-frontmatter";
+const CODE_MISSING_REQUIRED_FIELD: &str = "missing-required-field";
+const CODE_INVALID_FIELD_VALUE: &str = "invalid-field-value";
+const CODE_UNKNOWN_FIELD: &str = "unknown-field";
+
 /// Compute LSP diagnostics for `path` against the current index state.
 pub(crate) fn compute_diagnostics(
     path: &Path,
@@ -76,6 +84,7 @@ pub(crate) fn compute_diagnostics(
                     severity: Some(DiagnosticSeverity::WARNING),
                     message: format!("Link target not found: '{}'", link.target),
                     source: Some(DIAG_SOURCE.to_owned()),
+                    code: Some(NumberOrString::String(CODE_BROKEN_LINK.to_string())),
                     ..Default::default()
                 });
             }
@@ -95,6 +104,7 @@ pub(crate) fn compute_diagnostics(
                             severity: Some(DiagnosticSeverity::WARNING),
                             message: format!("Heading not found: '#{anchor}'"),
                             source: Some(DIAG_SOURCE.to_owned()),
+                            code: Some(NumberOrString::String(CODE_BROKEN_ANCHOR.to_string())),
                             ..Default::default()
                         });
                     }
@@ -125,6 +135,9 @@ pub(crate) fn compute_diagnostics(
                                 severity: Some(DiagnosticSeverity::WARNING),
                                 message: format!("Required frontmatter key missing: '{key}'"),
                                 source: Some(DIAG_SOURCE.to_owned()),
+                                code: Some(NumberOrString::String(
+                                    CODE_MISSING_FRONTMATTER.to_string(),
+                                )),
                                 ..Default::default()
                             });
                         }
@@ -139,6 +152,9 @@ pub(crate) fn compute_diagnostics(
                             severity: Some(DiagnosticSeverity::WARNING),
                             message: format!("Required frontmatter key missing: '{key}'"),
                             source: Some(DIAG_SOURCE.to_owned()),
+                            code: Some(NumberOrString::String(
+                                CODE_MISSING_REQUIRED_FIELD.to_string(),
+                            )),
                             ..Default::default()
                         });
                     }
@@ -162,6 +178,9 @@ pub(crate) fn compute_diagnostics(
                                         field.key
                                     ),
                                     source: Some(DIAG_SOURCE.to_owned()),
+                                    code: Some(NumberOrString::String(
+                                        CODE_INVALID_FIELD_VALUE.to_string(),
+                                    )),
                                     ..Default::default()
                                 });
                             }
@@ -173,6 +192,9 @@ pub(crate) fn compute_diagnostics(
                                     severity: Some(DiagnosticSeverity::WARNING),
                                     message: format!("Unknown frontmatter key: '{}'", field.key),
                                     source: Some(DIAG_SOURCE.to_owned()),
+                                    code: Some(NumberOrString::String(
+                                        CODE_UNKNOWN_FIELD.to_string(),
+                                    )),
                                     ..Default::default()
                                 });
                             }
@@ -1310,6 +1332,114 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
 
 // ─── Code Actions ─────────────────────────────────────────────────────────────
 
+/// Build the "create missing file" fix for a single broken link: an
+/// `Op(ResourceOp::Create)` for the new note, plus — when the link's raw
+/// target needed `<...>` escaping — a `TextEdit` rewriting it in place.
+/// Extracted from `handle_code_actions`'s `ResolvedLink::Broken` arm so
+/// `knap fix` computes the exact same edit the interactive "Create note"
+/// quick fix does, instead of a second implementation that can drift.
+pub(crate) fn compute_create_missing_file_fix(
+    link: &parser::MarkdownLink,
+    source: &Path,
+    config: &crate::config::Config,
+) -> WorkspaceEdit {
+    let clean_target = index::unescape_link_target(&link.target);
+    let new_path = new_note_path(&clean_target, source, config);
+    let mut ops = vec![DocumentChangeOperation::Op(ResourceOp::Create(
+        CreateFile {
+            uri: path_to_uri(&new_path),
+            options: Some(CreateFileOptions {
+                ignore_if_exists: Some(true),
+                overwrite: None,
+            }),
+            annotation_id: None,
+        },
+    ))];
+    let escaped_target = escape_link_target(&clean_target);
+    if escaped_target != link.target {
+        ops.push(DocumentChangeOperation::Edit(TextDocumentEdit {
+            text_document: OptionalVersionedTextDocumentIdentifier {
+                uri: path_to_uri(source),
+                version: None,
+            },
+            edits: vec![OneOf::Left(TextEdit {
+                range: link.target_range,
+                new_text: escaped_target,
+            })],
+        }));
+    }
+    WorkspaceEdit {
+        document_changes: Some(DocumentChanges::Operations(ops)),
+        ..Default::default()
+    }
+}
+
+/// Build the `WorkspaceEdit` that retargets a broken anchor link's
+/// `anchor_range` to `new_anchor` (a GFM slug). Extracted from
+/// `handle_code_actions`'s per-heading "Change anchor to..." arm so both the
+/// interactive code action (one call per candidate heading) and `knap fix`
+/// (one call, for the single best-guess heading) build the identical edit.
+pub(crate) fn compute_anchor_fix(
+    source: &Path,
+    anchor_range: Range,
+    new_anchor: &str,
+) -> WorkspaceEdit {
+    WorkspaceEdit {
+        changes: Some(std::collections::HashMap::from([(
+            path_to_uri(source),
+            vec![TextEdit {
+                range: anchor_range,
+                new_text: new_anchor.to_string(),
+            }],
+        )])),
+        ..Default::default()
+    }
+}
+
+/// Levenshtein edit distance, byte-wise. GFM slugs are already lowercase
+/// ASCII alphanumerics and hyphens, so byte-wise is equivalent to
+/// char-wise here and avoids a `Vec<char>` allocation.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0; b.len() + 1];
+    for i in 1..=a.len() {
+        curr[0] = i;
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
+}
+
+/// The single best-guess replacement heading for `broken_slug` in
+/// `target_note`, or `None` when there's no safe unambiguous choice: the
+/// target has no headings, or two or more headings tie for the closest GFM
+/// slug (by edit distance). Used only by `knap fix` — the interactive code
+/// action keeps listing every heading, since a human can pick.
+pub(crate) fn suggest_anchor_fix<'a>(
+    broken_slug: &str,
+    target_note: &'a parser::Note,
+) -> Option<&'a parser::Heading> {
+    let mut best: Option<(usize, &parser::Heading)> = None;
+    let mut tied = false;
+    for heading in &target_note.headings {
+        let dist = edit_distance(broken_slug, &slug(&heading.text));
+        match &best {
+            None => best = Some((dist, heading)),
+            Some((best_dist, _)) if dist < *best_dist => {
+                best = Some((dist, heading));
+                tied = false;
+            }
+            Some((best_dist, _)) if dist == *best_dist => tied = true,
+            _ => {}
+        }
+    }
+    if tied { None } else { best.map(|(_, h)| h) }
+}
+
 pub(crate) fn handle_code_actions(
     params: CodeActionParams,
     index: &NoteIndex,
@@ -1333,38 +1463,10 @@ pub(crate) fn handle_code_actions(
         }
         match index.resolve(&path, &link.target) {
             ResolvedLink::Broken => {
-                let clean_target = index::unescape_link_target(&link.target);
-                let new_path = new_note_path(&clean_target, &path, config);
-                let mut ops = vec![DocumentChangeOperation::Op(ResourceOp::Create(
-                    CreateFile {
-                        uri: path_to_uri(&new_path),
-                        options: Some(CreateFileOptions {
-                            ignore_if_exists: Some(true),
-                            overwrite: None,
-                        }),
-                        annotation_id: None,
-                    },
-                ))];
-                let escaped_target = escape_link_target(&clean_target);
-                if escaped_target != link.target {
-                    ops.push(DocumentChangeOperation::Edit(TextDocumentEdit {
-                        text_document: OptionalVersionedTextDocumentIdentifier {
-                            uri: path_to_uri(&path),
-                            version: None,
-                        },
-                        edits: vec![OneOf::Left(TextEdit {
-                            range: link.target_range,
-                            new_text: escaped_target,
-                        })],
-                    }));
-                }
                 actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                     title: "Create note".to_string(),
                     kind: Some(CodeActionKind::QUICKFIX),
-                    edit: Some(WorkspaceEdit {
-                        document_changes: Some(DocumentChanges::Operations(ops)),
-                        ..Default::default()
-                    }),
+                    edit: Some(compute_create_missing_file_fix(link, &path, config)),
                     ..Default::default()
                 }));
             }
@@ -1382,16 +1484,7 @@ pub(crate) fn handle_code_actions(
                         actions.push(CodeActionOrCommand::CodeAction(CodeAction {
                             title: format!("Change anchor to \"{new_anchor}\""),
                             kind: Some(CodeActionKind::QUICKFIX),
-                            edit: Some(WorkspaceEdit {
-                                changes: Some(std::collections::HashMap::from([(
-                                    path_to_uri(&path),
-                                    vec![TextEdit {
-                                        range: anchor_range,
-                                        new_text: new_anchor,
-                                    }],
-                                )])),
-                                ..Default::default()
-                            }),
+                            edit: Some(compute_anchor_fix(&path, anchor_range, &new_anchor)),
                             ..Default::default()
                         }));
                     }
@@ -2148,6 +2241,121 @@ mod tests {
         assert!(
             diags.is_empty(),
             "external URLs with # fragments should not produce diagnostics"
+        );
+    }
+
+    // ── v0.13 Step 1: stable diagnostic codes ─────────────────────────────────
+
+    #[test]
+    fn diagnostic_broken_link_has_broken_link_code() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[text](missing.md)"));
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String("broken-link".to_string()))
+        );
+    }
+
+    #[test]
+    fn diagnostic_broken_anchor_has_broken_anchor_code() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "## Existing\n"));
+        idx.seed(note("/vault/a.md", "[text](b.md#Missing)"));
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String("broken-anchor".to_string()))
+        );
+    }
+
+    #[test]
+    fn diagnostic_missing_frontmatter_has_missing_frontmatter_code() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "no frontmatter here\n"));
+        let config = crate::config::Config {
+            frontmatter_schema: crate::config::FrontmatterSchema {
+                fields: vec![(
+                    "status".to_string(),
+                    crate::config::SchemaField {
+                        values: None,
+                        required: true,
+                    },
+                )],
+                require_frontmatter: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String("missing-frontmatter".to_string()))
+        );
+    }
+
+    #[test]
+    fn diagnostic_missing_required_field_has_missing_required_field_code() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\ntitle: x\n---\n"));
+        let config = make_schema_with_required("status", None);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String(
+                "missing-required-field".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn diagnostic_invalid_value_has_invalid_field_value_code() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nstatus: Draft\n---\n"));
+        let config = make_schema_config(vec![("status", Some(vec!["draft", "published"]))]);
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String("invalid-field-value".to_string()))
+        );
+    }
+
+    #[test]
+    fn diagnostic_unknown_key_has_unknown_field_code() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "---\nfoobar: x\n---\n"));
+        let config = crate::config::Config {
+            frontmatter_schema: crate::config::FrontmatterSchema {
+                fields: vec![(
+                    "status".to_string(),
+                    crate::config::SchemaField {
+                        values: None,
+                        required: false,
+                    },
+                )],
+                warn_unknown_keys: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String("unknown-field".to_string()))
         );
     }
 
@@ -3470,6 +3678,79 @@ mod tests {
         let params = make_code_action_params("/vault/a.md", 0, 3);
         let actions = handle_code_actions(params, &idx, &config);
         assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn compute_create_missing_file_fix_matches_prior_action_shape() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[link](My File)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let path = std::path::PathBuf::from("/vault/a.md");
+        let source_note = idx.get_note(&path).unwrap();
+        let link = &source_note.md_links[0];
+
+        let edit = compute_create_missing_file_fix(link, &path, &config);
+
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert_eq!(actions.len(), 1);
+        let action_edit = match &actions[0] {
+            lsp_types::CodeActionOrCommand::CodeAction(a) => {
+                a.edit.clone().expect("expected an edit")
+            }
+            _ => panic!("expected CodeAction"),
+        };
+        assert_eq!(edit, action_edit);
+    }
+
+    #[test]
+    fn compute_anchor_fix_replaces_anchor_range() {
+        let path = std::path::PathBuf::from("/vault/a.md");
+        let anchor_range = Range {
+            start: Position {
+                line: 0,
+                character: 12,
+            },
+            end: Position {
+                line: 0,
+                character: 22,
+            },
+        };
+        let edit = compute_anchor_fix(&path, anchor_range, "introduction");
+        let changes = edit.changes.expect("expected changes map");
+        let edits: Vec<_> = changes.values().flatten().collect();
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].range, anchor_range);
+        assert_eq!(edits[0].new_text, "introduction");
+    }
+
+    #[test]
+    fn edit_distance_identical_strings_is_zero() {
+        assert_eq!(edit_distance("x", "x"), 0);
+    }
+
+    #[test]
+    fn edit_distance_counts_substitutions() {
+        assert_eq!(edit_distance("abc", "abd"), 1);
+    }
+
+    #[test]
+    fn suggest_anchor_fix_picks_unique_closest() {
+        let target = note("/vault/b.md", "## Introduction\n## Installation Guide\n");
+        let heading = suggest_anchor_fix("introducton", &target).expect("expected a suggestion");
+        assert_eq!(heading.text, "Introduction");
+    }
+
+    #[test]
+    fn suggest_anchor_fix_none_on_tied_distance() {
+        let target = note("/vault/b.md", "## Cat\n## Bat\n");
+        assert!(suggest_anchor_fix("hat", &target).is_none());
+    }
+
+    #[test]
+    fn suggest_anchor_fix_none_when_no_headings() {
+        let target = note("/vault/b.md", "no headings here\n");
+        assert!(suggest_anchor_fix("anything", &target).is_none());
     }
 
     // ── anchor completion (US-45) ─────────────────────────────────────────────

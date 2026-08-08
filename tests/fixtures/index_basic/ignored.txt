@@ -1,0 +1,1 @@
+Not a Markdown note; the index only tracks `.md` files by default.

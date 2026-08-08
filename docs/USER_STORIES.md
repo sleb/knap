@@ -10,9 +10,26 @@ diagnostics to any LSP-compatible editor — using standard Markdown syntax.
 > See [ARCHITECTURE.md](ARCHITECTURE.md) for the design tenets behind this
 > decision.
 
+Stories are grouped by persona, not just feature:
+
+- **Writer (Human)** — a person maintaining a personal knowledge base,
+  through an editor (LSP) or the CLI directly.
+- **Agent** — a coding agent or CI script scripting the same engine
+  headlessly, via CLI + a shipped skill.
+- **Knap Contributor** — someone developing knap itself; not a knap user.
+
 ---
 
-## Core Linking
+## Writer (Human)
+
+The primary persona: someone maintaining a personal knowledge base of
+Markdown notes. Most stories below are LSP capabilities delivered through an
+editor via `knap lsp`; the Configuration stories are what wires the editor up
+in the first place. None of this is agent-specific — see **Agent**, below,
+for the CLI-driven, script/edit-verify-loop persona layered on top of the
+same engine.
+
+### Core Linking
 
 **US-01** — As a writer, I can type `[` inside a Markdown link and get
 completions for all Markdown files in my workspace, so I can link to notes
@@ -67,7 +84,7 @@ silently break cross-file references.
 
 ---
 
-## Diagnostics
+### Diagnostics
 
 **US-07** — As a writer, broken links (references to files that don't exist) are
 surfaced as diagnostics (warnings), so I can find dead links without manually
@@ -86,7 +103,7 @@ appears in, so accidental self-links are caught rather than silently ignored.
 
 ---
 
-## Hover & Previews
+### Hover & Previews
 
 **US-09** — As a writer, hovering over a `[text](path/to/note.md)` link shows a
 preview of the first N lines of the target file, so I can recall note contents
@@ -97,7 +114,7 @@ summary/preview, so context is always one hover away.
 
 ---
 
-## Symbols & Navigation
+### Symbols & Navigation
 
 **US-11** — As a writer, Document Symbols lists all headings in the current file
 so I can jump to any section quickly.
@@ -110,7 +127,7 @@ to see all files that use that tag, so I can explore topics by tag.
 
 ---
 
-## Tags
+### Tags
 
 **US-14** — As a writer, I get completions for frontmatter `tags` values based
 on tags already used across the workspace, so my taxonomy stays consistent.
@@ -130,7 +147,7 @@ automatically, so my taxonomy stays consistent when I restructure it.
 
 ---
 
-## Editor Experience
+### Editor Experience
 
 **US-35** — As a writer, tags are highlighted as a distinct semantic token type,
 so my editor theme can color them independently of plain text and standard
@@ -158,7 +175,7 @@ jump directly to those references.
 
 ---
 
-## Workspace Awareness
+### Workspace Awareness
 
 **US-16** — As a writer, the server watches for new, renamed, and deleted files
 and updates its index incrementally, so completions and diagnostics are always
@@ -171,7 +188,7 @@ notes with pasted attachments aren't cluttered with false warnings.
 
 ---
 
-## Backlinks
+### Backlinks
 
 **US-25** — As a writer, I can optionally display a backlinks section at the
 bottom of the current note (via a virtual document or inlay) showing all files
@@ -180,7 +197,7 @@ leaving the file.
 
 ---
 
-## Workspace Insight
+### Workspace Insight
 
 **US-38** — As a writer, notes with no incoming links (orphans) are surfaced as
 hint-level diagnostics, so I can identify isolated notes that may need to be
@@ -188,7 +205,7 @@ connected or archived.
 
 ---
 
-## Code Actions & Refactoring
+### Code Actions & Refactoring
 
 **US-18** — As a writer, when I'm on a broken `[text](path/to/missing.md)` link,
 a code action lets me create the missing file, so I can stub out notes without
@@ -204,12 +221,6 @@ created by the Quick Fix "Create note" action land in that folder — relative t
 the workspace root — instead of next to the current file. This lets me keep all
 unprocessed stubs in one place (an inbox) regardless of where the link appears.
 
-**US-31** — As a Zed user, I can add a `$schema` key to my knap
-`initialization_options` block in `settings.json` and immediately get
-autocompletion and inline validation for all recognized keys (`extensions`),
-so I can configure the server without consulting external documentation and the
-editor flags unknown keys on the spot.
-
 **US-19** — As a writer, I can select text in a note and apply a code action to
 extract it into a new note, replacing the selection with a standard Markdown link
 to the new note, so I can split overgrown notes without manual copy-paste.
@@ -222,7 +233,7 @@ start with consistent structure.
 
 ---
 
-## Daily Notes
+### Daily Notes
 
 **US-43** — As a writer, I can invoke an "open daily note" command from my
 editor's command palette or a keyboard shortcut to open today's note, creating
@@ -240,7 +251,7 @@ zed-knap; Zed support depends on future extension API expansion.
 
 ---
 
-## Configuration
+### Configuration
 
 **US-20** — As an editor integrator, I can optionally configure a `noteRoot` to
 restrict indexing to a subdirectory of the workspace (e.g. a `docs/` folder
@@ -250,9 +261,25 @@ all workspace folders are indexed.
 **US-21** — As an editor integrator, I can configure file extensions the server
 should treat as notes (e.g. `.md`, `.mdx`, `.markdown`).
 
+**US-31** — As a Zed user, I can add a `$schema` key to my knap
+`initialization_options` block in `settings.json` and immediately get
+autocompletion and inline validation for all recognized keys (`extensions`),
+so I can configure the server without consulting external documentation and the
+editor flags unknown keys on the spot.
+
+**US-D06** — As an editor extension author, I invoke `knap lsp` explicitly to
+start the server; bare `knap` no longer falls back to it, so the CLI's other
+subcommands aren't shadowed by an implicit server start.
+
+**US-D07** — As a workspace owner, I can define a `knap.toml` at my workspace
+root, read the same way by `knap lsp`, `knap lint`, and `knap index`, so
+headless commands see the same configuration an editor session would. (This is
+also what makes the Agent persona's commands, below, behave predictably —
+`knap.toml` is the one config surface both personas share.)
+
 ---
 
-## Frontmatter
+### Frontmatter
 
 **US-23** — As a writer, the server parses YAML frontmatter `title` fields and
 uses them as the display name in completions, so I see human-readable titles
@@ -264,38 +291,56 @@ consistent.
 
 ---
 
-## Developer / Debug CLI
+## Agent
 
-These stories are for development and debugging — they let you invoke individual
-components from the command line to verify behavior without a running editor.
+A coding agent (Claude Code or similar) — or a CI script — editing a vault's
+Markdown files with no editor session in the loop. Delivered entirely through
+the CLI: `knap lint`, `knap index`, `knap rename-*`, `knap fix`, plus a
+shipped skill (`skill/knap/SKILL.md`) that teaches the loop these commands
+are built around — edit → `knap lint --json` → branch on each diagnostic's
+`code` → `knap fix`/`rename-*` → `knap lint` again to confirm clean. Nothing
+below is agent-exclusive machinery — a human can run any of these commands by
+hand from a terminal too — but the design center is that loop, not a person
+at a keyboard.
 
-**US-D01** — As a developer, I can run `knap parse <file>` to see the Markdown
-links and their LSP ranges extracted from a file, so I can verify parser behavior
-without a running editor.
-
-**US-D02** — As a developer, I can run `knap index <dir>` to see the full note
-index built from a directory, including which links are found, broken, or
-unresolvable, so I can verify link resolution without a running editor.
-
-**US-D03** — As a developer, I can run `knap version` to print the version of
-the installed binary, so I can confirm which release is active without starting
-the LSP server.
+### Linting
 
 **US-D04** — As an agent or CI script, I can run `knap lint [path] [--json]` to
 get link/anchor/frontmatter diagnostics headlessly, so I can check whether an
 edit broke any links without a running editor.
 
+**US-D11** — As an agent, every diagnostic from `knap lint [--json]` (and the
+identical diagnostics an editor sees via `textDocument/publishDiagnostics`)
+carries a stable `code` (`broken-link`, `broken-anchor`, `missing-frontmatter`,
+`missing-required-field`, `invalid-field-value`, `unknown-field`), so I can
+branch on a fixed identifier instead of pattern-matching message text.
+
+**US-D16** — As an agent or CI script, I can pass `--fail-on <severity>` to
+`knap lint` so only diagnostics at or above a given severity cause a non-zero
+exit, instead of any diagnostic at all.
+
+**US-D12** — As an agent, I can run `knap lint --since <git-ref>` to scope
+linting to files changed since a git ref — tracked changes plus untracked new
+files — so a check I run after every edit doesn't re-scan the whole workspace
+each time.
+
+---
+
+### Indexing
+
 **US-D05** — As an agent, I can run `knap index <path> --json` to get a
 structured snapshot of the workspace (notes, headings, links, backlinks,
 tags), so I can get a fast structural view without grepping every file.
 
-**US-D06** — As an editor extension author, I invoke `knap lsp` explicitly to
-start the server; bare `knap` no longer falls back to it, so the CLI's other
-subcommands aren't shadowed by an implicit server start.
+**US-D13** — As an agent, I can run `knap index <file>` to get just that
+note's neighborhood (headings, outgoing links, backlinks, tags) instead of
+the full workspace snapshot, so I can inspect a note I just edited without
+paging through every note in a large vault. (`knap index <dir>` keeps
+printing the full workspace snapshot, unchanged.)
 
-**US-D07** — As a workspace owner, I can define a `knap.toml` at my workspace
-root, read the same way by `knap lsp`, `knap lint`, and `knap index`, so
-headless commands see the same configuration an editor session would.
+---
+
+### Renaming
 
 **US-D08** — As an agent, I can run `knap rename-file <old> <new>` to move a
 note and atomically rewrite every incoming link (from other notes) and
@@ -312,6 +357,46 @@ literal text or its GFM slug.
 **US-D10** — As an agent, I can run `knap rename-tag <old> <new>` to rewrite
 every frontmatter occurrence of a tag across the workspace atomically, so I
 can normalize taxonomy without an editor session.
+
+---
+
+### Fixing
+
+**US-D14** — As an agent, I can run `knap fix [path] [--dry-run]` to apply the
+same safe fixes an editor's code actions offer — creating a missing linked
+file, and replacing a broken anchor with the target file's best-matching
+heading when the match is unambiguous — so I can clear straightforward lint
+findings without hand-writing the edit myself. `--dry-run` previews the plan
+without touching disk.
+
+---
+
+### The Skill
+
+**US-D15** — As an agent, a `skill/knap/SKILL.md` shipped with knap documents
+the lint → fix/rename → lint loop — which flags to pass, how to read `--json`
+output, which diagnostic codes each subcommand resolves — so I can pick up
+the intended workflow without reverse-engineering it from `--help` text.
+
+---
+
+## Knap Contributor
+
+Not a knap user at all — someone developing knap itself. These stories exist
+purely to exercise the parser, index, and CLI wiring from a terminal while
+working on knap's own source, without a running editor in the loop.
+
+**US-D01** — As a developer, I can run `knap parse <file>` to see the Markdown
+links and their LSP ranges extracted from a file, so I can verify parser behavior
+without a running editor.
+
+**US-D02** — As a developer, I can run `knap index <dir>` to see the full note
+index built from a directory, including which links are found, broken, or
+unresolvable, so I can verify link resolution without a running editor.
+
+**US-D03** — As a developer, I can run `knap version` to print the version of
+the installed binary, so I can confirm which release is active without starting
+the LSP server.
 
 ---
 

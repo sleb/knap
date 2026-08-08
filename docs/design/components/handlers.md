@@ -295,6 +295,29 @@ link-diagnostics loop:
 Key matching is case-insensitive (`eq_ignore_ascii_case`). Value matching is
 exact-case.
 
+### `code` (v0.13)
+
+Every `Diagnostic` literal `compute_diagnostics` builds also carries a
+`code` — a stable `NumberOrString::String` an agent (or an editor's Problems
+panel) can branch on instead of parsing the message text, which is free to
+change wording between releases:
+
+| Diagnostic                                                        | `code`                        |
+| ------------------------------------------------------------------ | ------------------------------ |
+| Cross-file — `Broken` target                                       | `"broken-link"`                |
+| Bare anchor or cross-file anchor not matching any heading          | `"broken-anchor"`              |
+| Required field missing, note has no frontmatter block at all       | `"missing-frontmatter"`        |
+| Required field missing, frontmatter block exists                   | `"missing-required-field"`     |
+| Value not in the schema's allowed list                             | `"invalid-field-value"`        |
+| Frontmatter key not recognized by the schema                       | `"unknown-field"`              |
+
+The six values are module-level constants (`CODE_BROKEN_LINK`, etc.) next
+to `DIAG_SOURCE`. This flows through both existing consumers of
+`compute_diagnostics` for free: `knap lint --json`'s
+`FileDiagnostics.diagnostics` (already `Vec<lsp_types::Diagnostic>`, so
+`code` serializes with no report-shape change) and real
+`textDocument/publishDiagnostics` notifications.
+
 ---
 
 ## Rename (`workspace/willRenameFiles`)
@@ -509,6 +532,64 @@ fn new_note_path(link_target: &str, source: &Path, config: &Config) -> PathBuf {
 `.md` is appended when the target has no extension — otherwise a link typed
 as `[text](My New Note)` would create a file literally named `My New Note`
 with no extension.
+
+### `compute_create_missing_file_fix()`, `compute_anchor_fix()` (v0.13)
+
+Position-independent counterparts to **Create note**/**Change anchor
+to...**, extracted the same way `find_heading`/`compute_heading_rename`/
+`compute_tag_rename` were in v0.12 (see "Shared helpers" above), so the
+headless `knap fix` CLI subcommand computes the exact same `WorkspaceEdit`
+these code actions do, without a cursor or a live LSP session.
+
+```rust
+pub(crate) fn compute_create_missing_file_fix(
+    link: &parser::MarkdownLink,
+    source: &Path,
+    config: &crate::config::Config,
+) -> WorkspaceEdit
+pub(crate) fn compute_anchor_fix(
+    source: &Path,
+    anchor_range: Range,
+    new_anchor: &str,
+) -> WorkspaceEdit
+```
+
+- `compute_create_missing_file_fix` — today's `ResolvedLink::Broken` arm
+  body verbatim: a `CreateFile` op at `new_note_path(...)`, plus a
+  `TextEdit` rewriting `link.target_range` when the unescaped target needed
+  `<...>` escaping. `handle_code_actions`'s Broken arm now just calls this
+  and wraps the result in a `CodeAction { title: "Create note", .. }`.
+- `compute_anchor_fix` — a single `TextEdit` at `anchor_range` replacing it
+  with `new_anchor`. `handle_code_actions`'s per-heading loop calls this
+  once per candidate heading (a human picks); `knap fix` calls it once,
+  for the single heading `suggest_anchor_fix` (below) picks.
+
+### `suggest_anchor_fix()`, `edit_distance()` (v0.13)
+
+The one piece of new domain logic this release adds: picking a single
+best-guess replacement heading for a broken anchor, for callers with no
+cursor to let a human choose from every heading the way the interactive
+code action does.
+
+```rust
+fn edit_distance(a: &str, b: &str) -> usize
+pub(crate) fn suggest_anchor_fix<'a>(
+    broken_slug: &str,
+    target_note: &'a parser::Note,
+) -> Option<&'a parser::Heading>
+```
+
+- `edit_distance` — byte-wise Levenshtein distance. GFM slugs are already
+  lowercase ASCII alphanumerics and hyphens, so byte-wise is equivalent to
+  char-wise here.
+- `suggest_anchor_fix` — the heading in `target_note` whose GFM slug is
+  closest (by `edit_distance`) to `broken_slug`. Returns `None` when the
+  target has no headings, or when two or more headings tie for closest —
+  `knap fix` only makes a fix when it can pick exactly one candidate
+  unambiguously.
+
+Used only by `knap fix` (`src/cli/fix.rs`) — the interactive "Change anchor
+to..." code action keeps listing every heading, since a human can pick.
 
 ---
 

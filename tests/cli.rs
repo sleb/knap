@@ -14,6 +14,32 @@ fn copy_fixture(name: &str) -> tempfile::TempDir {
     dir
 }
 
+/// Runs `git` with `args` in `dir`, panicking with stderr on failure.
+fn git(dir: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("failed to run git");
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+/// Initializes a git repo in `dir` and commits everything currently there,
+/// returning the commit hash.
+fn git_init_and_commit_all(dir: &Path) -> String {
+    git(dir, &["init"]);
+    git(dir, &["config", "user.email", "test@example.com"]);
+    git(dir, &["config", "user.name", "Test"]);
+    git(dir, &["add", "."]);
+    git(dir, &["commit", "-m", "initial"]);
+    git(dir, &["rev-parse", "HEAD"])
+}
+
 fn copy_dir(src: &Path, dst: &Path) {
     for entry in std::fs::read_dir(src).expect("failed to read fixture dir") {
         let entry = entry.expect("failed to read fixture entry");
@@ -103,6 +129,54 @@ fn lint_json_output_parses_and_matches_shape() {
     assert!(problem_count > 0);
     assert!(value["diagnostics"].as_array().is_some());
     assert!(value["file_count"].as_u64().is_some());
+}
+
+#[test]
+fn lint_json_diagnostics_include_stable_code() {
+    let output = knap()
+        .args(["lint", "tests/fixtures/lint_basic", "--json"])
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    let codes: Vec<&str> = value["diagnostics"]
+        .as_array()
+        .expect("diagnostics present")
+        .iter()
+        .flat_map(|f| f["diagnostics"].as_array().expect("diagnostics present"))
+        .map(|d| d["code"].as_str().expect("code present"))
+        .collect();
+    assert!(codes.contains(&"broken-link"), "codes were: {codes:?}");
+    assert!(codes.contains(&"broken-anchor"), "codes were: {codes:?}");
+}
+
+#[test]
+fn lint_fail_on_error_passes_when_only_warnings_present() {
+    let output = knap()
+        .args(["lint", "tests/fixtures/lint_basic", "--fail-on", "error"])
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
+fn lint_fail_on_warning_matches_default_behavior() {
+    let default_output = knap()
+        .args(["lint", "tests/fixtures/lint_basic"])
+        .output()
+        .expect("failed to run knap");
+    let explicit_output = knap()
+        .args(["lint", "tests/fixtures/lint_basic", "--fail-on", "warning"])
+        .output()
+        .expect("failed to run knap");
+    assert!(!default_output.status.success());
+    assert!(!explicit_output.status.success());
+    assert_eq!(default_output.status.code(), explicit_output.status.code());
 }
 
 #[test]
@@ -237,6 +311,81 @@ fn index_text_output_resolves_same_file_anchor_link() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains('→'), "stdout was: {stdout}");
     assert!(!stdout.contains("broken"), "stdout was: {stdout}");
+}
+
+#[test]
+fn index_file_path_prints_single_note_neighborhood() {
+    let output = knap()
+        .args(["index", "alpha.md", "--json"])
+        .current_dir("tests/fixtures/index_basic")
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+
+    // A single `NoteSummary` object, not an `IndexReport` envelope: no
+    // `notes` wrapper, but the note's own fields (including `backlinks`,
+    // which `IndexReport` doesn't carry) are present at the top level.
+    assert!(value["notes"].is_null(), "stdout was: {stdout}");
+    assert!(
+        value["path"].as_str().unwrap().ends_with("alpha.md"),
+        "stdout was: {stdout}"
+    );
+    let headings = value["headings"].as_array().expect("headings present");
+    assert!(
+        headings.iter().any(|h| h["text"] == "Alpha"),
+        "stdout was: {stdout}"
+    );
+    let backlinks = value["backlinks"].as_array().expect("backlinks present");
+    assert!(
+        backlinks
+            .iter()
+            .any(|p| p.as_str().unwrap().ends_with("beta.md")),
+        "stdout was: {stdout}"
+    );
+}
+
+#[test]
+fn index_file_path_includes_backlinks_from_outside_its_directory() {
+    let output = knap()
+        .args(["index", "sub/target.md", "--json"])
+        .current_dir("tests/fixtures/index_scoped")
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+
+    let backlinks = value["backlinks"].as_array().expect("backlinks present");
+    assert!(
+        backlinks
+            .iter()
+            .any(|p| p.as_str().unwrap().ends_with("linker.md")),
+        "backlink from a sibling directory was dropped: {stdout}"
+    );
+}
+
+#[test]
+fn index_unindexed_file_path_errors() {
+    let output = knap()
+        .args(["index", "ignored.txt", "--json"])
+        .current_dir("tests/fixtures/index_basic")
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        !output.status.success(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
 }
 
 // ── rename-file ──────────────────────────────────────────────────────────
@@ -430,4 +579,210 @@ fn lint_malformed_knap_toml_fails_loudly() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("parsing"), "stderr was: {stderr}");
+}
+
+#[test]
+fn lint_since_scopes_to_git_changed_files() {
+    let dir = copy_fixture("lint_clean");
+    let commit = git_init_and_commit_all(dir.path());
+
+    // Break a link in note.md only; target.md is untouched.
+    let note_path = dir.path().join("note.md");
+    let note = std::fs::read_to_string(&note_path).expect("read note.md");
+    std::fs::write(&note_path, note.replace("target.md", "missing.md")).expect("write note.md");
+
+    let output = knap()
+        .args(["lint", ".", "--json", "--since", &commit])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    let paths: Vec<&str> = value["diagnostics"]
+        .as_array()
+        .expect("diagnostics present")
+        .iter()
+        .map(|f| f["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(paths.len(), 1, "paths were: {paths:?}");
+    assert!(paths[0].ends_with("note.md"), "paths were: {paths:?}");
+}
+
+#[test]
+fn lint_since_includes_untracked_new_files() {
+    let dir = copy_fixture("lint_clean");
+    let commit = git_init_and_commit_all(dir.path());
+
+    // A brand-new, never-committed note with a broken link.
+    std::fs::write(
+        dir.path().join("new.md"),
+        "# New\n\nA [broken link](missing.md).\n",
+    )
+    .expect("write new.md");
+
+    let output = knap()
+        .args(["lint", ".", "--json", "--since", &commit])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    let paths: Vec<&str> = value["diagnostics"]
+        .as_array()
+        .expect("diagnostics present")
+        .iter()
+        .map(|f| f["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(paths.len(), 1, "paths were: {paths:?}");
+    assert!(paths[0].ends_with("new.md"), "paths were: {paths:?}");
+}
+
+#[test]
+fn lint_since_no_changes_is_clean() {
+    let dir = copy_fixture("lint_clean");
+    let commit = git_init_and_commit_all(dir.path());
+
+    let output = knap()
+        .args(["lint", ".", "--json", "--since", &commit])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    assert_eq!(value["problem_count"].as_u64(), Some(0), "stdout was: {stdout}");
+    assert_eq!(value["file_count"].as_u64(), Some(0), "stdout was: {stdout}");
+}
+
+#[test]
+fn lint_since_outside_git_repo_errors() {
+    let dir = copy_fixture("lint_clean");
+
+    let output = knap()
+        .args(["lint", ".", "--since", "HEAD"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("git"), "stderr was: {stderr}");
+}
+
+#[test]
+fn fix_creates_missing_file() {
+    let dir = copy_fixture("fix_broken_link");
+
+    let output = knap()
+        .args(["fix", "."])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(dir.path().join("missing.md").exists());
+
+    let lint = knap()
+        .args(["lint", "."])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        lint.status.success(),
+        "stdout: {}",
+        String::from_utf8_lossy(&lint.stdout)
+    );
+}
+
+#[test]
+fn fix_replaces_unambiguous_broken_anchor() {
+    let dir = copy_fixture("fix_unambiguous_anchor");
+
+    let output = knap()
+        .args(["fix", "."])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let note = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
+    assert!(
+        note.contains("target.md#target"),
+        "anchor not rewritten: {note}"
+    );
+
+    let lint = knap()
+        .args(["lint", "."])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        lint.status.success(),
+        "stdout: {}",
+        String::from_utf8_lossy(&lint.stdout)
+    );
+}
+
+#[test]
+fn fix_skips_ambiguous_anchor() {
+    let dir = copy_fixture("fix_ambiguous_anchor");
+    let before = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
+
+    let output = knap()
+        .args(["fix", "."])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let after = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
+    assert_eq!(before, after, "ambiguous anchor should be left alone");
+
+    let lint = knap()
+        .args(["lint", "."])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        !lint.status.success(),
+        "ambiguous anchor should still be flagged"
+    );
+}
+
+#[test]
+fn fix_dry_run_makes_no_changes() {
+    let dir = copy_fixture("fix_broken_link");
+
+    let output = knap()
+        .args(["fix", ".", "--dry-run"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("would"), "stdout was: {stdout}");
+
+    assert!(!dir.path().join("missing.md").exists());
+    let note = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
+    assert_eq!(note, "# Note\n\nA [broken link](missing.md) to nowhere.\n");
 }

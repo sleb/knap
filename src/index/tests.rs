@@ -392,6 +392,33 @@ fn report_tags_map_groups_by_tag() {
     assert_eq!(rust_paths, &vec![pb("/vault/a.md"), pb("/vault/b.md")]);
 }
 
+// ── note_report ──────────────────────────────────────────────────────────────
+
+#[test]
+fn note_report_matches_report_entry() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/b.md", ""));
+    idx.seed(note("/vault/a.md", "[real](b.md)\n[missing](missing.md)\n"));
+
+    let report = idx.report();
+    let expected = report
+        .notes
+        .iter()
+        .find(|n| n.path == pb("/vault/a.md"))
+        .unwrap();
+
+    let actual = idx.note_report(Path::new("/vault/a.md")).unwrap();
+    assert_eq!(&actual, expected);
+}
+
+#[test]
+fn note_report_none_for_unindexed_path() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/a.md", ""));
+
+    assert!(idx.note_report(Path::new("/vault/missing.md")).is_none());
+}
+
 // ── walk_dir / build ─────────────────────────────────────────────────────────
 
 #[test]

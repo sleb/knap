@@ -22,9 +22,9 @@ knap ships as a single binary with two faces:
   LSP-compatible editor: Neovim, VS Code, Helix, Zed, and others. Dedicated
   extensions are available for [VS Code](https://github.com/sleb/vscode-knap)
   and [Zed](https://github.com/sleb/zed-knap).
-- **`knap lint` / `knap index` / `knap rename-*`** — the same engine,
-  available headlessly from the command line for CI, scripts, and coding
-  agents that don't have an editor in the loop.
+- **`knap lint` / `knap index` / `knap fix` / `knap rename-*`** — the same
+  engine, available headlessly from the command line for CI, scripts, and
+  coding agents that don't have an editor in the loop.
 
 Both faces share one indexing and configuration core: `src/config.rs` loads
 `initializationOptions` or `knap.toml` the same way for every entry point, and
@@ -136,10 +136,24 @@ notes/index.md:12:3: warning: broken link to 'notes/missing.md'
 
 `path` defaults to the current directory; pass a single file to lint just
 that file. `--json` emits a machine-readable report (`diagnostics`,
-`problem_count`, `file_count`). Exit code is `0` if no problems were found,
-`1` otherwise.
+`problem_count`, `file_count`, `blocking_count`). Every diagnostic carries a
+stable `code` (`broken-link`, `broken-anchor`, `missing-frontmatter`,
+`missing-required-field`, `invalid-field-value`, `unknown-field`) — branch
+on `code`, not on the message text, when scripting against `--json` output.
+Exit code is `0` if no problems were found, `1` otherwise.
 
-Usage: `knap lint [path] [--json]`
+Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>]`
+
+- `--fail-on <severity>` — minimum severity that causes a non-zero exit
+  (`error`, `warning` (default), `info`, or `hint`). `blocking_count` in
+  `--json` output counts diagnostics at or above this threshold; exit code
+  follows `blocking_count`, not `problem_count`. Every diagnostic knap
+  emits today is `warning`, so `--fail-on warning` (the default) preserves
+  today's exit behavior exactly, and `--fail-on error` always passes until
+  some future diagnostic is promoted to `error`.
+- `--since <git-ref>` — scope linting to files changed since `<git-ref>`
+  (tracked diffs plus untracked new files), instead of the whole workspace.
+  Requires a git repository; errors otherwise.
 
 ## Indexer (`knap index`)
 
@@ -149,6 +163,39 @@ structured snapshot — handy for an agent to get a fast structural view of a
 workspace without grepping.
 
 Usage: `knap index <path> [--json]`
+
+When `<path>` is a single file, `knap index` scopes to that one note's
+neighborhood instead: `--json` emits a single note object (`headings`,
+`links`, `backlinks`, `tags`) rather than the `{ "notes": [...], "tags":
+{...} }` workspace envelope. Useful for an agent to inspect just-edited
+note without paging the full index. A directory `<path>` prints the
+full-workspace listing, unchanged.
+
+## Fixing (`knap fix`)
+
+Applies the same two safe quick fixes an editor's Code Action menu offers
+(under `knap lsp`), headlessly: create a missing file from a broken link, or
+retarget a broken anchor to the one heading in its target note that's an
+unambiguous best match. Fixes that would be ambiguous — an anchor equally
+close to two or more headings — are left alone for a human (or a
+`knap rename-heading`) to resolve.
+
+```
+$ knap fix --dry-run
+would create notes/missing.md
+would notes/a.md: anchor '#old-slug' → '#current-slug'
+
+$ knap fix
+applied 2 fix(es) in 2 file(s)
+create notes/missing.md
+notes/a.md: anchor '#old-slug' → '#current-slug'
+```
+
+`path` defaults to the current directory; pass a single file to fix just
+that file's links. `--dry-run` prints the plan without changing anything on
+disk.
+
+Usage: `knap fix [path] [--dry-run]`
 
 ## Headless rename (`knap rename-*`)
 
@@ -182,6 +229,21 @@ $ knap rename-tag draft published
 
 All three scope their index to the current directory (like `knap lint .`),
 apply their edit atomically, and print a summary line on success.
+
+## Coding agents
+
+`skill/knap/SKILL.md` documents the `lint` → `fix`/`rename-*` → `lint`
+edit-verify loop above for a coding agent working in a vault that has
+`knap` installed — the six diagnostic `code`s, `--fail-on`/`--since`, and
+`knap index <file> --json`. Copy it into a vault's skill directory to teach
+an agent knap's conventions directly instead of it inferring them from
+`--help` text:
+
+```
+cp -r skill/knap ~/.claude/skills/
+# or, project-scoped:
+cp -r skill/knap <vault>/.claude/skills/
+```
 
 ## Configuration
 

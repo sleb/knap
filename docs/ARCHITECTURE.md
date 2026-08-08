@@ -55,8 +55,7 @@ the files stay clean.
 ┌──────────────────────────────────────────────────────┐
 │                         CLI                          │
 │    lsp · lint · index · parse · check · version ·    │
-│    rename-file · rename-heading · rename-tag ·       │
-│                  fix (planned, v0.13)                │
+│    rename-file · rename-heading · rename-tag · fix   │
 └──────────────────────────────────────────────────────┘
                   │ WorkspaceEdit
                   │ (headless commands only —
@@ -257,8 +256,8 @@ exclusively — they do not touch the filesystem directly.
 ### CLI
 
 `src/cli/` — one module per subcommand (`mod.rs`, `lsp.rs`, `lint.rs`,
-`index.rs`, `parse.rs`, `check.rs`, `version.rs`, `rename.rs`), wired up
-with `clap`.
+`index.rs`, `parse.rs`, `check.rs`, `version.rs`, `rename.rs`, `fix.rs`),
+wired up with `clap`.
 `main.rs` is just logging setup plus `knap::cli::run()`. There is no
 argument-free fallback: a subcommand is required, and bare `knap` exits
 non-zero with usage text (clap's built-in behavior for a required
@@ -268,12 +267,13 @@ own — use `knap lsp`.**
 | Subcommand       | Usage                                    | Available from                                       |
 | ---------------- | ---------------------------------------- | ---------------------------------------------------- |
 | `lsp`            | `knap lsp`                               | v0.11 (previously the bare-args default, since v0.1) |
-| `lint`           | `knap lint [path] [--json]`              | v0.11                                                |
-| `index`          | `knap index <dir> [--json]`              | v0.1, rewritten v0.11                                |
+| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>]` | v0.11, `--fail-on`/`--since` added v0.13 |
+| `index`          | `knap index <path> [--json]`             | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13 |
 | `parse`          | `knap parse <file>`                      | v0.1                                                 |
 | `rename-file`    | `knap rename-file <old> <new>`           | v0.12                                                |
 | `rename-heading` | `knap rename-heading <file> <old> <new>` | v0.12                                                |
 | `rename-tag`     | `knap rename-tag <old> <new>`            | v0.12                                                |
+| `fix`            | `knap fix [path] [--dry-run]`            | v0.13                                                |
 | `check`          | `knap check`                             | v0.2                                                 |
 | `version`        | `knap version`                           | v0.10.1                                              |
 
@@ -282,7 +282,11 @@ stdio server the LSP Client talks to. `lint` and `index` both resolve config
 via `config::for_path` and build the index via `index::build` — this is what
 makes their behavior match the LSP for the same workspace, including
 `knap.toml`; `lint` then calls the existing `handlers::compute_diagnostics`
-per target file, and `index --json` serializes `NoteIndex::report()`.
+per target file, and `index --json` serializes `NoteIndex::report()` for a
+directory target, or `NoteIndex::note_report()` alone for a single note when
+given a file. `index`'s file-input case resolves config off `cwd`, not the
+file itself, for the same reason `rename-*` does below — a single note's
+`backlinks` still need the whole vault indexed, not just its own directory.
 `parse` calls `parser::parse` directly; `check` spins up a full in-process
 server and exercises the LSP lifecycle as a smoke test. The three
 `rename-*` subcommands resolve config via `config::for_path(cwd, ..)` — the
@@ -290,7 +294,16 @@ current directory, not the target file, since a file argument would
 otherwise narrow the index to just that file's own directory — reuse the
 same `handlers::` computation the LSP `rename`/`willRenameFiles` handlers
 use, and hand the resulting `WorkspaceEdit` to the Edit Applicator
-(`edit::apply`) to write it to disk. No editor is needed for any of them.
+(`edit::apply`) to write it to disk. `fix` resolves config the same way
+`lint` does (a file target is used as-is, a directory target scopes to it),
+walks every target note's links, and for each broken link or broken anchor
+calls the same `handlers::compute_create_missing_file_fix`/
+`handlers::compute_anchor_fix` functions the LSP "Create note"/"Change
+anchor to..." code actions call — `knap fix` reuses those computations the
+same way `rename-*` reuses the rename `compute_*` functions, picking the
+anchor to fix via `handlers::suggest_anchor_fix` (skipping anything
+ambiguous) since it has no cursor to let a human choose. No editor is
+needed for any of them.
 
 ---
 

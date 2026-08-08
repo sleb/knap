@@ -369,27 +369,28 @@ enough to run after every edit.
 
 A fast-follow to v0.12's headless rename. Where v0.12 gave agents parity with
 the LSP's mutating capabilities, this release removes the friction points
-that show up once an agent is actually looping on `lint`/`index`/`rename-*` as
-its edit-verify cycle: diagnostics that can only be triaged by matching
-message prose, a full-workspace lint on every check, and no way to see one
-note's neighborhood without paging through the whole index snapshot.
+that show up once an agent is actually looping on `lint`/`index`/`rename-*`/
+`fix` as its edit-verify cycle: diagnostics that can only be triaged by
+matching message prose, a full-workspace lint on every check, no way to see
+one note's neighborhood without paging through the whole index snapshot, and
+no headless equivalent of the two safe code actions an editor session already
+offers. No new LSP capability ships this release — every change is either
+CLI surface or internal to already-shared `handlers::` logic.
 
-Candidate stories (to be scoped in detail via `/knap-design` when this release
-starts):
+| Story  | Feature                                                                                   |
+| ------ | ------------------------------------------------------------------------------------------ |
+| US-D11 | Stable `code` field on every diagnostic (`knap lint` and editor diagnostics alike)         |
+| US-D16 | `knap lint --fail-on <severity>` — only fail on diagnostics at or above a threshold        |
+| US-D12 | `knap lint --since <git-ref>` — scope linting to files changed since a ref                |
+| US-D13 | `knap index <file>` — one note's neighborhood, not the full workspace index                |
+| US-D14 | `knap fix [path] [--dry-run]` — headless quick-fix apply for safe code actions             |
+| US-D15 | `skill/knap/SKILL.md` — shippable skill documenting the agent lint/fix/rename loop         |
 
-- Stable `code` field on each `--json` lint diagnostic (`broken-link`,
-  `broken-anchor`, `missing-required-field`, `unknown-field`,
-  `missing-frontmatter`) so an agent can branch on a code instead of matching
-  message text
-- `knap lint --since <git-ref>` — scope linting to files changed since a ref
-- Scoped index query for a single file's neighborhood (backlinks, outgoing
-  links, headings, tags) instead of the full workspace snapshot
-- Headless quick-fix apply (`knap fix`) for the safe code actions (create a
-  missing file, replace a broken anchor with a suggested heading)
-- A `SKILL.md` documenting the agent lint/index/rename usage loop
-
-Also related, already in the Backlog below and worth folding in here when
-this release is scoped: **`--fail-on <severity>` threshold on `knap lint`**.
+See `docs/design/releases/v0.13/design.md` for the full design, including two
+corrections found while scoping: a sixth diagnostic code
+(`invalid-field-value`) the original candidate list omitted, and why
+`--fail-on` ships as a mechanical threshold without reassigning any
+diagnostic's severity.
 
 ---
 

@@ -45,6 +45,7 @@ pub struct IndexReport {
 }
 
 #[derive(serde::Serialize)]
+#[cfg_attr(test, derive(PartialEq, Debug))]
 pub struct NoteSummary {
     pub path: PathBuf,
     pub title: Option<String>,
@@ -55,6 +56,7 @@ pub struct NoteSummary {
 }
 
 #[derive(serde::Serialize)]
+#[cfg_attr(test, derive(PartialEq, Debug))]
 pub struct HeadingSummary {
     pub text: String,
     pub level: u8,
@@ -62,6 +64,7 @@ pub struct HeadingSummary {
 }
 
 #[derive(serde::Serialize)]
+#[cfg_attr(test, derive(PartialEq, Debug))]
 pub struct LinkSummary {
     pub target: String,
     pub anchor: Option<String>,
@@ -350,6 +353,56 @@ impl NoteIndex {
             .flat_map(|paths| paths.iter().filter_map(|p| self.by_path.get(p)))
     }
 
+    /// Build the serializable summary of a single note. Shared by `report`
+    /// (every note) and `note_report` (one note).
+    fn note_summary(&self, note: &Note) -> NoteSummary {
+        let title = note.frontmatter.as_ref().and_then(|fm| fm.title.clone());
+        let tags = note
+            .frontmatter
+            .as_ref()
+            .map(|fm| fm.tags.iter().map(|t| t.name.clone()).collect())
+            .unwrap_or_default();
+        let headings = note
+            .headings
+            .iter()
+            .map(|h| HeadingSummary {
+                text: h.text.clone(),
+                level: h.level,
+                range: h.range,
+            })
+            .collect();
+        let links = note
+            .md_links
+            .iter()
+            .map(|link| {
+                let resolved = match self.resolve(&note.path, &link.target) {
+                    ResolvedLink::Found(p) => Some(p),
+                    ResolvedLink::Broken => None,
+                };
+                LinkSummary {
+                    target: link.target.clone(),
+                    anchor: link.anchor.clone(),
+                    resolved,
+                }
+            })
+            .collect();
+        let mut backlinks: Vec<PathBuf> = self
+            .links_to(&note.path)
+            .iter()
+            .map(|l| l.source_path.clone())
+            .collect();
+        backlinks.sort();
+
+        NoteSummary {
+            path: note.path.clone(),
+            title,
+            tags,
+            headings,
+            links,
+            backlinks,
+        }
+    }
+
     /// Build a structured, serializable snapshot of the whole workspace for
     /// `knap index --json`. Built entirely from existing accessors — no new
     /// resolution logic.
@@ -359,53 +412,7 @@ impl NoteIndex {
 
         let notes = notes
             .into_iter()
-            .map(|note| {
-                let title = note.frontmatter.as_ref().and_then(|fm| fm.title.clone());
-                let tags = note
-                    .frontmatter
-                    .as_ref()
-                    .map(|fm| fm.tags.iter().map(|t| t.name.clone()).collect())
-                    .unwrap_or_default();
-                let headings = note
-                    .headings
-                    .iter()
-                    .map(|h| HeadingSummary {
-                        text: h.text.clone(),
-                        level: h.level,
-                        range: h.range,
-                    })
-                    .collect();
-                let links = note
-                    .md_links
-                    .iter()
-                    .map(|link| {
-                        let resolved = match self.resolve(&note.path, &link.target) {
-                            ResolvedLink::Found(p) => Some(p),
-                            ResolvedLink::Broken => None,
-                        };
-                        LinkSummary {
-                            target: link.target.clone(),
-                            anchor: link.anchor.clone(),
-                            resolved,
-                        }
-                    })
-                    .collect();
-                let mut backlinks: Vec<PathBuf> = self
-                    .links_to(&note.path)
-                    .iter()
-                    .map(|l| l.source_path.clone())
-                    .collect();
-                backlinks.sort();
-
-                NoteSummary {
-                    path: note.path.clone(),
-                    title,
-                    tags,
-                    headings,
-                    links,
-                    backlinks,
-                }
-            })
+            .map(|note| self.note_summary(note))
             .collect();
 
         let tags = self
@@ -419,6 +426,14 @@ impl NoteIndex {
             .collect();
 
         IndexReport { notes, tags }
+    }
+
+    /// Build the serializable summary for a single note, without touching
+    /// any other note in the index. Used by `knap index <file>` so a
+    /// single-note query doesn't build (and discard) every other note's
+    /// summary too.
+    pub fn note_report(&self, path: &Path) -> Option<NoteSummary> {
+        self.get_note(path).map(|note| self.note_summary(note))
     }
 
     /// Register a non-note file (attachment) in `all_files`. Rechecks all

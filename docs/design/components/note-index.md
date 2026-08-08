@@ -354,12 +354,20 @@ pub struct LinkSummary {
 
 impl NoteIndex {
     pub fn report(&self) -> IndexReport { /* ... */ }
+    pub fn note_report(&self, path: &Path) -> Option<NoteSummary> { /* ... */ }
 }
 ```
 
 `notes` is sorted by path for deterministic output. `tags` uses a
 `BTreeMap` for the same reason — both matter for diffable CI output and
 test assertions.
+
+`note_report` (v0.13) returns one note's `NoteSummary` without building
+every other note's — the same per-note construction `report()` uses
+internally (a private `note_summary` helper both call), just addressable by
+path instead of always building the whole workspace's summaries. `None` for
+a path the index doesn't have. Used by `knap index <file>` (`src/cli/
+index.rs`) to scope its output to a single note.
 
 ---
 
