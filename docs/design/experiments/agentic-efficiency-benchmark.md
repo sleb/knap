@@ -354,6 +354,187 @@ broader candidate pool, same unambiguous-only safety net — and adds the
 
 All three changes have landed; the official N≥3 run is next.
 
+### Trial 2 — 2026-08-08, N=1 per condition (smoke test after the Trial-1 fixes)
+
+A second single-trial smoke test, run to check whether the three shipped
+changes (tightened skill loop, `fix` repoint, `lint --suggest`/`--fix`)
+actually moved the needle before committing to the full N≥3 run. **Still
+directional only — do not cite as "knap wins/loses."**
+
+Setup: regenerated with `examples/gen_bench_vault.rs --seed 1` against the
+current codebase (post-Trial-1 changes shifted the RNG sequence slightly,
+so the concrete hub/tag/defect names differ from Trial 1's — resolved
+fresh via `knap index --json` and the new `BENCH_MANIFEST.json`, same
+procedure the protocol specifies). Two fresh git repos seeded identically
+at a `bench-vault-seed` tag; `knap` (built from this branch, with
+`--fix`/`--suggest`) and `.claude/skills/knap/SKILL.md` present only in
+the knap-assisted repo. Both agents were fresh, isolated Claude Code
+subagent sessions given the exact same task text, no mention of knap in
+either prompt. Wall time, token, and tool-call counts came from the
+harness's own per-agent usage accounting (not the agent's self-report,
+which was collected too but only used for the qualitative "what did you
+do" narrative). Correctness was independently checked after each run with
+`knap lint --json`, plus spot-checks of every specific rename/fix target
+against the task's expected values.
+
+| Metric                                  | Baseline | knap-assisted | Δ                 |
+| --------------------------------------- | -------- | ------------- | ----------------- |
+| Wall time                               | 128.3s   | 126.6s        | knap −1.3% faster |
+| Tokens                                  | 37,734   | 43,935        | knap +16.4% more  |
+| Tool calls                              | 34       | 35            | knap +1           |
+| Files changed (`git diff --stat`)       | 27       | 29†           | roughly tied      |
+| Broken links/anchors left (`knap lint`) | 0        | 0             | tie               |
+| Tasks fully completed (of 7)            | 7/7      | 7/7           | tie               |
+
+† excludes `.claude/skills/knap/SKILL.md` itself, which was pre-installed
+setup, not an agent edit.
+
+**Still does not support the hypothesis, but the gap narrowed on two of
+three efficiency metrics.** Tool-call count went from +4 (Trial 1) to +1 —
+consistent with the tightened rename→verify loop removing the redundant
+intermediate lints. Wall time flipped from +3.5% slower to essentially a
+tie (slightly faster). Tokens, however, got _worse_ in relative terms
+(+7.1% → +16.4%) — the knap-assisted agent's final report shows it reading
+the skill file itself, running `knap rename-file`/`rename-heading`/
+`rename-tag` back-to-back as prescribed, then a single `knap lint
+--fix --suggest --json` pass, which is the intended shape — but the
+absolute token count (43,935) is not far from Trial 1's knap-assisted run
+(46,795) while the baseline dropped further (43,696 → 37,734). One
+plausible read: this seed's task happened to be slightly more
+straightforward for a hand-editing agent than Trial 1's (fewer files
+touched, 94→91 insertions), which shrinks the baseline's cost more than
+it shrinks knap's largely-fixed overhead (reading the skill file once,
+plus JSON tool output being more verbose per call than terse grep/sed
+output). That's a hypothesis for the N≥3 run to actually test, not a
+conclusion this N=1 pair can support on its own.
+
+Both trials agree on the one metric that matters most for the hypothesis:
+correctness tied at zero broken links/anchors in both conditions, both
+times, independently verified — knap has not yet demonstrated a
+correctness advantage in either smoke test, because both agents managed
+to get to zero on their own. That's expected at this vault size (see
+[Corpus size sensitivity](#threats-to-validity-call-these-out-alongside-results-dont-bury-them));
+the correctness case for knap is likely to show up (if it shows up) at
+larger scale or higher defect density, not in a 50-note, 8-defect vault
+a careful agent can `grep` its way through by hand.
+
+### Trial 3 — 2026-08-08, N=4 per condition, 200-note vault (official run)
+
+The first N≥3 run per the protocol, and the first at a larger corpus size,
+run specifically to test the "corpus size sensitivity" threat flagged after
+Trials 1–2: both smoke tests tied on correctness at 50 notes/8 defects
+because a careful agent (with or without knap) could get to zero by hand.
+
+Setup: `examples/gen_bench_vault.rs --seed 1 --notes 200 --broken-links 12
+--broken-anchors 8` (200 notes, 699 links, 20 seeded defects — defect count
+scaled with vault size to hold defect density roughly constant vs. Trials
+1–2). `knap lint --json` on the freshly generated vault reported exactly
+`problem_count: 20` (12 broken-link + 8 broken-anchor) with zero false
+positives on the other ~680 clean links, confirming the generator/resolver
+match at this larger size too. Concrete task targets were resolved from
+this seed via `knap index --json` and `BENCH_MANIFEST.json`: hub note
+`topics/release.md` (17 backlinks, renamed to `release-notes.md`), its
+`Deployment Overview` heading, tag `archived` (61 notes, the most common of
+the 5-tag pool, renamed to `deprecated`), and a second hub,
+`reference/cache.md` (14 backlinks), split into two notes for step 5. Step
+6 named the 20 specific files carrying seeded defects (hard-coded from the
+manifest) without revealing their correct targets, so agents still had to
+find and verify the fix themselves rather than being handed the answer.
+
+8 fresh git repos were seeded at an identical `bench-vault-seed` tag commit
+(4 `baseline/runN`, 4 `knap/runN`), each run in a genuinely separate,
+isolated agent session with no shared context between runs or across
+conditions. The `knap` binary (this branch, with `--fix`/`--suggest`) was
+on `PATH` for all 8 (already installed system-wide on the host), but
+`.claude/skills/knap/SKILL.md` was present only in the 4 `knap/` repos —
+the mechanism by which the baseline condition's agents remained unaware of
+`knap` despite the binary being technically reachable; none of the 4
+baseline transcripts show any attempt to invoke it. Both conditions got
+identical task text with no mention of knap. Wall time, tokens, and tool
+calls were taken from the harness's own per-agent usage accounting
+(`duration_ms`, `subagent_tokens`, `tool_uses`) rather than agent
+self-report; files-read and self-correction counts are self-reported (no
+harness-level facility for these) and are therefore weaker signals, flagged
+as such below. Correctness was independently verified after every run with
+`knap lint --json` against the working tree, and `git diff --stat` against
+the seed tag (excluding `.claude/skills/knap/SKILL.md`, which was
+pre-installed setup, not an agent edit) cross-checked edit footprint.
+
+| Metric                                   | Baseline (median) | knap-assisted (median) | Δ                     |
+| ---------------------------------------- | ----------------- | ---------------------- | --------------------- |
+| Wall time (harness `duration_ms`)        | 363.7s            | 219.8s                 | knap **39.6% faster** |
+| Tokens (harness `subagent_tokens`)       | 62,232            | 45,342                 | knap **27.1% fewer**  |
+| Tool calls (harness `tool_uses`)         | 74.5              | 40                     | knap **46.3% fewer**  |
+| Files read (self-reported)               | 33.5              | 11                     | knap 67% fewer        |
+| Files changed (`git diff --stat`)        | 89                | 89                     | tie                   |
+| Broken links/anchors left (`knap lint`)  | 0 (all 4 runs)    | 0 (all 4 runs)         | tie                   |
+| Tasks fully completed (of 7)             | 7/7 (all 4 runs)  | 7/7 (all 4 runs)       | tie                   |
+| Self-corrections (self-reported, median) | 1                 | 1.5                    | knap slightly more    |
+
+**This trial supports the hypothesis, and the gap is large.** Correctness
+tied at zero broken links/anchors in all 8 runs, independently verified —
+so knap didn't win on correctness this time either, but per the
+hypothesis's own bar ("wins or ties on both"), a tie on correctness plus a
+clear win on tokens/time is enough. The wall-time and tool-call wins in
+particular are not close: every one of the 4 knap-assisted runs finished
+faster than every one of the 4 baseline runs (knap range 165–241s vs.
+baseline range 257–402s, no overlap), and every knap-assisted run used
+fewer tool calls than every baseline run (35–51 vs. 51–97, one point of
+overlap at 51). This is the outcome the "corpus size sensitivity" threat in
+Trials 1–2 predicted: at 4× the notes and 2.5× the seeded defects, the
+baseline agents' `grep`/`sed`-driven exploration cost scales with vault
+size in a way the knap-assisted agents' `rename-*`/`lint --fix` calls
+mostly don't — all 4 knap transcripts show the same shape (3–4 atomic
+`rename-*` calls, one `lint --fix --suggest --json` pass, then a handful of
+hand-fixes for ambiguous cases), while baseline transcripts show
+proportionally more Read/grep calls to first locate and then hand-verify
+every affected file.
+
+Two qualitative findings worth flagging, both from the knap-assisted
+transcripts:
+
+1. **`knap fix`'s edit-distance ranking picked a plausible-but-wrong link
+   target in 1 of 4 knap-assisted runs.** In `knap/run3`, `lint --fix`
+   repointed two "Workflow"-labeled links to `projects/workflow-554.md`
+   (closer by raw edit distance to the broken target string) instead of
+   the semantically correct `projects/workflow.md`, because the ranking is
+   purely string-distance-based and has no way to weigh the link's own
+   text. The agent caught it by reading the resulting diff, not because
+   `knap` flagged it — `lint` reports `workflow-554.md` as a fully resolved
+   link, not a suspicious one. This is a real gap: an unambiguous
+   edit-distance winner is not always the _correct_ one, and it's what
+   likely accounts for knap-assisted runs' slightly higher self-correction
+   count (median 1.5 vs. baseline's 1) despite otherwise having less work
+   to redo. Worth a follow-up: either weighting link text into the
+   ranking, or surfacing auto-applied repoints in `lint --fix`'s output
+   (not just the diagnostics that remain) so an agent has something to
+   sanity-check against.
+2. **Every knap-assisted run independently rediscovered the same
+   `broken-link` stub-creation pitfall** (2 of 4 runs hit it directly; the
+   other 2 avoided it only because their specific ambiguous cases didn't
+   arise) — `lint --fix` falls back to creating an empty `*-removed.md`
+   stub when candidates tie, and in every case observed here an
+   unambiguous correct target actually existed in the vault
+   (`sync-835.md`, `storage.md`) but lost the ranking to a same-distance
+   decoy. Each agent noticed, deleted the spurious stub, and hand-repointed
+   correctly — so this cost tool calls and tokens but not final
+   correctness. This is consistent with, not new information beyond, the
+   known "unambiguous-only" contract described in [Opportunities for
+   improvement](#2-give-knap-fix-a-fuzzy-nearest-file-match-for-broken-link--and-rethink-how-ambiguous-cases-surface)
+   above — Trial 3 is the first data point showing how often it actually
+   fires at this vault size (roughly half of runs, on this seed).
+
+Threats specific to this trial, beyond the general list below: files-read
+and self-correction counts are self-reported by the agent transcripts, not
+harness-measured, so treat those two rows as directional, not as solid as
+the harness-sourced wall-time/token/tool-call rows. No independent
+end-state fixture diff was built to cross-check "task fully completed"
+beyond `knap lint`'s zero-problem result plus each agent's own account —
+`knap lint` catches broken links/anchors but wouldn't catch, say, a
+step-4 note that got created but never actually linked in from anywhere;
+spot review of the transcripts didn't find such a gap, but it wasn't
+checked as rigorously as correctness was.
+
 ## Threats to validity (call these out alongside results, don't bury them)
 
 - **N is small.** This is a manual protocol for a directional check, not a
