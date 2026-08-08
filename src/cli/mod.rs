@@ -62,6 +62,18 @@ enum Commands {
         /// untracked new files). Requires a git repository.
         #[arg(long)]
         since: Option<String>,
+        /// Attach up to N ranked candidate fixes to each broken-link or
+        /// broken-anchor diagnostic (as `data.suggestions` in --json output),
+        /// closest match first. Bare `--suggest` defaults to 3; omit to skip.
+        #[arg(long, num_args = 0..=1, default_missing_value = "3", value_name = "N")]
+        suggest: Option<usize>,
+        /// Apply every safe fix (same as `knap fix`) before reporting, so
+        /// the diagnostics shown are what's left after fixing rather than
+        /// what was true when the command started. Collapses the usual
+        /// lint → fix → lint-again sequence into one call. Mutates files on
+        /// disk — this is the one case where `lint` isn't read-only.
+        #[arg(long)]
+        fix: bool,
     },
     /// Build and print the note index for a directory.
     Index {
@@ -127,7 +139,16 @@ pub fn run() -> anyhow::Result<()> {
             json,
             fail_on,
             since,
-        } => lint::run(&path, json, fail_on, since.as_deref()),
+            suggest,
+            fix,
+        } => lint::run(
+            &path,
+            json,
+            fail_on,
+            since.as_deref(),
+            suggest.unwrap_or(0),
+            fix,
+        ),
         Commands::Index { path, json } => index::run(&path, json),
         Commands::Parse { path } => parse::run(&path),
         Commands::RenameFile { old, new } => rename::run_file(&old, &new),

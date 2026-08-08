@@ -24,7 +24,7 @@ use crate::parser;
 
 /// Convert heading text to a GitHub Flavored Markdown anchor slug.
 /// `## My Section` → `"my-section"`, `## Hello, World!` → `"hello-world"`.
-pub(crate) fn slug(text: &str) -> String {
+pub fn slug(text: &str) -> String {
     text.chars()
         .filter(|c| c.is_alphanumeric() || *c == ' ' || *c == '-')
         .collect::<String>()
@@ -1396,6 +1396,27 @@ pub(crate) fn compute_anchor_fix(
     }
 }
 
+/// Build the `WorkspaceEdit` that repoints a broken link's `target_range` at
+/// `new_target` (escaped for insertion, same as
+/// `compute_create_missing_file_fix`'s target-rewrite arm). Mirrors
+/// `compute_anchor_fix` for the link-target case.
+pub(crate) fn compute_link_fix(
+    source: &Path,
+    target_range: Range,
+    new_target: &str,
+) -> WorkspaceEdit {
+    WorkspaceEdit {
+        changes: Some(std::collections::HashMap::from([(
+            path_to_uri(source),
+            vec![TextEdit {
+                range: target_range,
+                new_text: escape_link_target(new_target),
+            }],
+        )])),
+        ..Default::default()
+    }
+}
+
 /// Levenshtein edit distance, byte-wise. GFM slugs are already lowercase
 /// ASCII alphanumerics and hyphens, so byte-wise is equivalent to
 /// char-wise here and avoids a `Vec<char>` allocation.
@@ -1414,6 +1435,24 @@ fn edit_distance(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
+/// Every heading in `target_note`, ranked by GFM-slug edit distance to
+/// `broken_slug`, closest first. Ties keep original heading order (a stable
+/// sort on distance alone). Shared by `suggest_anchor_fix` (which only wants
+/// the unambiguous winner) and `knap lint --suggest` (which wants the whole
+/// ranked list to show the agent).
+fn rank_anchor_candidates<'a>(
+    broken_slug: &str,
+    target_note: &'a parser::Note,
+) -> Vec<(usize, &'a parser::Heading)> {
+    let mut ranked: Vec<(usize, &parser::Heading)> = target_note
+        .headings
+        .iter()
+        .map(|h| (edit_distance(broken_slug, &slug(&h.text)), h))
+        .collect();
+    ranked.sort_by_key(|(dist, _)| *dist);
+    ranked
+}
+
 /// The single best-guess replacement heading for `broken_slug` in
 /// `target_note`, or `None` when there's no safe unambiguous choice: the
 /// target has no headings, or two or more headings tie for the closest GFM
@@ -1423,21 +1462,134 @@ pub(crate) fn suggest_anchor_fix<'a>(
     broken_slug: &str,
     target_note: &'a parser::Note,
 ) -> Option<&'a parser::Heading> {
-    let mut best: Option<(usize, &parser::Heading)> = None;
-    let mut tied = false;
-    for heading in &target_note.headings {
-        let dist = edit_distance(broken_slug, &slug(&heading.text));
-        match &best {
-            None => best = Some((dist, heading)),
-            Some((best_dist, _)) if dist < *best_dist => {
-                best = Some((dist, heading));
-                tied = false;
-            }
-            Some((best_dist, _)) if dist == *best_dist => tied = true,
-            _ => {}
+    match rank_anchor_candidates(broken_slug, target_note).as_slice() {
+        [(_, heading)] => Some(heading),
+        [(best, heading), (next, _), ..] if best < next => Some(heading),
+        _ => None,
+    }
+}
+
+/// Every note in `index`, ranked by edit distance between `broken_target`
+/// (a link's raw, unescaped target string) and that note's path relative to
+/// `source`'s directory, closest first. Mirrors `rank_anchor_candidates` for
+/// links: `knap fix` uses the unambiguous winner, `knap lint --suggest`
+/// shows the whole ranked list.
+fn rank_link_candidates(
+    broken_target: &str,
+    source: &Path,
+    index: &NoteIndex,
+) -> Vec<(usize, String)> {
+    let clean_target = index::unescape_link_target(broken_target);
+    let source_dir = source.parent().unwrap_or(source);
+    let mut ranked: Vec<(usize, String)> = index
+        .all_notes()
+        .filter(|n| n.path != source) // a link can't be "fixed" by pointing at its own note
+        .map(|n| {
+            let rel = relative_path(source_dir, &n.path);
+            (edit_distance(&clean_target, &rel), rel)
+        })
+        .collect();
+    ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    ranked
+}
+
+/// The single best-guess existing note to repoint a broken link at, or
+/// `None` when there's no safe unambiguous choice: the vault has no notes,
+/// or two or more paths tie for closest (by edit distance against the
+/// broken target string). Used only by `knap fix` — ambiguous cases are left
+/// for `knap lint --suggest` to surface instead of guessing.
+pub(crate) fn suggest_link_fix(
+    broken_target: &str,
+    source: &Path,
+    index: &NoteIndex,
+) -> Option<String> {
+    match rank_link_candidates(broken_target, source, index).as_slice() {
+        [(_, rel)] => Some(rel.clone()),
+        [(best, rel), (next, _), ..] if best < next => Some(rel.clone()),
+        _ => None,
+    }
+}
+
+/// One ranked candidate fix, as attached to a diagnostic's `data` field for
+/// `knap lint --suggest`.
+#[derive(serde::Serialize)]
+struct FixSuggestion {
+    /// A `broken-link` candidate's path (relative to the linking note) or a
+    /// `broken-anchor` candidate's slug, formatted as `#slug` so it can be
+    /// dropped straight into the link.
+    target: String,
+    distance: usize,
+}
+
+/// Same diagnostics as `compute_diagnostics`, but each `broken-link`/
+/// `broken-anchor` diagnostic also carries up to `top_n` ranked candidate
+/// fixes in its `data` field, so an agent already running `knap lint --json`
+/// to verify an edit gets the closest-match candidates in the same call —
+/// no separate `knap fix --dry-run` round-trip needed to see them. Used only
+/// by the `lint` CLI's `--suggest` flag; the LSP server keeps calling the
+/// plain `compute_diagnostics`, since editors don't consume `data` here and
+/// ranking every broken link/anchor against the whole vault on every
+/// keystroke-triggered publish would be wasted work.
+pub(crate) fn compute_diagnostics_with_suggestions(
+    path: &Path,
+    index: &NoteIndex,
+    config: &crate::config::Config,
+    top_n: usize,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = compute_diagnostics(path, index, config);
+    if top_n == 0 {
+        return diagnostics;
+    }
+    let Some(note) = index.get_note(path) else {
+        return diagnostics;
+    };
+
+    for d in &mut diagnostics {
+        let Some(NumberOrString::String(code)) = &d.code else {
+            continue;
+        };
+        let suggestions = if code == CODE_BROKEN_LINK {
+            let Some(link) = note.md_links.iter().find(|l| l.target_range == d.range) else {
+                continue;
+            };
+            rank_link_candidates(&link.target, path, index)
+                .into_iter()
+                .take(top_n)
+                .map(|(distance, target)| FixSuggestion { target, distance })
+                .collect::<Vec<_>>()
+        } else if code == CODE_BROKEN_ANCHOR {
+            let range = d.range;
+            let Some(link) = note.md_links.iter().find(|l| {
+                l.anchor_range == Some(range) || (l.anchor_range.is_none() && l.range == range)
+            }) else {
+                continue;
+            };
+            let (Some(anchor), ResolvedLink::Found(target_path)) =
+                (&link.anchor, index.resolve(path, &link.target))
+            else {
+                continue;
+            };
+            let Some(target_note) = index.get_note(&target_path) else {
+                continue;
+            };
+            rank_anchor_candidates(&slug(anchor), target_note)
+                .into_iter()
+                .take(top_n)
+                .map(|(distance, heading)| FixSuggestion {
+                    target: format!("#{}", slug(&heading.text)),
+                    distance,
+                })
+                .collect::<Vec<_>>()
+        } else {
+            continue;
+        };
+
+        if !suggestions.is_empty() {
+            d.data = Some(serde_json::json!({ "suggestions": suggestions }));
         }
     }
-    if tied { None } else { best.map(|(_, h)| h) }
+
+    diagnostics
 }
 
 pub(crate) fn handle_code_actions(
@@ -3749,6 +3901,81 @@ mod tests {
     fn suggest_anchor_fix_none_when_no_headings() {
         let target = note("/vault/b.md", "no headings here\n");
         assert!(suggest_anchor_fix("anything", &target).is_none());
+    }
+
+    // ── suggest_link_fix / rank_link_candidates ─────────────────────────────
+
+    #[test]
+    fn suggest_link_fix_picks_unique_closest() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/reference/config.md", ""));
+        idx.seed(note("/vault/reference/cache.md", ""));
+        idx.seed(note("/vault/a.md", "[text](reference/config-removed.md)"));
+        let target = suggest_link_fix(
+            "reference/config-removed.md",
+            Path::new("/vault/a.md"),
+            &idx,
+        )
+        .expect("expected a suggestion");
+        assert_eq!(target, "reference/config.md");
+    }
+
+    #[test]
+    fn suggest_link_fix_none_on_tied_distance() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/cat.md", ""));
+        idx.seed(note("/vault/bat.md", ""));
+        idx.seed(note("/vault/a.md", "[text](hat.md)"));
+        assert!(suggest_link_fix("hat.md", Path::new("/vault/a.md"), &idx).is_none());
+    }
+
+    #[test]
+    fn suggest_link_fix_excludes_the_linking_note_itself() {
+        // A single-note vault: the only candidate is the linking note itself,
+        // which is never a valid repoint target for its own broken link.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/note.md", "[text](missing.md)"));
+        assert!(suggest_link_fix("missing.md", Path::new("/vault/note.md"), &idx).is_none());
+    }
+
+    // ── compute_diagnostics_with_suggestions ────────────────────────────────
+
+    #[test]
+    fn diagnostics_with_suggestions_attaches_ranked_candidates_to_broken_link() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/reference/config.md", ""));
+        idx.seed(note("/vault/a.md", "[text](reference/config-removed.md)"));
+        let diags = compute_diagnostics_with_suggestions(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+            3,
+        );
+        assert_eq!(diags.len(), 1);
+        let suggestions = diags[0]
+            .data
+            .as_ref()
+            .expect("expected suggestions data")
+            .get("suggestions")
+            .expect("expected a suggestions key")
+            .as_array()
+            .expect("suggestions is an array");
+        assert_eq!(suggestions[0]["target"], "reference/config.md");
+    }
+
+    #[test]
+    fn diagnostics_with_suggestions_zero_n_omits_data() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/reference/config.md", ""));
+        idx.seed(note("/vault/a.md", "[text](reference/config-removed.md)"));
+        let diags = compute_diagnostics_with_suggestions(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+            0,
+        );
+        assert_eq!(diags.len(), 1);
+        assert!(diags[0].data.is_none());
     }
 
     // ── anchor completion (US-45) ─────────────────────────────────────────────

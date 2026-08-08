@@ -62,9 +62,9 @@ fn do_shutdown(client: &Connection, request_id: i32) {
 
     let resp = recv_response(client, lsp_server::RequestId::from(request_id));
     assert!(
-        resp.error.is_none(),
+        resp.response_result.is_ok(),
         "shutdown returned error: {:?}",
-        resp.error
+        resp.response_result
     );
 
     let _ = client.sender.send(Message::Notification(Notification {
@@ -165,7 +165,7 @@ fn lifecycle_capabilities() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(1i32));
     let result: lsp_types::InitializeResult =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let caps = &result.capabilities;
 
     assert!(
@@ -418,7 +418,7 @@ fn completion_returns_relative_paths() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<CompletionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     let items = match result.expect("expected completion result") {
         CompletionResponse::Array(items) => items,
@@ -461,7 +461,7 @@ fn definition_navigates_to_target() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<GotoDefinitionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     let loc = match result.expect("expected definition result") {
         GotoDefinitionResponse::Scalar(loc) => loc,
@@ -500,7 +500,7 @@ fn test_will_rename_incoming() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     let edits = result["changes"]["file:///vault/a.md"]
         .as_array()
@@ -535,7 +535,7 @@ fn test_will_rename_outgoing() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     let edits = result["changes"]["file:///vault/sub/a.md"]
         .as_array()
@@ -565,7 +565,7 @@ fn test_will_rename_no_links() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     let is_empty = result["changes"]
         .as_object()
@@ -687,7 +687,7 @@ fn test_completion_includes_attachment() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<CompletionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     let items = match result.expect("expected completion result") {
         CompletionResponse::Array(items) => items,
@@ -726,7 +726,7 @@ fn test_document_symbols_lists_headings() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let symbols = result.as_array().expect("expected array of symbols");
 
     assert_eq!(symbols.len(), 3, "expected 3 heading symbols");
@@ -758,7 +758,7 @@ fn test_document_symbols_empty_for_no_headings() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let symbols = result.as_array().expect("expected empty array, not null");
     assert!(
         symbols.is_empty(),
@@ -786,7 +786,7 @@ fn test_workspace_symbols_query() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let symbols = result.as_array().expect("expected array");
 
     assert_eq!(symbols.len(), 1, "expected only Introduction");
@@ -808,7 +808,7 @@ fn test_workspace_symbols_empty_query() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let symbols = result.as_array().expect("expected array");
 
     assert_eq!(symbols.len(), 3, "expected all 3 headings for empty query");
@@ -837,7 +837,7 @@ fn test_prepare_rename_on_heading() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     assert!(
         !result.is_null(),
@@ -877,7 +877,7 @@ fn test_prepare_rename_off_heading() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     assert!(
         result.is_null(),
@@ -909,7 +909,7 @@ fn test_rename_heading_updates_anchor_links() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     let b_edits = result["changes"]["file:///vault/b.md"]
         .as_array()
@@ -960,7 +960,7 @@ fn test_rename_heading_updates_self_links() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     let a_edits = result["changes"]["file:///vault/a.md"]
         .as_array()
@@ -1014,7 +1014,7 @@ fn test_anchor_completion() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<CompletionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let items = match result.expect("expected completion result") {
         CompletionResponse::Array(items) => items,
         CompletionResponse::List(list) => list.items,
@@ -1068,7 +1068,7 @@ fn test_dir_completion_initial() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<CompletionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let items = match result.expect("expected completion result") {
         CompletionResponse::Array(items) => items,
         CompletionResponse::List(list) => list.items,
@@ -1130,7 +1130,7 @@ fn test_dir_completion_retrigger_slash() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<CompletionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let items = match result.expect("expected completion result") {
         CompletionResponse::Array(items) => items,
         CompletionResponse::List(list) => list.items,
@@ -1176,7 +1176,7 @@ fn references_returns_backlinks() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let locs: Option<Vec<Location>> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let locs = locs.unwrap_or_default();
 
     assert_eq!(locs.len(), 1, "expected 1 backlink from a.md");
@@ -1245,7 +1245,7 @@ fn prepare_rename_without_did_open() {
     std::fs::remove_file(&path).ok();
 
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     assert!(
         !result.is_null(),
@@ -1321,7 +1321,7 @@ fn test_code_action_create_note() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let actions: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
 
     assert_eq!(actions.len(), 1, "expected one code action for broken link");
 
@@ -1358,7 +1358,7 @@ fn test_code_action_create_note_in_new_note_dir() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let actions: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
 
     assert_eq!(actions.len(), 1);
     let create_uri = actions[0]["edit"]["documentChanges"][0]["uri"]
@@ -1395,7 +1395,7 @@ fn test_code_action_fix_anchor() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let actions: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
 
     assert_eq!(actions.len(), 1, "expected one fix-anchor action");
 
@@ -1428,7 +1428,7 @@ fn test_code_action_empty_for_valid_link() {
     );
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
-    let result = resp.result.unwrap_or_default();
+    let result = resp.response_result.unwrap_or_default();
     let actions: Vec<serde_json::Value> = serde_json::from_value(result).unwrap_or_default();
     assert!(
         actions.is_empty(),
@@ -1459,7 +1459,7 @@ fn test_code_action_empty_off_link() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let actions: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
     assert!(
         actions.is_empty(),
         "expected empty list when cursor is off any link"
@@ -1491,7 +1491,7 @@ fn test_code_lens_backlinks() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let lenses: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
 
     assert_eq!(lenses.len(), 1, "expected exactly one code lens");
     let title = lenses[0]["command"]["title"].as_str().unwrap_or("");
@@ -1526,7 +1526,7 @@ fn test_code_lens_no_backlinks() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let lenses: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
 
     assert!(
         lenses.is_empty(),
@@ -1564,7 +1564,7 @@ fn test_same_file_anchor_definition() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<GotoDefinitionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let loc = match result.expect("expected definition result") {
         GotoDefinitionResponse::Scalar(loc) => loc,
         GotoDefinitionResponse::Array(locs) if locs.len() == 1 => locs.into_iter().next().unwrap(),
@@ -1603,7 +1603,7 @@ fn test_same_file_anchor_definition_missing() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<GotoDefinitionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let loc = match result.expect("expected definition result") {
         GotoDefinitionResponse::Scalar(loc) => loc,
         GotoDefinitionResponse::Array(locs) if locs.len() == 1 => locs.into_iter().next().unwrap(),
@@ -1705,7 +1705,7 @@ fn test_same_file_anchor_completion() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<CompletionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let items = match result.expect("expected completion result") {
         CompletionResponse::Array(items) => items,
         CompletionResponse::List(list) => list.items,
@@ -1750,7 +1750,7 @@ fn test_same_file_anchor_references_on_heading() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let locs: Option<Vec<Location>> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let locs = locs.unwrap_or_default();
 
     assert_eq!(locs.len(), 1, "expected 1 reference: the bare anchor link");
@@ -1777,7 +1777,7 @@ fn test_code_lens_updates_after_index_change() {
     );
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let lenses: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
     assert_eq!(
         lenses[0]["command"]["title"].as_str().unwrap_or(""),
         "↑ 1 backlink"
@@ -1795,7 +1795,7 @@ fn test_code_lens_updates_after_index_change() {
     );
     let resp = recv_response(&client, lsp_server::RequestId::from(3i32));
     let lenses: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
     assert_eq!(
         lenses[0]["command"]["title"].as_str().unwrap_or(""),
         "↑ 2 backlinks"
@@ -1838,7 +1838,7 @@ fn test_schema_key_completion() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<CompletionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let items = match result.expect("expected completion result") {
         CompletionResponse::Array(items) => items,
         CompletionResponse::List(list) => list.items,
@@ -1887,7 +1887,7 @@ fn test_schema_value_completion() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Option<CompletionResponse> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
     let items = match result.expect("expected completion result") {
         CompletionResponse::Array(items) => items,
         CompletionResponse::List(list) => list.items,
@@ -2154,7 +2154,7 @@ fn folding_ranges_round_trip() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let ranges: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
 
     assert!(!ranges.is_empty(), "expected at least one fold region");
     // ## First (line 0) ends at line 1 (before ## Second at line 2)
@@ -2201,7 +2201,7 @@ fn selection_range_round_trip() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
 
     assert_eq!(result.len(), 1, "one position → one selection range chain");
     // Outermost range must start at (0, 0)
@@ -2246,7 +2246,7 @@ fn inlay_hints_round_trip() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let hints: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
 
     assert_eq!(
         hints.len(),
@@ -2283,7 +2283,7 @@ fn code_lens_heading_round_trip() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let lenses: Vec<serde_json::Value> =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap_or_default();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap_or_default();
 
     // There should be a heading lens for "## Target" (2 anchor links total)
     let heading_lens = lenses.iter().find(|l| {
@@ -2333,7 +2333,7 @@ fn prepare_rename_tag_round_trip() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     assert!(!result.is_null(), "expected non-null prepareRename for tag");
     assert!(result.get("range").is_some(), "expected 'range' field");
@@ -2373,7 +2373,7 @@ fn rename_tag_round_trip() {
 
     let resp = recv_response(&client, lsp_server::RequestId::from(2i32));
     let result: serde_json::Value =
-        serde_json::from_value(resp.result.unwrap_or_default()).unwrap();
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
 
     let a_edits = result["changes"]["file:///vault/a.md"]
         .as_array()

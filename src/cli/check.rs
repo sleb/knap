@@ -69,10 +69,10 @@ pub fn run() -> anyhow::Result<()> {
     }))?;
 
     let init_resp = recv_response(&client_conn)?;
-    check!("initialize", init_resp.error.is_none(), "ok");
+    check!("initialize", init_resp.response_result.is_ok(), "ok");
 
     let init_result: lsp_types::InitializeResult =
-        serde_json::from_value(init_resp.result.unwrap_or_default())?;
+        serde_json::from_value(init_resp.response_result.unwrap_or_default())?;
     let caps = &init_result.capabilities;
 
     if let Some(info) = &init_result.server_info {
@@ -160,7 +160,7 @@ pub fn run() -> anyhow::Result<()> {
         }))?;
 
         let resp = recv_response(&client_conn)?;
-        let null_result = resp.error.is_none() && resp.result == Some(serde_json::Value::Null);
+        let null_result = matches!(resp.response_result, Ok(serde_json::Value::Null));
         check!(method, null_result, "null (graceful on bad params)");
     }
 
@@ -175,7 +175,7 @@ pub fn run() -> anyhow::Result<()> {
     let unk = recv_response(&client_conn)?;
     check!(
         "unknown method",
-        unk.error.is_none() && unk.result == Some(serde_json::Value::Null),
+        matches!(unk.response_result, Ok(serde_json::Value::Null)),
         "null (not an error)"
     );
 
@@ -188,7 +188,7 @@ pub fn run() -> anyhow::Result<()> {
     }))?;
 
     let shut = recv_response(&client_conn)?;
-    check!("shutdown", shut.error.is_none(), "clean");
+    check!("shutdown", shut.response_result.is_ok(), "clean");
 
     let _ = client_conn.sender.send(Message::Notification(Notification {
         method: "exit".to_string(),

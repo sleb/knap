@@ -5,26 +5,27 @@ use lsp_types::{
     TextDocumentEdit, WorkspaceEdit,
 };
 
+use crate::config::Config;
 use crate::handlers::slug;
-use crate::index::ResolvedLink;
+use crate::index::{NoteIndex, ResolvedLink};
 use crate::{config, edit, handlers, index};
 
 /// A single fix `knap fix` decided to make, paired with a human-readable
 /// description for `--dry-run` output and the applied-fixes summary.
-struct PlannedFix {
+/// `pub(crate)` (not just this module's) since `knap lint --fix` plans and
+/// applies the identical fixes through `plan_fixes`/`apply` below.
+pub(crate) struct PlannedFix {
     edit: WorkspaceEdit,
-    description: String,
+    pub(crate) description: String,
 }
 
 /// `config::for_path` → `index::build`, mirroring `lint`'s target selection.
 /// Works in absolute paths throughout — unlike diagnostics, a fix's
 /// `WorkspaceEdit` carries real URIs (`path_to_uri` panics on a relative
 /// path), so `path` is absolutized up front the same way `rename-file`/
-/// `rename-heading`/`rename-tag` already do. For every link in every target
-/// note, computes the fix `compute_create_missing_file_fix` or
-/// `compute_anchor_fix`+`suggest_anchor_fix` would make — skipping anything
-/// ambiguous — then either prints the plan (`--dry-run`) or merges every
-/// fix's edit into one `WorkspaceEdit` and hands it to `edit::apply`.
+/// `rename-heading`/`rename-tag` already do. Delegates the actual fix
+/// computation to `plan_fixes` (shared with `knap lint --fix`), then either
+/// prints the plan (`--dry-run`) or applies it and prints a summary.
 pub fn run(path: &Path, dry_run: bool) -> anyhow::Result<()> {
     let path_abs = absolute(path)?;
     let config = config::for_path(&path_abs, None)?;
@@ -37,8 +38,42 @@ pub fn run(path: &Path, dry_run: bool) -> anyhow::Result<()> {
         idx.all_notes().map(|n| n.path.clone()).collect()
     };
 
+    let fixes = plan_fixes(&idx, &config, &targets);
+
+    if fixes.is_empty() {
+        println!("no safe fixes found");
+        return Ok(());
+    }
+
+    if dry_run {
+        for fix in &fixes {
+            println!("would {}", fix.description);
+        }
+        return Ok(());
+    }
+
+    let touched = apply(&fixes)?;
+    println!("applied {} fix(es) in {touched} file(s)", fixes.len());
+    for fix in &fixes {
+        println!("{}", fix.description);
+    }
+
+    Ok(())
+}
+
+/// For every link in every note in `targets`, computes the fix
+/// `compute_link_fix`+`suggest_link_fix` (repoint to the one unambiguous
+/// closest-matching note) or, failing that, `compute_create_missing_file_fix`
+/// (stub it out) would make for a broken link, and
+/// `compute_anchor_fix`+`suggest_anchor_fix` would make for a broken anchor
+/// — skipping anything ambiguous in either case. Shared by `fix::run` and
+/// `knap lint --fix`, so both apply exactly the same unambiguous-only
+/// contract; `knap lint --suggest` surfaces the same ranked candidates for
+/// the ambiguous cases this leaves alone, so an agent can pick one and edit
+/// by hand instead of guessing blind.
+pub(crate) fn plan_fixes(idx: &NoteIndex, config: &Config, targets: &[PathBuf]) -> Vec<PlannedFix> {
     let mut fixes: Vec<PlannedFix> = Vec::new();
-    for target in &targets {
+    for target in targets {
         let Some(note) = idx.get_note(target) else {
             continue;
         };
@@ -48,10 +83,29 @@ pub fn run(path: &Path, dry_run: bool) -> anyhow::Result<()> {
             }
             match idx.resolve(&note.path, &link.target) {
                 ResolvedLink::Broken => {
-                    fixes.push(PlannedFix {
-                        edit: handlers::compute_create_missing_file_fix(link, &note.path, &config),
-                        description: format!("create {}", link.target),
-                    });
+                    if let Some(new_target) =
+                        handlers::suggest_link_fix(&link.target, &note.path, idx)
+                    {
+                        fixes.push(PlannedFix {
+                            edit: handlers::compute_link_fix(
+                                &note.path,
+                                link.target_range,
+                                &new_target,
+                            ),
+                            description: format!(
+                                "{}: repoint '{}' → '{new_target}'",
+                                note.path.display(),
+                                link.target
+                            ),
+                        });
+                    } else {
+                        fixes.push(PlannedFix {
+                            edit: handlers::compute_create_missing_file_fix(
+                                link, &note.path, config,
+                            ),
+                            description: format!("create {}", link.target),
+                        });
+                    }
                 }
                 ResolvedLink::Found(target_path) => {
                     let (Some(anchor), Some(anchor_range)) = (&link.anchor, link.anchor_range)
@@ -84,27 +138,18 @@ pub fn run(path: &Path, dry_run: bool) -> anyhow::Result<()> {
             }
         }
     }
+    fixes
+}
 
+/// Merges `fixes` into one `WorkspaceEdit` and applies it, returning the
+/// number of files touched. A no-op (`Ok(0)`, no filesystem access) when
+/// `fixes` is empty — callers don't need to check first.
+pub(crate) fn apply(fixes: &[PlannedFix]) -> anyhow::Result<usize> {
     if fixes.is_empty() {
-        println!("no safe fixes found");
-        return Ok(());
+        return Ok(0);
     }
-
-    if dry_run {
-        for fix in &fixes {
-            println!("would {}", fix.description);
-        }
-        return Ok(());
-    }
-
-    let merged = merge_fixes(&fixes);
-    let touched = edit::apply(&merged)?;
-    println!("applied {} fix(es) in {touched} file(s)", fixes.len());
-    for fix in &fixes {
-        println!("{}", fix.description);
-    }
-
-    Ok(())
+    let merged = merge_fixes(fixes);
+    edit::apply(&merged)
 }
 
 /// Merges every `PlannedFix.edit` into one `document_changes` list — a

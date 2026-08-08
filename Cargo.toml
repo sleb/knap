@@ -4,7 +4,7 @@ version = "0.12.0"
 edition = "2024"
 
 [dependencies]
-lsp-server  = "0.7"
+lsp-server  = "0.10"
 lsp-types   = "0.97"
 pulldown-cmark = "0.13"
 serde       = { version = "1", features = ["derive"] }
@@ -15,7 +15,8 @@ env_logger  = "0.11"
 url         = "2"
 crossbeam-channel = "0.5"
 clap        = { version = "4", features = ["derive"] }
-toml        = "0.8"
+toml        = "1.1"
 
 [dev-dependencies]
 tempfile    = "3"
+rand        = "0.10"

@@ -1,35 +1,43 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.12.0-blue)
+![Version](https://img.shields.io/badge/version-0.13.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Tooling for Markdown notes, built on standard Markdown syntax with no
+Tooling that keeps linked Markdown notes correct — for the human writing them
+and the agent editing alongside — built on standard Markdown syntax with no
 proprietary extensions.
 
 ## Overview
 
-knap uses plain `[text](path/to/note.md)` links. Notes stay valid Markdown
-that renders correctly anywhere — GitHub, static site generators, other
-editors — without knap present. The tooling provides the convenience; the
-files stay clean. See [Architecture](docs/ARCHITECTURE.md) for the full
-design tenets.
+A vault of linked notes breaks quietly: a file gets renamed and every link to
+it goes stale, a heading gets reworded and its anchors dangle, a tag gets
+retired in one note but not the other forty. knap keeps `[text](path.md)`
+links, `#anchor`s, and frontmatter tags correct as both a human and a coding
+agent edit the same files — the same index, the same diagnostics, the same
+refactors, whichever one is holding the pen. Notes stay plain Markdown that
+renders correctly anywhere — GitHub, static site generators, other editors —
+without knap present; the tooling supplies the correctness, the files stay
+clean. See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 
-knap ships as a single binary with two faces:
+knap ships as a single binary with two faces built on the same engine:
 
-- **`knap lsp`** — a
+- **`knap lsp`** — for the human — a
   [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
   server that brings IDE-quality linking, navigation, and refactoring to any
   LSP-compatible editor: Neovim, VS Code, Helix, Zed, and others. Dedicated
   extensions are available for [VS Code](https://github.com/sleb/vscode-knap)
   and [Zed](https://github.com/sleb/zed-knap).
-- **`knap lint` / `knap index` / `knap fix` / `knap rename-*`** — the same
-  engine, available headlessly from the command line for CI, scripts, and
-  coding agents that don't have an editor in the loop.
+- **`knap lint` / `knap index` / `knap fix` / `knap rename-*`** — for the
+  agent — the same checks and refactors, headlessly from the command line, so
+  a coding agent without an editor in the loop can verify its own edits and
+  fix or rename with the same guarantees a human gets from the LSP.
 
 Both faces share one indexing and configuration core: `src/config.rs` loads
 `initializationOptions` or `knap.toml` the same way for every entry point, and
 the note index — files, headings, links, backlinks, tags — is built once and
-reused across all commands.
+reused across all commands. A human renaming a file in their editor and an
+agent running `knap rename-file` get the identical rewrite; a diagnostic the
+LSP would have squiggled is the same one `knap lint` reports.
 
 ## LSP server
 
@@ -142,7 +150,7 @@ stable `code` (`broken-link`, `broken-anchor`, `missing-frontmatter`,
 on `code`, not on the message text, when scripting against `--json` output.
 Exit code is `0` if no problems were found, `1` otherwise.
 
-Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>]`
+Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--fix]`
 
 - `--fail-on <severity>` — minimum severity that causes a non-zero exit
   (`error`, `warning` (default), `info`, or `hint`). `blocking_count` in
@@ -154,6 +162,38 @@ Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>]`
 - `--since <git-ref>` — scope linting to files changed since `<git-ref>`
   (tracked diffs plus untracked new files), instead of the whole workspace.
   Requires a git repository; errors otherwise.
+- `--suggest [N]` — attach up to `N` ranked candidate fixes (closest first,
+  by edit distance) to each `broken-link`/`broken-anchor` diagnostic's `data`
+  field in `--json` output, bare `--suggest` defaults to 3. This is the same
+  ranking `knap fix` uses to decide whether a fix is unambiguous — `--suggest`
+  just shows the whole ranked list instead of collapsing it to one answer, so
+  an agent that's already running `knap lint --json` to verify an edit gets
+  the candidates for the ambiguous cases `fix` declined to touch, in the same
+  call, instead of needing a separate `knap fix --dry-run` round-trip:
+  ```
+  $ knap lint . --json --suggest
+  { "...": "...",
+    "code": "broken-link",
+    "data": { "suggestions": [
+      { "target": "reference/config.md", "distance": 8 },
+      { "target": "reference/cache.md", "distance": 11 }
+    ] } }
+  ```
+- `--fix` — apply every safe fix `knap fix` would make _before_ computing
+  the report, so the diagnostics shown are what's actually left rather than
+  what was true when the command started. Collapses the usual `lint` →
+  `fix` → `lint`-again sequence an agent would otherwise run after every
+  hand-edit into one call. The fix pass itself always runs over the whole
+  `path` root regardless of `--since` (a fix elsewhere can resolve a
+  diagnostic in a file `--since` wouldn't otherwise show); only the report
+  is `--since`-scoped. `--json` output gains a `fixes_applied` field listing
+  what was applied — the one case where `knap lint` mutates files on disk:
+  ```
+  $ knap lint . --json --fix --suggest
+  { "...": "...", "problem_count": 1, "fixes_applied": [
+    "notes/a.md: repoint 'notes/old-name.md' → 'notes/new-name.md'"
+  ] }
+  ```
 
 ## Indexer (`knap index`)
 
@@ -173,20 +213,24 @@ full-workspace listing, unchanged.
 
 ## Fixing (`knap fix`)
 
-Applies the same two safe quick fixes an editor's Code Action menu offers
-(under `knap lsp`), headlessly: create a missing file from a broken link, or
-retarget a broken anchor to the one heading in its target note that's an
-unambiguous best match. Fixes that would be ambiguous — an anchor equally
-close to two or more headings — are left alone for a human (or a
-`knap rename-heading`) to resolve.
+Applies safe quick fixes headlessly: retarget a broken link to the one
+existing note that's an unambiguous best match (by the same edit-distance
+ranking `knap lint --suggest` exposes), falling back to creating the missing
+file when no candidate is unambiguous; retarget a broken anchor to the one
+heading in its target note that's an unambiguous best match. Fixes that
+would be ambiguous — a link or anchor equally close to two or more
+candidates — are left alone for a human (or an agent reading
+`knap lint --suggest`'s ranked candidates) to resolve by hand.
 
 ```
 $ knap fix --dry-run
+would notes/a.md: repoint 'notes/old-name.md' → 'notes/new-name.md'
 would create notes/missing.md
 would notes/a.md: anchor '#old-slug' → '#current-slug'
 
 $ knap fix
-applied 2 fix(es) in 2 file(s)
+applied 3 fix(es) in 3 file(s)
+notes/a.md: repoint 'notes/old-name.md' → 'notes/new-name.md'
 create notes/missing.md
 notes/a.md: anchor '#old-slug' → '#current-slug'
 ```
@@ -232,12 +276,15 @@ apply their edit atomically, and print a summary line on success.
 
 ## Coding agents
 
+This is the other half of the synergy: an agent editing a vault a human also
+writes in shouldn't have to re-derive knap's conventions from `--help` text,
+and shouldn't leave broken links behind for the human to find later.
 `skill/knap/SKILL.md` documents the `lint` → `fix`/`rename-*` → `lint`
-edit-verify loop above for a coding agent working in a vault that has
-`knap` installed — the six diagnostic `code`s, `--fail-on`/`--since`, and
-`knap index <file> --json`. Copy it into a vault's skill directory to teach
-an agent knap's conventions directly instead of it inferring them from
-`--help` text:
+edit-verify loop for a coding agent working in a vault that has `knap`
+installed — the six diagnostic `code`s, `--fail-on`/`--since`, and
+`knap index <file> --json` for a fast, scoped read of just the note it
+touched. Copy it into a vault's skill directory to teach an agent knap's
+conventions directly:
 
 ```
 cp -r skill/knap ~/.claude/skills/
@@ -282,7 +329,11 @@ present, `knap.toml` fills in the rest.
 
 ## Status
 
-v0.12.0. See the [roadmap](docs/ROADMAP.md) for planned releases.
+v0.13.0 — Agent Ergonomics: stable diagnostic `code`s, `knap lint
+--fail-on`/`--since`/`--suggest`/`--fix`, `knap index <file>`, and `knap
+fix`, so a coding agent can lint, fix, and rename a vault as reliably as the
+LSP does for a human. See the [roadmap](docs/ROADMAP.md) for planned
+releases.
 
 ## Documentation
 
