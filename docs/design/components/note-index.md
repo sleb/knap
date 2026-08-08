@@ -90,13 +90,13 @@ needs escaping, see `docs/design/releases/archive/v0.10.2/design.md`) is the lit
 wrapped string, since the parser records the raw text between `(` and `)`
 verbatim. Targets that were never wrapped pass through unchanged.
 
-**Known gap:** `index()`'s `links_to` population (step 3, below) and
-`recheck_incoming()` join `&link.target` directly and do **not** call
-`unescape_link_target` first. A link to a file whose name needs escaping
-(`[text](<My File>)`, resolving correctly via `resolve()`) is therefore never
-recorded in `links_to` — backlinks and Find References miss it even though
-diagnostics correctly show it as resolved. Not fixed as part of v0.10.2;
-tracked as follow-up work, not a documentation gap.
+`index()`'s `links_to` population (step 3, below) and `recheck_incoming()`
+also call `unescape_link_target` before joining, matching `resolve()` —
+fixed in #61 after v0.10.2 shipped without it, where a link to a file whose
+name needed escaping (`[text](<My File>)`) resolved correctly via
+`resolve()` but was silently missing from `links_to`, undercounting
+backlinks and Find References even though diagnostics showed it as
+resolved.
 
 ---
 
@@ -117,16 +117,15 @@ pub fn index(&mut self, note: Note) -> IndexDelta {
     self.all_files.insert(note.path.clone());
 
     // 3. Resolve each local link and populate links_to.
-    // NOTE: unlike resolve(), this does not call unescape_link_target — an
-    // already-wrapped target (`<My File>`) never matches all_files here, so
-    // escaped links are omitted from links_to even when resolve() considers
-    // them resolved. See "Known gap" under resolve() above.
+    // Matches resolve(): unescape before joining, so an already-wrapped
+    // target (`<My File>`) still matches all_files here (#61).
     for link in &note.md_links {
         if link.target.is_empty() || is_url_like(&link.target) {
             continue;
         }
+        let target = unescape_link_target(&link.target);
         let candidate = normalize_path(
-            &note.path.parent().unwrap().join(&link.target)
+            &note.path.parent().unwrap().join(target.as_ref())
         );
         if self.all_files.contains(&candidate) {
             self.links_to.entry(candidate.clone()).or_default().push(LocatedLink {
@@ -176,8 +175,9 @@ fn recheck_incoming(&mut self, new_path: &Path) -> AffectedPaths {
             if link.target.is_empty() || is_url_like(&link.target) {
                 continue;
             }
+            let target = unescape_link_target(&link.target);
             let candidate = normalize_path(
-                &note.path.parent().unwrap().join(&link.target)
+                &note.path.parent().unwrap().join(target.as_ref())
             );
             if candidate != new_path { continue; }
 

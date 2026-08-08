@@ -367,7 +367,20 @@ same safe fixes an editor's code actions offer — creating a missing linked
 file, and replacing a broken anchor with the target file's best-matching
 heading when the match is unambiguous — so I can clear straightforward lint
 findings without hand-writing the edit myself. `--dry-run` previews the plan
-without touching disk.
+without touching disk. When a broken link has one unambiguous best-matching
+existing note (by the same edit-distance ranking `--suggest` exposes, below),
+`knap fix` repoints the link there instead of creating a stub file.
+
+**US-D17** — As an agent, I can pass `--suggest [N]` to `knap lint` to get up
+to `N` ranked candidate fixes (closest match first) attached to each
+`broken-link`/`broken-anchor` diagnostic's `data` field in `--json` output,
+so I can see the same candidates `knap fix` uses to decide — including for
+the ambiguous cases it declines to touch — without a separate `knap fix
+--dry-run` call. I can also pass `--fix` to have `knap lint` apply every
+safe fix first (same as running `knap fix`) and report only what's left,
+collapsing the usual lint → fix → lint-again sequence into one call;
+`fixes_applied` in `--json` output lists what was applied. `--fix` is the
+one case where `knap lint` mutates files on disk.
 
 ---
 

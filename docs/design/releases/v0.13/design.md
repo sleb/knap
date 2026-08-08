@@ -2,14 +2,15 @@
 
 Covers the stories in the v0.13 release:
 
-| Story  | Feature                                                                         |
-| ------ | -------------------------------------------------------------------------------- |
-| US-D11 | Stable `code` field on every `compute_diagnostics` diagnostic                    |
-| US-D16 | `knap lint --fail-on <severity>` — only fail on diagnostics at or above a threshold |
-| US-D12 | `knap lint --since <git-ref>` — scope linting to files changed since a ref       |
-| US-D13 | `knap index <file>` — one note's neighborhood, not the full index               |
-| US-D14 | `knap fix [path] [--dry-run]` — headless quick-fix apply for safe code actions   |
-| US-D15 | `skill/knap/SKILL.md` — shippable skill documenting the agent lint/fix/rename loop |
+| Story  | Feature                                                                                                                      |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| US-D11 | Stable `code` field on every `compute_diagnostics` diagnostic                                                                |
+| US-D16 | `knap lint --fail-on <severity>` — only fail on diagnostics at or above a threshold                                          |
+| US-D12 | `knap lint --since <git-ref>` — scope linting to files changed since a ref                                                   |
+| US-D13 | `knap index <file>` — one note's neighborhood, not the full index                                                            |
+| US-D14 | `knap fix [path] [--dry-run]` — headless quick-fix apply for safe code actions                                               |
+| US-D15 | `skill/knap/SKILL.md` — shippable skill documenting the agent lint/fix/rename loop                                           |
+| US-D17 | `knap lint --suggest [N]` — ranked candidate fixes on each diagnostic; `knap lint --fix` — apply safe fixes before reporting |
 
 ---
 
@@ -66,14 +67,14 @@ const CODE_UNKNOWN_FIELD: &str = "unknown-field";
 Mapping (six call sites in `compute_diagnostics` today, all currently ending
 `..Default::default()` with no `code`):
 
-| Diagnostic                                                     | Code                        |
-| ---------------------------------------------------------------- | ---------------------------- |
-| `ResolvedLink::Broken` — link target not found                   | `CODE_BROKEN_LINK`           |
-| Anchor doesn't match any heading in the resolved target           | `CODE_BROKEN_ANCHOR`         |
-| Required field missing, note has **no** frontmatter block at all | `CODE_MISSING_FRONTMATTER`   |
-| Required field missing, frontmatter block **exists**              | `CODE_MISSING_REQUIRED_FIELD` |
-| Value not in an allowed list                                       | `CODE_INVALID_FIELD_VALUE`   |
-| Frontmatter key not recognized by the schema                     | `CODE_UNKNOWN_FIELD`         |
+| Diagnostic                                                       | Code                          |
+| ---------------------------------------------------------------- | ----------------------------- |
+| `ResolvedLink::Broken` — link target not found                   | `CODE_BROKEN_LINK`            |
+| Anchor doesn't match any heading in the resolved target          | `CODE_BROKEN_ANCHOR`          |
+| Required field missing, note has **no** frontmatter block at all | `CODE_MISSING_FRONTMATTER`    |
+| Required field missing, frontmatter block **exists**             | `CODE_MISSING_REQUIRED_FIELD` |
+| Value not in an allowed list                                     | `CODE_INVALID_FIELD_VALUE`    |
+| Frontmatter key not recognized by the schema                     | `CODE_UNKNOWN_FIELD`          |
 
 Each becomes `code: Some(NumberOrString::String(CODE_XXX.to_string())), ..`
 alongside the existing `range`/`severity`/`message`/`source` fields — no
@@ -339,7 +340,7 @@ file(s)`, exit 0 (not an error).
 
 No new flag. `Index`'s existing `path: PathBuf` already accepts a file or a
 directory today, but a file argument currently does something surprising
-and undocumented: `config::for_path` treats the file's *parent directory*
+and undocumented: `config::for_path` treats the file's _parent directory_
 as the index root, so `knap index some/note.md` silently prints the whole
 parent directory's index, not just that note. This release gives file input
 a real, documented meaning: print just that one note's neighborhood.
@@ -347,7 +348,7 @@ a real, documented meaning: print just that one note's neighborhood.
 Doing this correctly needs one more fix, not just output-narrowing. This
 release's `NoteSummary` includes `backlinks` — unlike `lint`, which only
 ever needs a target file's own outgoing links, `index` on a single file
-still needs the *whole vault* indexed to find who links to it. Indexing off
+still needs the _whole vault_ indexed to find who links to it. Indexing off
 `file.parent()` (today's behavior) would silently drop backlinks from
 anywhere else in the vault — the same bug `rename-heading`/`rename-tag`
 already hit and fixed in v0.12 by resolving config off `cwd` instead of the
@@ -450,6 +451,121 @@ Combining the two is a reasonable future extension, not built now, same as
 how v0.12 left `edit::apply`'s `Delete` arm as an explicit not-yet-implemented
 error rather than guessing at unneeded scope.
 
+### `knap lint --suggest [N]` / `knap lint --fix` (added after Step 9)
+
+Running the lint → fix → lint-again loop against real vaults surfaced two
+remaining gaps `knap fix` alone didn't close: an ambiguous `broken-link`/
+`broken-anchor` — the exact cases `knap fix` declines to touch — gave an
+agent no candidates to choose from short of a separate `knap fix --dry-run`
+call, and the loop itself was still three round-trips (`lint`, `fix`,
+`lint` again) for the common case of "apply everything safe, then tell me
+what's left."
+
+**Link-fix ranking, mirroring `suggest_anchor_fix`/`edit_distance` (Step 4):**
+
+```rust
+/// Every heading in `target_note`, ranked by GFM-slug edit distance to
+/// `broken_slug`, closest first. Shared by `suggest_anchor_fix` (wants only
+/// the unambiguous winner) and `knap lint --suggest` (wants the whole
+/// ranked list).
+fn rank_anchor_candidates<'a>(broken_slug: &str, target_note: &'a parser::Note)
+    -> Vec<(usize, &'a parser::Heading)>
+
+/// Every note in `index`, ranked by edit distance between `broken_target`
+/// and that note's path relative to `source`'s directory, closest first.
+/// The link-target counterpart to `rank_anchor_candidates`.
+fn rank_link_candidates(broken_target: &str, source: &Path, index: &NoteIndex)
+    -> Vec<(usize, String)>
+
+/// The single best-guess existing note to repoint a broken link at, or
+/// `None` when ambiguous or the vault has no other notes. A link can't be
+/// "fixed" by pointing at its own note, so `source` is excluded from
+/// candidates. Used only by `knap fix`/`knap lint --fix`.
+pub(crate) fn suggest_link_fix(broken_target: &str, source: &Path, index: &NoteIndex)
+    -> Option<String>
+
+/// The `WorkspaceEdit` that repoints a broken link's `target_range` at
+/// `new_target` (escaped for insertion). Mirrors `compute_anchor_fix` for
+/// the link-target case.
+pub(crate) fn compute_link_fix(source: &Path, target_range: Range, new_target: &str)
+    -> WorkspaceEdit
+```
+
+`suggest_anchor_fix` is refactored to call `rank_anchor_candidates` and read
+off the unambiguous winner (`[(_, h)]` or `[(best, h), (next, _), ..] if
+best < next`) instead of its own hand-rolled tie-tracking loop — same
+behavior, shared ranking logic. `plan_fixes` (the fix-selection body,
+extracted from `fix::run` — see below) tries `suggest_link_fix` first for a
+broken link, falling back to `compute_create_missing_file_fix` (create a
+stub) when no candidate is unambiguous.
+
+**`--suggest [N]` — ranked candidates on `--json` diagnostics:**
+
+```rust
+#[derive(serde::Serialize)]
+struct FixSuggestion {
+    target: String,  // repoint path, or "#slug" for an anchor candidate
+    distance: usize,
+}
+
+/// Same diagnostics as `compute_diagnostics`, but each `broken-link`/
+/// `broken-anchor` diagnostic also carries up to `top_n` ranked candidates
+/// in its `data` field — the same ranking `knap fix` uses to decide,
+/// exposed in full instead of collapsed to one answer. Used only by `knap
+/// lint --suggest`; the LSP server keeps calling plain `compute_diagnostics`
+/// — editors don't consume `data` here, and ranking every broken link/anchor
+/// against the whole vault on every keystroke-triggered publish would be
+/// wasted work.
+pub(crate) fn compute_diagnostics_with_suggestions(
+    path: &Path, index: &NoteIndex, config: &Config, top_n: usize,
+) -> Vec<Diagnostic>
+```
+
+`src/cli/mod.rs`: `Lint` gains `suggest: Option<usize>` —
+`#[arg(long, num_args = 0..=1, default_missing_value = "3")]` so bare
+`--suggest` defaults to 3 candidates, an explicit `--suggest 5` overrides
+it, and omitting the flag entirely means 0 (off, `compute_diagnostics_with_suggestions`
+short-circuits to plain `compute_diagnostics` behavior). `src/cli/lint.rs`
+threads `suggest_n` into `compute_diagnostics_with_suggestions` per target
+file instead of calling `compute_diagnostics` directly.
+
+**`--fix` — apply safe fixes before reporting:**
+
+`src/cli/fix.rs`'s fix-selection loop (`fix::run`'s body) is extracted into
+two `pub(crate)` functions so `knap lint --fix` can reuse the identical
+logic instead of a second implementation:
+
+```rust
+pub(crate) struct PlannedFix { edit: WorkspaceEdit, pub(crate) description: String }
+pub(crate) fn plan_fixes(idx: &NoteIndex, config: &Config, targets: &[PathBuf]) -> Vec<PlannedFix>
+pub(crate) fn apply(fixes: &[PlannedFix]) -> anyhow::Result<usize>
+```
+
+`src/cli/mod.rs`: `Lint` gains `fix: bool`. `src/cli/lint.rs`: when `fix` is
+set, `run` absolutizes `path` (a fix's `WorkspaceEdit` needs real URIs, same
+reason `fix::run`/`rename-*` already absolutize), builds its own index off
+that absolute path, runs `plan_fixes`/`apply` over the whole target root —
+**not** narrowed by `--since`, since a fix elsewhere in the vault (e.g. a
+rename's target) can resolve a diagnostic in a file `--since` wouldn't
+otherwise consider "yours" — then rebuilds `idx` from disk so the
+diagnostics computed afterward reflect the post-fix state, not the stale
+pre-fix one. `LintReport` gains
+`fixes_applied: Option<Vec<String>>` — `Some(descriptions)` only when `--fix`
+was passed, `None` (and skipped in JSON output via `skip_serializing_if`)
+otherwise. Text mode prints `applied N fix(es)` (or `no safe fixes found`)
+plus each description, before the usual diagnostic lines.
+
+`--fix` is the one case where `knap lint` mutates files on disk — called
+out explicitly in `README.md` and `SKILL.md` since every other `lint`
+invocation is read-only.
+
+Also lands in this pass, incidental to the above: `slug` (`src/handlers.rs`)
+becomes `pub` (was `pub(crate)`) since `src/cli/fix.rs` needs it to compare
+an anchor against a target note's headings when trying the anchor branch of
+`plan_fixes`; an `lsp-server` 0.7 → 0.10 dependency bump with matching API
+adjustments in `src/cli/check.rs` (`resp.result`/`resp.error` → `resp.response_result`),
+no behavior change.
+
 ---
 
 ## Documentation Changes
@@ -490,25 +606,25 @@ actually exists in this release.
 
 ### Unit tests
 
-| Test (file)                                                          | What it verifies                                                                                     |
-| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `diagnostic_broken_link_has_broken_link_code` (`src/handlers.rs`)       | Broken-link diagnostic's `code` is `Some(NumberOrString::String("broken-link".into()))`              |
-| `diagnostic_broken_anchor_has_broken_anchor_code` (`src/handlers.rs`)   | Broken-anchor diagnostic's `code` is `"broken-anchor"`                                                |
-| `diagnostic_missing_frontmatter_has_missing_frontmatter_code` (`src/handlers.rs`) | Required field missing on a note with **no** frontmatter block → `code` is `"missing-frontmatter"` |
-| `diagnostic_missing_required_field_has_missing_required_field_code` (`src/handlers.rs`) | Required field missing on a note **with** a frontmatter block → `code` is `"missing-required-field"` |
-| `diagnostic_invalid_value_has_invalid_field_value_code` (`src/handlers.rs`) | Value not in the allowed list → `code` is `"invalid-field-value"`                                    |
-| `diagnostic_unknown_key_has_unknown_field_code` (`src/handlers.rs`)     | Unrecognized frontmatter key → `code` is `"unknown-field"`                                            |
-| `edit_distance_identical_strings_is_zero` (`src/handlers.rs`)          | `edit_distance("x", "x") == 0`                                                                       |
-| `edit_distance_counts_substitutions` (`src/handlers.rs`)               | `edit_distance("abc", "abd") == 1`                                                                    |
-| `suggest_anchor_fix_picks_unique_closest` (`src/handlers.rs`)          | A target with headings at distinct distances returns the closest one                                 |
-| `suggest_anchor_fix_none_on_tied_distance` (`src/handlers.rs`)         | Two headings equally close to the broken slug → `None`                                                |
-| `suggest_anchor_fix_none_when_no_headings` (`src/handlers.rs`)         | Target note has zero headings → `None`                                                                |
-| `compute_create_missing_file_fix_matches_prior_action_shape` (`src/handlers.rs`) | Output matches the `document_changes` shape `handle_code_actions` built inline before extraction (regression net) |
-| `compute_anchor_fix_replaces_anchor_range` (`src/handlers.rs`)         | Single `TextEdit` at `anchor_range` with `new_anchor` as `new_text`                                    |
-| `note_report_matches_report_entry` (`src/index/mod.rs`)                | `idx.note_report(path)` equals the corresponding entry in `idx.report().notes`                       |
-| `note_report_none_for_unindexed_path` (`src/index/mod.rs`)             | A path not in the index → `None`, not a panic                                                        |
-| `severity_rank_orders_error_above_warning_above_info_above_hint` (`src/cli/lint.rs`) | `severity_rank` values are strictly increasing across `ERROR, WARNING/None, INFORMATION, HINT`   |
-| `fail_on_default_matches_todays_behavior` (`src/cli/lint.rs`)          | `FailOn::Warning.rank()` (the default) admits every diagnostic `compute_diagnostics` emits today (all `WARNING`) |
+| Test (file)                                                                             | What it verifies                                                                                                  |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `diagnostic_broken_link_has_broken_link_code` (`src/handlers.rs`)                       | Broken-link diagnostic's `code` is `Some(NumberOrString::String("broken-link".into()))`                           |
+| `diagnostic_broken_anchor_has_broken_anchor_code` (`src/handlers.rs`)                   | Broken-anchor diagnostic's `code` is `"broken-anchor"`                                                            |
+| `diagnostic_missing_frontmatter_has_missing_frontmatter_code` (`src/handlers.rs`)       | Required field missing on a note with **no** frontmatter block → `code` is `"missing-frontmatter"`                |
+| `diagnostic_missing_required_field_has_missing_required_field_code` (`src/handlers.rs`) | Required field missing on a note **with** a frontmatter block → `code` is `"missing-required-field"`              |
+| `diagnostic_invalid_value_has_invalid_field_value_code` (`src/handlers.rs`)             | Value not in the allowed list → `code` is `"invalid-field-value"`                                                 |
+| `diagnostic_unknown_key_has_unknown_field_code` (`src/handlers.rs`)                     | Unrecognized frontmatter key → `code` is `"unknown-field"`                                                        |
+| `edit_distance_identical_strings_is_zero` (`src/handlers.rs`)                           | `edit_distance("x", "x") == 0`                                                                                    |
+| `edit_distance_counts_substitutions` (`src/handlers.rs`)                                | `edit_distance("abc", "abd") == 1`                                                                                |
+| `suggest_anchor_fix_picks_unique_closest` (`src/handlers.rs`)                           | A target with headings at distinct distances returns the closest one                                              |
+| `suggest_anchor_fix_none_on_tied_distance` (`src/handlers.rs`)                          | Two headings equally close to the broken slug → `None`                                                            |
+| `suggest_anchor_fix_none_when_no_headings` (`src/handlers.rs`)                          | Target note has zero headings → `None`                                                                            |
+| `compute_create_missing_file_fix_matches_prior_action_shape` (`src/handlers.rs`)        | Output matches the `document_changes` shape `handle_code_actions` built inline before extraction (regression net) |
+| `compute_anchor_fix_replaces_anchor_range` (`src/handlers.rs`)                          | Single `TextEdit` at `anchor_range` with `new_anchor` as `new_text`                                               |
+| `note_report_matches_report_entry` (`src/index/mod.rs`)                                 | `idx.note_report(path)` equals the corresponding entry in `idx.report().notes`                                    |
+| `note_report_none_for_unindexed_path` (`src/index/mod.rs`)                              | A path not in the index → `None`, not a panic                                                                     |
+| `severity_rank_orders_error_above_warning_above_info_above_hint` (`src/cli/lint.rs`)    | `severity_rank` values are strictly increasing across `ERROR, WARNING/None, INFORMATION, HINT`                    |
+| `fail_on_default_matches_todays_behavior` (`src/cli/lint.rs`)                           | `FailOn::Warning.rank()` (the default) admits every diagnostic `compute_diagnostics` emits today (all `WARNING`)  |
 
 Existing `handle_code_actions` and `compute_diagnostics` tests must stay
 green unmodified — the extractions and the `code` addition are additive, not
@@ -516,18 +632,25 @@ behavior changes to which diagnostics or actions fire.
 
 ### Integration tests (`tests/cli.rs`, extending v0.11/v0.12's suite)
 
-| Test                                             | What it verifies                                                                                       |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `lint_json_diagnostics_include_stable_code`       | `knap lint tests/fixtures/lint_basic --json` → both diagnostics carry `code` (`broken-link`, `broken-anchor`) |
-| `lint_fail_on_error_passes_when_only_warnings_present` | `--fail-on error` on `lint_basic` (WARNING-only diagnostics) → exit 0                                |
-| `lint_fail_on_warning_matches_default_behavior`   | `--fail-on warning` (and the flag omitted) both exit 1 on `lint_basic`, identical to today               |
-| `lint_since_scopes_to_git_changed_files`          | git-initialized fixture, two notes, a commit, then a broken link introduced in only one; `--since <that commit>` reports only the touched file |
-| `lint_since_includes_untracked_new_files`         | A new, uncommitted note with a broken link is included by `--since <ref>`                                |
-| `lint_since_outside_git_repo_errors`              | Non-zero exit, clear stderr, when `--since` is used outside a git worktree                               |
-| `index_file_path_prints_single_note_neighborhood` | `knap index <file> --json` → parses as one `NoteSummary` object, not an `IndexReport` envelope             |
+| Test                                                            | What it verifies                                                                                                                                                                                            |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lint_json_diagnostics_include_stable_code`                     | `knap lint tests/fixtures/lint_basic --json` → both diagnostics carry `code` (`broken-link`, `broken-anchor`)                                                                                               |
+| `lint_fail_on_error_passes_when_only_warnings_present`          | `--fail-on error` on `lint_basic` (WARNING-only diagnostics) → exit 0                                                                                                                                       |
+| `lint_fail_on_warning_matches_default_behavior`                 | `--fail-on warning` (and the flag omitted) both exit 1 on `lint_basic`, identical to today                                                                                                                  |
+| `lint_since_scopes_to_git_changed_files`                        | git-initialized fixture, two notes, a commit, then a broken link introduced in only one; `--since <that commit>` reports only the touched file                                                              |
+| `lint_since_includes_untracked_new_files`                       | A new, uncommitted note with a broken link is included by `--since <ref>`                                                                                                                                   |
+| `lint_since_outside_git_repo_errors`                            | Non-zero exit, clear stderr, when `--since` is used outside a git worktree                                                                                                                                  |
+| `index_file_path_prints_single_note_neighborhood`               | `knap index <file> --json` → parses as one `NoteSummary` object, not an `IndexReport` envelope                                                                                                              |
 | `index_file_path_includes_backlinks_from_outside_its_directory` | A note in a subdirectory, linked from a note in a sibling directory; `knap index <the nested file>` (run from the vault root) still reports the backlink — proves the `cwd`-rooted fix, not `file.parent()` |
-| `index_unindexed_file_path_errors`                | Non-zero exit for a file path the index doesn't have                                                      |
-| `fix_creates_missing_file`                        | Broken-link fixture → `knap fix` creates the stub file; a subsequent `knap lint` is clean                 |
-| `fix_replaces_unambiguous_broken_anchor`           | Fixture with a broken anchor and one clearly-closest heading → rewritten; subsequent `knap lint` is clean |
-| `fix_skips_ambiguous_anchor`                       | Fixture with a broken anchor and two equally-close headings → left alone; still flagged by `knap lint`    |
-| `fix_dry_run_makes_no_changes`                     | `--dry-run` prints the plan; the fixture directory is byte-for-byte unchanged                             |
+| `index_unindexed_file_path_errors`                              | Non-zero exit for a file path the index doesn't have                                                                                                                                                        |
+| `fix_creates_missing_file`                                      | Broken-link fixture → `knap fix` creates the stub file; a subsequent `knap lint` is clean                                                                                                                   |
+| `fix_replaces_unambiguous_broken_anchor`                        | Fixture with a broken anchor and one clearly-closest heading → rewritten; subsequent `knap lint` is clean                                                                                                   |
+| `fix_skips_ambiguous_anchor`                                    | Fixture with a broken anchor and two equally-close headings → left alone; still flagged by `knap lint`                                                                                                      |
+| `fix_dry_run_makes_no_changes`                                  | `--dry-run` prints the plan; the fixture directory is byte-for-byte unchanged                                                                                                                               |
+| `fix_repoints_unambiguous_broken_link`                          | `fix_repoint_broken_link` fixture → `knap fix` rewrites the broken link's target to the one unambiguous existing note, not a created stub                                                                   |
+| `fix_creates_stub_when_broken_link_is_ambiguous`                | `fix_ambiguous_broken_link` fixture (two equally-close candidate notes) → `knap fix` falls back to creating the missing file instead of guessing                                                            |
+| `lint_suggest_attaches_ranked_candidates_to_broken_link`        | `--suggest` on a broken-link fixture → `data.suggestions` is a ranked array, closest candidate first                                                                                                        |
+| `lint_without_suggest_omits_data`                               | `--suggest` omitted → diagnostics carry no `data` field, unchanged from pre-Step-10 output                                                                                                                  |
+| `lint_fix_applies_unambiguous_fixes_and_reports_post_fix_state` | `--fix` on a vault with one unambiguous broken link → `fixes_applied` lists it, and it's absent from the reported diagnostics                                                                               |
+| `lint_fix_leaves_ambiguous_diagnostics_with_suggestions`        | `--fix --suggest` on a vault with one ambiguous broken anchor → left in the report, still carrying `data.suggestions`                                                                                       |
+| `lint_without_fix_does_not_touch_disk`                          | `--fix` omitted → fixture directory is byte-for-byte unchanged after `knap lint`, same read-only guarantee every other `lint` invocation has                                                                |

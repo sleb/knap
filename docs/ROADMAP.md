@@ -25,7 +25,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.11](#v011--headless-cli-released-2026-08-04)                                  | Headless CLI                               | Released 2026-08-04 |
 | [v0.11.1](#v0111--lint--index-false-positives-released-2026-08-05)                | Lint & Index False Positives               | Released 2026-08-05 |
 | [v0.12](#v012--headless-rename-released-2026-08-07)                               | Headless Rename                            | Released 2026-08-07 |
-| [v0.13](#v013--agent-ergonomics)                                                  | Agent Ergonomics                           | Planned             |
+| [v0.13](#v013--agent-ergonomics-released-2026-08-08)                              | Agent Ergonomics                           | Released 2026-08-08 |
 | [v0.14](#v014--daily-notes)                                                       | Daily Notes                                | Planned             |
 | [v0.15](#v015--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
 
@@ -361,7 +361,7 @@ See `docs/design/releases/v0.12/design.md` for the full design.
 
 ---
 
-## v0.13 — Agent Ergonomics
+## v0.13 — Agent Ergonomics _(released 2026-08-08)_
 
 **Goal:** Make the headless CLI's output something an agent can act on
 programmatically, not just read — and make repeated lint/index calls cheap
@@ -377,14 +377,15 @@ no headless equivalent of the two safe code actions an editor session already
 offers. No new LSP capability ships this release — every change is either
 CLI surface or internal to already-shared `handlers::` logic.
 
-| Story  | Feature                                                                                   |
-| ------ | ------------------------------------------------------------------------------------------ |
-| US-D11 | Stable `code` field on every diagnostic (`knap lint` and editor diagnostics alike)         |
-| US-D16 | `knap lint --fail-on <severity>` — only fail on diagnostics at or above a threshold        |
-| US-D12 | `knap lint --since <git-ref>` — scope linting to files changed since a ref                |
-| US-D13 | `knap index <file>` — one note's neighborhood, not the full workspace index                |
-| US-D14 | `knap fix [path] [--dry-run]` — headless quick-fix apply for safe code actions             |
-| US-D15 | `skill/knap/SKILL.md` — shippable skill documenting the agent lint/fix/rename loop         |
+| Story  | Feature                                                                                         |
+| ------ | ----------------------------------------------------------------------------------------------- |
+| US-D11 | Stable `code` field on every diagnostic (`knap lint` and editor diagnostics alike)              |
+| US-D16 | `knap lint --fail-on <severity>` — only fail on diagnostics at or above a threshold             |
+| US-D12 | `knap lint --since <git-ref>` — scope linting to files changed since a ref                      |
+| US-D13 | `knap index <file>` — one note's neighborhood, not the full workspace index                     |
+| US-D14 | `knap fix [path] [--dry-run]` — headless quick-fix apply for safe code actions                  |
+| US-D15 | `skill/knap/SKILL.md` — shippable skill documenting the agent lint/fix/rename loop              |
+| US-D17 | `knap lint --suggest [N]` / `--fix` — ranked candidate fixes, and apply-then-report in one call |
 
 See `docs/design/releases/v0.13/design.md` for the full design, including two
 corrections found while scoping: a sixth diagnostic code

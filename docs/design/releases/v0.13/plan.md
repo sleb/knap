@@ -10,17 +10,18 @@ down untested code for the next step to build on.
 
 ## Status
 
-| Step                                                          | Status | Notes |
-| ---------------------------------------------------------------- | ------ | ----- |
-| 1 — Stable diagnostic `code`s                                    | Done   |       |
-| 2 — `NoteIndex::note_report`                                     | Done   |       |
-| 3 — Extract `compute_create_missing_file_fix` + `compute_anchor_fix` | Done   |       |
-| 4 — `suggest_anchor_fix` + `edit_distance`                       | Done   |       |
-| 5 — `knap lint --fail-on`                                        | Done   |       |
-| 6 — `knap lint --since`                                          | Done   |       |
-| 7 — `knap index <file>` scopes to one note                       | Done   |       |
-| 8 — `knap fix`                                                   | Done   |       |
-| 9 — `SKILL.md` + integration tests + docs                        | Done   |       |
+| Step                                                                 | Status | Notes                                       |
+| -------------------------------------------------------------------- | ------ | ------------------------------------------- |
+| 1 — Stable diagnostic `code`s                                        | Done   |                                             |
+| 2 — `NoteIndex::note_report`                                         | Done   |                                             |
+| 3 — Extract `compute_create_missing_file_fix` + `compute_anchor_fix` | Done   |                                             |
+| 4 — `suggest_anchor_fix` + `edit_distance`                           | Done   |                                             |
+| 5 — `knap lint --fail-on`                                            | Done   |                                             |
+| 6 — `knap lint --since`                                              | Done   |                                             |
+| 7 — `knap index <file>` scopes to one note                           | Done   |                                             |
+| 8 — `knap fix`                                                       | Done   |                                             |
+| 9 — `SKILL.md` + integration tests + docs                            | Done   |                                             |
+| 10 — `knap lint --suggest`/`--fix`                                   | Done   | Added after Step 9, folded into v0.13 scope |
 
 ---
 
@@ -43,14 +44,14 @@ confirm they fail — then add the `code` fields until green.
 
 **Unit tests:**
 
-| Test                                                                   | What it verifies                                          |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `diagnostic_broken_link_has_broken_link_code`                             | `code == "broken-link"`                                    |
-| `diagnostic_broken_anchor_has_broken_anchor_code`                         | `code == "broken-anchor"`                                  |
-| `diagnostic_missing_frontmatter_has_missing_frontmatter_code`             | No frontmatter block at all → `code == "missing-frontmatter"` |
-| `diagnostic_missing_required_field_has_missing_required_field_code`      | Frontmatter exists, one required key absent → `code == "missing-required-field"` |
-| `diagnostic_invalid_value_has_invalid_field_value_code`                  | `code == "invalid-field-value"`                             |
-| `diagnostic_unknown_key_has_unknown_field_code`                          | `code == "unknown-field"`                                   |
+| Test                                                                | What it verifies                                                                 |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `diagnostic_broken_link_has_broken_link_code`                       | `code == "broken-link"`                                                          |
+| `diagnostic_broken_anchor_has_broken_anchor_code`                   | `code == "broken-anchor"`                                                        |
+| `diagnostic_missing_frontmatter_has_missing_frontmatter_code`       | No frontmatter block at all → `code == "missing-frontmatter"`                    |
+| `diagnostic_missing_required_field_has_missing_required_field_code` | Frontmatter exists, one required key absent → `code == "missing-required-field"` |
+| `diagnostic_invalid_value_has_invalid_field_value_code`             | `code == "invalid-field-value"`                                                  |
+| `diagnostic_unknown_key_has_unknown_field_code`                     | `code == "unknown-field"`                                                        |
 
 Existing `compute_diagnostics`/`schema_diag_*` tests must stay green
 unmodified — this step only adds a field, it never changes which
@@ -86,10 +87,10 @@ fail to compile until `note_report`/`note_summary` exist.
 
 **Unit tests:**
 
-| Test                                    | What it verifies                                                              |
-| ------------------------------------------ | -------------------------------------------------------------------------------- |
-| `note_report_matches_report_entry`         | `idx.note_report(path)` equals the corresponding entry in `idx.report().notes`    |
-| `note_report_none_for_unindexed_path`      | An unindexed path → `None`, no panic                                             |
+| Test                                  | What it verifies                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------------ |
+| `note_report_matches_report_entry`    | `idx.note_report(path)` equals the corresponding entry in `idx.report().notes` |
+| `note_report_none_for_unindexed_path` | An unindexed path → `None`, no panic                                           |
 
 Existing `report`-related tests (if any) must stay green unmodified.
 
@@ -120,10 +121,10 @@ Write the new unit tests first against the extracted functions.
 
 **Unit tests:**
 
-| Test                                                    | What it verifies                                                                             |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Test                                                         | What it verifies                                                                                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
 | `compute_create_missing_file_fix_matches_prior_action_shape` | Output's `document_changes` matches what `handle_code_actions` built inline before this step (regression net) |
-| `compute_anchor_fix_replaces_anchor_range`                    | Single `TextEdit` at `anchor_range`, `new_text == new_anchor`                                    |
+| `compute_anchor_fix_replaces_anchor_range`                   | Single `TextEdit` at `anchor_range`, `new_text == new_anchor`                                                 |
 
 Existing `handle_code_actions` tests (`"Create note"`, `"Change anchor to..."`)
 must stay green unmodified — proves the extraction didn't change LSP
@@ -157,13 +158,13 @@ confirm the tests fail, then implement.
 
 **Unit tests:**
 
-| Test                                              | What it verifies                                                      |
-| ------------------------------------------------------ | -------------------------------------------------------------------------- |
-| `edit_distance_identical_strings_is_zero`              | `edit_distance("x", "x") == 0`                                             |
-| `edit_distance_counts_substitutions`                    | `edit_distance("abc", "abd") == 1`                                        |
-| `suggest_anchor_fix_picks_unique_closest`              | Headings at distinct distances → the closest one is returned              |
-| `suggest_anchor_fix_none_on_tied_distance`             | Two headings equally close → `None`                                       |
-| `suggest_anchor_fix_none_when_no_headings`             | Target note has zero headings → `None`                                    |
+| Test                                       | What it verifies                                             |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| `edit_distance_identical_strings_is_zero`  | `edit_distance("x", "x") == 0`                               |
+| `edit_distance_counts_substitutions`       | `edit_distance("abc", "abd") == 1`                           |
+| `suggest_anchor_fix_picks_unique_closest`  | Headings at distinct distances → the closest one is returned |
+| `suggest_anchor_fix_none_on_tied_distance` | Two headings equally close → `None`                          |
+| `suggest_anchor_fix_none_when_no_headings` | Target note has zero headings → `None`                       |
 
 > **Manual checkpoint:** none — pure function, no CLI surface yet. Verified
 > purely by `cargo test`.
@@ -189,17 +190,17 @@ file.
 
 **Unit tests:**
 
-| Test                                                          | What it verifies                                                                    |
-| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `severity_rank_orders_error_above_warning_above_info_above_hint`  | Rank values strictly increase across `ERROR, WARNING/None, INFORMATION, HINT`             |
-| `fail_on_default_matches_todays_behavior`                          | `FailOn::Warning.rank()` admits every diagnostic `compute_diagnostics` emits today       |
+| Test                                                             | What it verifies                                                                   |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `severity_rank_orders_error_above_warning_above_info_above_hint` | Rank values strictly increase across `ERROR, WARNING/None, INFORMATION, HINT`      |
+| `fail_on_default_matches_todays_behavior`                        | `FailOn::Warning.rank()` admits every diagnostic `compute_diagnostics` emits today |
 
 **Integration tests:**
 
-| Test                                                        | What it verifies                                                        |
-| ------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `lint_fail_on_error_passes_when_only_warnings_present`         | `--fail-on error` on `lint_basic` (WARNING-only) → exit 0                     |
-| `lint_fail_on_warning_matches_default_behavior`                | `--fail-on warning` and the flag omitted both exit 1 on `lint_basic`, identical to today |
+| Test                                                   | What it verifies                                                                         |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `lint_fail_on_error_passes_when_only_warnings_present` | `--fail-on error` on `lint_basic` (WARNING-only) → exit 0                                |
+| `lint_fail_on_warning_matches_default_behavior`        | `--fail-on warning` and the flag omitted both exit 1 on `lint_basic`, identical to today |
 
 > **Manual checkpoint:** `knap lint tests/fixtures/lint_basic --fail-on
 error` exits 0 (`echo $?`); `knap lint tests/fixtures/lint_basic` (no flag)
@@ -224,11 +225,11 @@ mock the NoteIndex" testing guideline: here the thing to avoid mocking is
 
 **Integration tests:**
 
-| Test                                                | What it verifies                                                                                                                     |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `lint_since_scopes_to_git_changed_files`               | git-initialized fixture, two clean notes committed, then a broken link introduced in only one; `--since <that commit>` reports only the touched file |
-| `lint_since_includes_untracked_new_files`              | A new, uncommitted note with a broken link is included by `--since <ref>`                                                                    |
-| `lint_since_outside_git_repo_errors`                   | Non-zero exit, stderr mentions git, when `--since` is used outside a git worktree                                                             |
+| Test                                      | What it verifies                                                                                                                                     |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lint_since_scopes_to_git_changed_files`  | git-initialized fixture, two clean notes committed, then a broken link introduced in only one; `--since <that commit>` reports only the touched file |
+| `lint_since_includes_untracked_new_files` | A new, uncommitted note with a broken link is included by `--since <ref>`                                                                            |
+| `lint_since_outside_git_repo_errors`      | Non-zero exit, stderr mentions git, when `--since` is used outside a git worktree                                                                    |
 
 > **Manual checkpoint:** In a scratch vault under git, commit a clean note,
 > break a link in it without committing, run `knap lint . --since HEAD`;
@@ -241,11 +242,11 @@ mock the NoteIndex" testing guideline: here the thing to avoid mocking is
 
 Uses Step 2's `note_report`. No new flag — `Index`'s existing `path:
 PathBuf` already accepts a file, but today that silently indexes and prints
-the file's whole *parent directory*, not the file itself (an undocumented,
+the file's whole _parent directory_, not the file itself (an undocumented,
 surprising quirk of `config::for_path`'s file handling). This step gives
 file input real meaning, and fixes a correctness gap along the way: since
 `NoteSummary` carries `backlinks`, a single-file query still needs the
-*whole vault* indexed (unlike `lint`, which only needs the target file's own
+_whole vault_ indexed (unlike `lint`, which only needs the target file's own
 outgoing links) — so this reuses the `cwd`-rooted fix
 `rename-heading`/`rename-tag` already established in v0.12, rather than
 indexing off `file.parent()`.
@@ -266,11 +267,11 @@ tests) — covered by the integration tests below.
 
 **Integration tests:**
 
-| Test                                                       | What it verifies                                                                                                          |
-| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `index_file_path_prints_single_note_neighborhood`               | `knap index <file> --json` parses as one `NoteSummary` object, not an `IndexReport`                                        |
+| Test                                                            | What it verifies                                                                                                                               |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index_file_path_prints_single_note_neighborhood`               | `knap index <file> --json` parses as one `NoteSummary` object, not an `IndexReport`                                                            |
 | `index_file_path_includes_backlinks_from_outside_its_directory` | A note in a subdirectory, linked from a note in a sibling directory; indexing the nested file (from the vault root) still reports the backlink |
-| `index_unindexed_file_path_errors`                              | Non-zero exit for a file path the index doesn't have                                                                       |
+| `index_unindexed_file_path_errors`                              | Non-zero exit for a file path the index doesn't have                                                                                           |
 
 > **Manual checkpoint:** `cd tests/fixtures/index_basic && knap index <a
 note>.md --json`; confirm the output is a single JSON object with
@@ -290,12 +291,12 @@ comes after everything it depends on.
 - `src/cli/mod.rs`: `Commands::Fix { path: PathBuf, dry_run: bool }`
   (`path` defaults to `.`).
 - `src/cli/fix.rs`: `PlannedFix`; `run(path, dry_run)` — `config::for_path`
-  + `index::build` (same target selection as `lint`), walk every target
-  note's links building a `PlannedFix` per `compute_create_missing_file_fix`
-  or (`suggest_anchor_fix` + `compute_anchor_fix`) result, skipping
-  ambiguous anchors; `--dry-run` prints the plan; otherwise merges every
-  fix's edit into one `document_changes` list (wrapping `changes`-shaped
-  results the same way `rename-file` already does) and calls `edit::apply`.
+  - `index::build` (same target selection as `lint`), walk every target
+    note's links building a `PlannedFix` per `compute_create_missing_file_fix`
+    or (`suggest_anchor_fix` + `compute_anchor_fix`) result, skipping
+    ambiguous anchors; `--dry-run` prints the plan; otherwise merges every
+    fix's edit into one `document_changes` list (wrapping `changes`-shaped
+    results the same way `rename-file` already does) and calls `edit::apply`.
 
 No pure-logic unit tests this step (the fix-selection logic is Steps 3–4's
 `compute_*`/`suggest_anchor_fix`, already tested; `PlannedFix` assembly and
@@ -304,12 +305,12 @@ tests.
 
 **Integration tests:**
 
-| Test                                          | What it verifies                                                                          |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `fix_creates_missing_file`                          | Broken-link fixture → `knap fix` creates the stub file; a subsequent `knap lint` is clean         |
-| `fix_replaces_unambiguous_broken_anchor`            | Broken anchor with one clearly-closest heading → rewritten; subsequent `knap lint` is clean       |
-| `fix_skips_ambiguous_anchor`                        | Broken anchor with two equally-close headings → left alone; still flagged by `knap lint` after    |
-| `fix_dry_run_makes_no_changes`                      | `--dry-run` prints the plan; fixture directory is byte-for-byte unchanged                          |
+| Test                                     | What it verifies                                                                               |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `fix_creates_missing_file`               | Broken-link fixture → `knap fix` creates the stub file; a subsequent `knap lint` is clean      |
+| `fix_replaces_unambiguous_broken_anchor` | Broken anchor with one clearly-closest heading → rewritten; subsequent `knap lint` is clean    |
+| `fix_skips_ambiguous_anchor`             | Broken anchor with two equally-close headings → left alone; still flagged by `knap lint` after |
+| `fix_dry_run_makes_no_changes`           | `--dry-run` prints the plan; fixture directory is byte-for-byte unchanged                      |
 
 > **Manual checkpoint:** In a scratch vault with one broken link and one
 > broken-but-unambiguous anchor, run `knap fix --dry-run` (confirm two
@@ -366,13 +367,74 @@ lint --since <ref>`, `knap index <file> --json` (single note), `knap fix
 
 ---
 
+## Step 10 — `knap lint --suggest [N]` + `knap lint --fix`
+
+Added after Step 9 closed out the original nine-step scope, once running the
+Step 9 loop against real vaults surfaced two remaining gaps: an ambiguous
+`broken-link`/`broken-anchor` (the cases `knap fix` declines to touch) gave
+an agent no candidates to choose from short of a separate `knap fix
+--dry-run` call, and the lint → fix → lint-again sequence itself was three
+round-trips for what is almost always "apply everything safe, then tell me
+what's left." Folded into v0.13 rather than deferred, since it's the same
+edit-distance ranking Step 4 already built, extended one step further.
+
+**Deliverables:**
+
+- `src/handlers.rs`: `rank_anchor_candidates` (private, `suggest_anchor_fix`
+  refactored to use it), `rank_link_candidates` + `suggest_link_fix`
+  (`pub(crate)`, the link-target counterpart to `suggest_anchor_fix`),
+  `compute_link_fix` (`pub(crate)`, the link-target counterpart to
+  `compute_anchor_fix`), `FixSuggestion` + `compute_diagnostics_with_suggestions`
+  (`pub(crate)`, wraps `compute_diagnostics` and attaches up to `top_n`
+  ranked candidates to each `broken-link`/`broken-anchor` diagnostic's
+  `data` field). `slug` becomes `pub` (was `pub(crate)`) — no behavior
+  change, just visibility, needed by `src/cli/fix.rs`.
+- `src/cli/mod.rs`: `Lint` variant gains `suggest: Option<usize>`
+  (`num_args = 0..=1`, `default_missing_value = "3"` — bare `--suggest`
+  defaults to 3, omitted means 0/off) and `fix: bool`.
+- `src/cli/fix.rs`: the fix-selection loop is extracted into
+  `pub(crate) fn plan_fixes(idx, config, targets) -> Vec<PlannedFix>` and
+  `pub(crate) fn apply(fixes) -> anyhow::Result<usize>`, reused by both
+  `fix::run` and `lint::run`'s `--fix` pass; also tries
+  `suggest_link_fix`/`compute_link_fix` before falling back to
+  `compute_create_missing_file_fix` for a broken link.
+- `src/cli/lint.rs`: `run` gains `suggest_n`/`fix` params; `--fix` runs
+  `plan_fixes`/`apply` over the whole (absolutized) target root before
+  computing the report, then rebuilds the index so what's reported reflects
+  the post-fix state; `--suggest` switches diagnostic computation to
+  `compute_diagnostics_with_suggestions`. `LintReport` gains
+  `fixes_applied: Option<Vec<String>>` (present only when `--fix` was
+  passed).
+
+**Unit tests:** `suggest_link_fix_picks_unique_closest`,
+`suggest_link_fix_none_on_tied_distance`,
+`suggest_link_fix_excludes_the_linking_note_itself`,
+`diagnostics_with_suggestions_attaches_ranked_candidates_to_broken_link`,
+`diagnostics_with_suggestions_zero_n_omits_data` (all `src/handlers.rs`).
+
+**Integration tests (`tests/cli.rs`):** fixtures `fix_ambiguous_broken_link`
+and `fix_repoint_broken_link` cover `knap fix`/`knap lint --fix` repointing
+an unambiguous broken link and leaving an ambiguous one alone; additional
+cases cover `--suggest`'s `data.suggestions` shape and `--fix`'s
+`fixes_applied` field.
+
+> **Manual checkpoint:** `knap lint . --json --suggest` on a vault with an
+> ambiguous broken link shows ranked `data.suggestions` on the diagnostic;
+> `knap lint . --fix --suggest --json` on the same vault first repoints any
+> unambiguous broken link (visible in `fixes_applied`), then reports only
+> the genuinely ambiguous diagnostics left, each still carrying
+> `data.suggestions`.
+
+---
+
 ## Done — v0.13 complete
 
-| Story  | Feature                                              | Delivered in step |
-| ------ | ------------------------------------------------------- | ------------------ |
-| US-D11 | Stable `code` field on every diagnostic                  | Step 1              |
-| US-D16 | `knap lint --fail-on <severity>`                         | Step 5              |
-| US-D12 | `knap lint --since <git-ref>`                            | Step 6              |
-| US-D13 | `knap index <file>` — one note's neighborhood            | Step 7              |
-| US-D14 | `knap fix [path] [--dry-run]`                            | Step 8              |
-| US-D15 | `skill/knap/SKILL.md`                                    | Step 9              |
+| Story  | Feature                                       | Delivered in step |
+| ------ | --------------------------------------------- | ----------------- |
+| US-D11 | Stable `code` field on every diagnostic       | Step 1            |
+| US-D16 | `knap lint --fail-on <severity>`              | Step 5            |
+| US-D12 | `knap lint --since <git-ref>`                 | Step 6            |
+| US-D13 | `knap index <file>` — one note's neighborhood | Step 7            |
+| US-D14 | `knap fix [path] [--dry-run]`                 | Step 8            |
+| US-D15 | `skill/knap/SKILL.md`                         | Step 9            |
+| US-D17 | `knap lint --suggest [N]` / `knap lint --fix` | Step 10           |

@@ -5,6 +5,54 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.13.0] — 2026-08-08
+
+### Added
+
+- **Stable diagnostic codes.** Every diagnostic from `knap lint`/`knap
+lint --json` and every editor `textDocument/publishDiagnostics`
+  notification now carries a stable `code` — `broken-link`, `broken-anchor`,
+  `missing-frontmatter`, `missing-required-field`, `invalid-field-value`,
+  `unknown-field` — so scripts and agents can branch on a fixed identifier
+  instead of matching message text, which is free to reword between
+  releases.
+- **`knap lint --fail-on <severity>`** — only diagnostics at or above the
+  given severity (`error`, `warning` (default), `info`, `hint`) cause a
+  non-zero exit. `--json` output gains `blocking_count` alongside the
+  existing `problem_count`.
+- **`knap lint --since <git-ref>`** — scope linting to files changed since a
+  git ref (tracked diffs plus untracked new files), instead of rescanning
+  the whole workspace on every check. Requires a git repository.
+- **`knap lint --suggest [N]`** — attach up to `N` ranked candidate fixes
+  (closest match first, by edit distance) to each `broken-link`/
+  `broken-anchor` diagnostic's `data` field in `--json` output. Bare
+  `--suggest` defaults to 3.
+- **`knap lint --fix`** — apply every safe fix `knap fix` would make before
+  computing the report, so the diagnostics shown reflect the post-fix
+  state. Collapses the usual `lint` → `fix` → `lint`-again sequence into one
+  call. `--json` output gains `fixes_applied` listing what was applied —
+  the one case where `knap lint` mutates files on disk.
+- **`knap index <file>`** — a file path now scopes output to that one
+  note's neighborhood (headings, outgoing links, backlinks, tags) instead
+  of the full workspace snapshot. `knap index <dir>` is unchanged.
+- **`knap fix [path] [--dry-run]`** — headless equivalent of the two safe
+  quick-fix code actions an editor session already offers: creates a
+  missing linked file, and repoints a broken link or anchor to the one
+  unambiguous best-matching existing note or heading. Fixes that would be
+  ambiguous (two or more equally close candidates) are left alone.
+  `--dry-run` previews the plan without touching disk.
+- **`skill/knap/SKILL.md`** — a shippable Claude Code skill documenting the
+  lint → fix/rename → lint edit-verify loop, copyable into a vault's
+  `.claude/skills/` to teach a coding agent knap's conventions directly.
+
+### Fixed
+
+- `NoteIndex`'s `links_to` reverse index (backlinks, Find References) now
+  unescapes an already-wrapped link target (`[text](<My File>)`) the same
+  way `resolve()` already did, so a link to a file whose name needs
+  escaping is no longer silently missing from backlinks even though it
+  resolved correctly (#61).
+
 ## [0.12.0] — 2026-08-07
 
 ### Added

@@ -264,18 +264,18 @@ non-zero with usage text (clap's built-in behavior for a required
 subcommand). In particular, **`knap` no longer starts the LSP server on its
 own — use `knap lsp`.**
 
-| Subcommand       | Usage                                    | Available from                                       |
-| ---------------- | ---------------------------------------- | ---------------------------------------------------- |
-| `lsp`            | `knap lsp`                               | v0.11 (previously the bare-args default, since v0.1) |
-| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>]` | v0.11, `--fail-on`/`--since` added v0.13 |
-| `index`          | `knap index <path> [--json]`             | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13 |
-| `parse`          | `knap parse <file>`                      | v0.1                                                 |
-| `rename-file`    | `knap rename-file <old> <new>`           | v0.12                                                |
-| `rename-heading` | `knap rename-heading <file> <old> <new>` | v0.12                                                |
-| `rename-tag`     | `knap rename-tag <old> <new>`            | v0.12                                                |
-| `fix`            | `knap fix [path] [--dry-run]`            | v0.13                                                |
-| `check`          | `knap check`                             | v0.2                                                 |
-| `version`        | `knap version`                           | v0.10.1                                              |
+| Subcommand       | Usage                                                                                          | Available from                                                                        |
+| ---------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `lsp`            | `knap lsp`                                                                                     | v0.11 (previously the bare-args default, since v0.1)                                  |
+| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--fix]` | v0.11, `--fail-on`/`--since`/`--suggest`/`--fix` added v0.13                          |
+| `index`          | `knap index <path> [--json]`                                                                   | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13 |
+| `parse`          | `knap parse <file>`                                                                            | v0.1                                                                                  |
+| `rename-file`    | `knap rename-file <old> <new>`                                                                 | v0.12                                                                                 |
+| `rename-heading` | `knap rename-heading <file> <old> <new>`                                                       | v0.12                                                                                 |
+| `rename-tag`     | `knap rename-tag <old> <new>`                                                                  | v0.12                                                                                 |
+| `fix`            | `knap fix [path] [--dry-run]`                                                                  | v0.13                                                                                 |
+| `check`          | `knap check`                                                                                   | v0.2                                                                                  |
+| `version`        | `knap version`                                                                                 | v0.10.1                                                                               |
 
 The CLI shares the same library crate as the server. `lsp` boots the same
 stdio server the LSP Client talks to. `lint` and `index` both resolve config
@@ -302,8 +302,23 @@ calls the same `handlers::compute_create_missing_file_fix`/
 anchor to..." code actions call — `knap fix` reuses those computations the
 same way `rename-*` reuses the rename `compute_*` functions, picking the
 anchor to fix via `handlers::suggest_anchor_fix` (skipping anything
-ambiguous) since it has no cursor to let a human choose. No editor is
-needed for any of them.
+ambiguous) since it has no cursor to let a human choose; for a broken link it
+tries `handlers::suggest_link_fix`/`handlers::compute_link_fix` first
+(repoint to the one unambiguous closest-matching existing note), falling
+back to `compute_create_missing_file_fix` when no candidate is unambiguous.
+The fix-selection loop itself lives in `cli::fix::plan_fixes`/`apply`
+(`pub(crate)`), shared with `lint --fix` (below) so both apply the identical
+unambiguous-only contract. No editor is needed for any of them.
+
+`lint --suggest [N]` switches diagnostic computation from
+`handlers::compute_diagnostics` to `handlers::compute_diagnostics_with_suggestions`,
+which attaches up to `N` ranked candidates (same ranking `fix` uses to pick
+its one unambiguous answer, exposed in full) to each `broken-link`/
+`broken-anchor` diagnostic's `data` field. `lint --fix` runs
+`cli::fix::plan_fixes`/`apply` over the whole target root before computing
+the report, then rebuilds the index so the diagnostics shown reflect the
+post-fix state — the one case where `lint` mutates files on disk; `--json`
+output gains a `fixes_applied` field listing what was applied.
 
 ---
 

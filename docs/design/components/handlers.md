@@ -302,14 +302,14 @@ Every `Diagnostic` literal `compute_diagnostics` builds also carries a
 panel) can branch on instead of parsing the message text, which is free to
 change wording between releases:
 
-| Diagnostic                                                        | `code`                        |
-| ------------------------------------------------------------------ | ------------------------------ |
-| Cross-file — `Broken` target                                       | `"broken-link"`                |
-| Bare anchor or cross-file anchor not matching any heading          | `"broken-anchor"`              |
-| Required field missing, note has no frontmatter block at all       | `"missing-frontmatter"`        |
-| Required field missing, frontmatter block exists                   | `"missing-required-field"`     |
-| Value not in the schema's allowed list                             | `"invalid-field-value"`        |
-| Frontmatter key not recognized by the schema                       | `"unknown-field"`              |
+| Diagnostic                                                   | `code`                     |
+| ------------------------------------------------------------ | -------------------------- |
+| Cross-file — `Broken` target                                 | `"broken-link"`            |
+| Bare anchor or cross-file anchor not matching any heading    | `"broken-anchor"`          |
+| Required field missing, note has no frontmatter block at all | `"missing-frontmatter"`    |
+| Required field missing, frontmatter block exists             | `"missing-required-field"` |
+| Value not in the schema's allowed list                       | `"invalid-field-value"`    |
+| Frontmatter key not recognized by the schema                 | `"unknown-field"`          |
 
 The six values are module-level constants (`CODE_BROKEN_LINK`, etc.) next
 to `DIAG_SOURCE`. This flows through both existing consumers of
@@ -590,6 +590,67 @@ pub(crate) fn suggest_anchor_fix<'a>(
 
 Used only by `knap fix` (`src/cli/fix.rs`) — the interactive "Change anchor
 to..." code action keeps listing every heading, since a human can pick.
+
+`suggest_anchor_fix` is built on a private `rank_anchor_candidates(broken_slug,
+target_note) -> Vec<(usize, &Heading)>` — every heading ranked by edit
+distance, closest first — instead of its own tie-tracking loop, so the same
+ranking is available in full to `knap lint --suggest` (below), not just
+collapsed to the single winner.
+
+### `compute_link_fix()`, `suggest_link_fix()` (v0.13)
+
+The link-target counterparts to `compute_anchor_fix`/`suggest_anchor_fix`,
+added alongside `knap lint --suggest`/`--fix` (after the six functions
+above) so a broken link can be repointed at an existing note the same way a
+broken anchor is repointed at an existing heading, instead of always falling
+back to creating a stub file.
+
+```rust
+pub(crate) fn compute_link_fix(source: &Path, target_range: Range, new_target: &str) -> WorkspaceEdit
+pub(crate) fn suggest_link_fix(broken_target: &str, source: &Path, index: &NoteIndex) -> Option<String>
+```
+
+- `compute_link_fix` — a single `TextEdit` on `target_range` replacing it
+  with `escape_link_target(new_target)`. Mirrors `compute_anchor_fix`'s
+  shape exactly, just for a link's `target_range` instead of `anchor_range`.
+- `suggest_link_fix` — built on a private `rank_link_candidates(broken_target,
+source, index) -> Vec<(usize, String)>`: every other note in `index`
+  (`source` itself excluded — a link can't be "fixed" by pointing at its own
+  note), ranked by edit distance between `broken_target` (unescaped first,
+  via `index::unescape_link_target`) and that note's path relative to
+  `source`'s directory. Returns the unique closest candidate, or `None` when
+  the vault has no other notes or two or more paths tie.
+
+Used by `cli::fix::plan_fixes` (shared by `knap fix` and `knap lint --fix`):
+tried first for a broken link, falling back to
+`compute_create_missing_file_fix` only when no candidate is unambiguous.
+
+### `compute_diagnostics_with_suggestions()` (v0.13)
+
+```rust
+pub(crate) fn compute_diagnostics_with_suggestions(
+    path: &Path,
+    index: &NoteIndex,
+    config: &crate::config::Config,
+    top_n: usize,
+) -> Vec<Diagnostic>
+```
+
+Calls `compute_diagnostics` unchanged, then — when `top_n > 0` — attaches up
+to `top_n` ranked candidates to each `broken-link`/`broken-anchor`
+diagnostic's `data` field as `{ "suggestions": [{ "target", "distance" }, ..] }`,
+via `rank_link_candidates`/`rank_anchor_candidates` re-run against the same
+link/anchor the diagnostic's range identifies. `target` is a relative path
+for a `broken-link` candidate, or `"#slug"` for a `broken-anchor` candidate.
+`top_n == 0` returns `compute_diagnostics`'s output verbatim, no `data`
+field added — this is what lets `knap lint` without `--suggest` stay
+byte-for-byte identical to before this function existed.
+
+Used only by `knap lint --suggest` (`src/cli/lint.rs`) — the LSP server
+keeps calling plain `compute_diagnostics` for `textDocument/publishDiagnostics`,
+since editors don't consume `data` here and ranking every broken link/anchor
+against the whole vault on every keystroke-triggered publish would be
+wasted work the interactive session doesn't need.
 
 ---
 
