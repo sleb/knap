@@ -49,11 +49,7 @@ pub fn run(path: &Path, dry_run: bool) -> anyhow::Result<()> {
             match idx.resolve(&note.path, &link.target) {
                 ResolvedLink::Broken => {
                     fixes.push(PlannedFix {
-                        edit: handlers::compute_create_missing_file_fix(
-                            link,
-                            &note.path,
-                            &config,
-                        ),
+                        edit: handlers::compute_create_missing_file_fix(link, &note.path, &config),
                         description: format!("create {}", link.target),
                     });
                 }

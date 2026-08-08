@@ -39,7 +39,11 @@ pub fn run(path: &Path, json: bool, fail_on: FailOn, since: Option<&str>) -> any
 
     if let Some(git_ref) = since {
         let changed = changed_paths_since(&config.index_roots[0], git_ref)?;
-        targets.retain(|t| t.canonicalize().map(|c| changed.contains(&c)).unwrap_or(false));
+        targets.retain(|t| {
+            t.canonicalize()
+                .map(|c| changed.contains(&c))
+                .unwrap_or(false)
+        });
     }
 
     let mut files: Vec<FileDiagnostics> = targets

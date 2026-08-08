@@ -656,8 +656,16 @@ fn lint_since_no_changes_is_clean() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
-    assert_eq!(value["problem_count"].as_u64(), Some(0), "stdout was: {stdout}");
-    assert_eq!(value["file_count"].as_u64(), Some(0), "stdout was: {stdout}");
+    assert_eq!(
+        value["problem_count"].as_u64(),
+        Some(0),
+        "stdout was: {stdout}"
+    );
+    assert_eq!(
+        value["file_count"].as_u64(),
+        Some(0),
+        "stdout was: {stdout}"
+    );
 }
 
 #[test]

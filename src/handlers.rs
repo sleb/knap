@@ -11,10 +11,10 @@ use lsp_types::{
     DocumentSymbolParams, DocumentSymbolResponse, FoldingRange, FoldingRangeKind,
     FoldingRangeParams, GotoDefinitionParams, GotoDefinitionResponse, InlayHint, InlayHintLabel,
     InlayHintParams, Location, NumberOrString, OneOf, OptionalVersionedTextDocumentIdentifier,
-    Position,
-    PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams, RenameFilesParams,
-    RenameParams, ResourceOp, SelectionRange, SelectionRangeParams, SymbolInformation, SymbolKind,
-    TextDocumentEdit, TextDocumentPositionParams, TextEdit, WorkspaceEdit, WorkspaceSymbolParams,
+    Position, PrepareRenameResponse, PublishDiagnosticsParams, Range, ReferenceParams,
+    RenameFilesParams, RenameParams, ResourceOp, SelectionRange, SelectionRangeParams,
+    SymbolInformation, SymbolKind, TextDocumentEdit, TextDocumentPositionParams, TextEdit,
+    WorkspaceEdit, WorkspaceSymbolParams,
 };
 
 use crate::index::{self, NoteIndex, ResolvedLink};
@@ -2314,9 +2314,7 @@ mod tests {
         assert_eq!(diags.len(), 1);
         assert_eq!(
             diags[0].code,
-            Some(NumberOrString::String(
-                "missing-required-field".to_string()
-            ))
+            Some(NumberOrString::String("missing-required-field".to_string()))
         );
     }
 
