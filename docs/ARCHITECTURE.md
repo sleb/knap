@@ -55,7 +55,8 @@ the files stay clean.
 ┌──────────────────────────────────────────────────────┐
 │                         CLI                          │
 │    lsp · lint · index · parse · check · version ·    │
-│    rename-file · rename-heading · rename-tag · fix   │
+│  rename-file · rename-heading · rename-tag · fix ·   │
+│                       apply                          │
 └──────────────────────────────────────────────────────┘
                   │ WorkspaceEdit
                   │ (headless commands only —
@@ -270,10 +271,11 @@ own — use `knap lsp`.**
 | `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--fix]` | v0.11, `--fail-on`/`--since`/`--suggest`/`--fix` added v0.13                          |
 | `index`          | `knap index <path> [--json]`                                                                   | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13 |
 | `parse`          | `knap parse <file>`                                                                            | v0.1                                                                                  |
-| `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                            | v0.12, `move-file` alias added unreleased                                             |
+| `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                            | v0.12, `move-file` alias added v0.14                                                  |
 | `rename-heading` | `knap rename-heading <file> <old> <new>`                                                       | v0.12                                                                                 |
 | `rename-tag`     | `knap rename-tag <old> <new>`                                                                  | v0.12                                                                                 |
 | `fix`            | `knap fix [path] [--dry-run]`                                                                  | v0.13                                                                                 |
+| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                | v0.14                                                                                 |
 | `check`          | `knap check`                                                                                   | v0.2                                                                                  |
 | `version`        | `knap version`                                                                                 | v0.10.1                                                                               |
 
@@ -319,6 +321,23 @@ its one unambiguous answer, exposed in full) to each `broken-link`/
 the report, then rebuilds the index so the diagnostics shown reflect the
 post-fix state — the one case where `lint` mutates files on disk; `--json`
 output gains a `fixes_applied` field listing what was applied.
+
+`apply` (`src/cli/apply.rs`) reads a JSON array of `ChangeOp`s
+(`rename-file`/`rename-heading`/`rename-tag`/`fix`, one variant per existing
+mutating subcommand with the same field names as that subcommand's
+arguments) from stdin and applies them in order, all-or-nothing. It copies
+the current directory into a scratch tempdir, dispatches each `ChangeOp` via
+`apply_one` to the matching `rename_file_at`/`rename_heading_at`/
+`rename_tag_at`/`targets_for`+`plan_fixes`/`apply` call scoped to that
+scratch root (not the process's actual cwd — the same root-parameterization
+`rename-*` already needed for testability), then, only once every operation
+has succeeded, syncs the scratch copy back onto the real workspace
+(`diff_and_sync`). If any operation fails, `run` returns before the sync
+ever runs and the scratch tempdir is discarded — the real workspace was
+never touched. `--dry-run` runs the same scratch-copy pipeline but calls
+`diff_and_sync` in count-only mode, so the reported plan is exactly what a
+real run would touch without writing anything. `--json` serializes an
+`ApplyReport { dry_run, operations, files_touched }`.
 
 ---
 

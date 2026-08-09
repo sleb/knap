@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.13.0-blue)
+![Version](https://img.shields.io/badge/version-0.14.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Tooling that keeps linked Markdown notes correct — for the human writing them
@@ -27,10 +27,11 @@ knap ships as a single binary with two faces built on the same engine:
   LSP-compatible editor: Neovim, VS Code, Helix, Zed, and others. Dedicated
   extensions are available for [VS Code](https://github.com/sleb/vscode-knap)
   and [Zed](https://github.com/sleb/zed-knap).
-- **`knap lint` / `knap index` / `knap fix` / `knap rename-*`** — for the
-  agent — the same checks and refactors, headlessly from the command line, so
-  a coding agent without an editor in the loop can verify its own edits and
-  fix or rename with the same guarantees a human gets from the LSP.
+- **`knap lint` / `knap index` / `knap fix` / `knap rename-*` / `knap
+apply`** — for the agent — the same checks and refactors, headlessly from
+  the command line, so a coding agent without an editor in the loop can
+  verify its own edits, fix or rename with the same guarantees a human gets
+  from the LSP, and apply a whole batch of chosen changes in one call.
 
 Both faces share one indexing and configuration core: `src/config.rs` loads
 `initializationOptions` or `knap.toml` the same way for every entry point, and
@@ -274,6 +275,43 @@ $ knap rename-tag draft published
 All three scope their index to the current directory (like `knap lint .`),
 apply their edit atomically, and print a summary line on success.
 
+## Batch apply (`knap apply`)
+
+Applies a whole set of change operations in one call instead of one
+subprocess per change. Reads a JSON array of operations from stdin — one
+`rename-file`/`rename-heading`/`rename-tag`/`fix` per entry, same field
+names as that subcommand's arguments — and applies them in order,
+all-or-nothing: the workspace ends up either fully changed or untouched,
+never partially applied.
+
+```
+$ echo '[
+  {"op":"rename-tag","old":"wip","new":"draft"},
+  {"op":"fix"}
+]' | knap apply
+applied rename-tag: #wip → #draft
+applied fix: applied 2 fix(es) in 2 file(s)
+2 operation(s), 3 file(s) touched
+```
+
+Useful after `knap lint --suggest --json` — pick the right fix for each
+finding yourself, then apply the whole batch in one call rather than
+shelling out once per change.
+
+- `--dry-run` — prints the plan without changing anything in the real
+  workspace; the reported file count is exactly what a real run would touch.
+- `--json` — emits an `ApplyReport` (`dry_run`, `operations`, `files_touched`)
+  instead of the text summary.
+
+Operations run in the order given against a scratch copy of the workspace,
+so a later operation in the same batch sees an earlier one's effects (e.g.
+renaming a heading in a file the same batch just renamed). If any operation
+fails, nothing in the real workspace is touched — the same all-or-nothing
+guarantee `rename-*` gives a single operation, extended across the whole
+batch.
+
+Usage: `knap apply [--dry-run] [--json]`
+
 ## Coding agents
 
 This is the other half of the synergy: an agent editing a vault a human also
@@ -329,11 +367,12 @@ present, `knap.toml` fills in the rest.
 
 ## Status
 
-v0.13.0 — Agent Ergonomics: stable diagnostic `code`s, `knap lint
---fail-on`/`--since`/`--suggest`/`--fix`, `knap index <file>`, and `knap
-fix`, so a coding agent can lint, fix, and rename a vault as reliably as the
-LSP does for a human. See the [roadmap](docs/ROADMAP.md) for planned
-releases.
+v0.14.0 — Batch Apply: `knap apply [--dry-run] [--json]` applies a JSON
+array of change operations (`rename-file`, `rename-heading`, `rename-tag`,
+`fix`) from stdin sequentially and all-or-nothing, so an agent that's
+already picked its fixes from `knap lint --suggest` can apply the whole
+batch in one call instead of one subprocess per change. See the
+[roadmap](docs/ROADMAP.md) for planned releases.
 
 ## Documentation
 

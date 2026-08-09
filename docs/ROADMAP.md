@@ -26,7 +26,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.11.1](#v0111--lint--index-false-positives-released-2026-08-05)                | Lint & Index False Positives               | Released 2026-08-05 |
 | [v0.12](#v012--headless-rename-released-2026-08-07)                               | Headless Rename                            | Released 2026-08-07 |
 | [v0.13](#v013--agent-ergonomics-released-2026-08-08)                              | Agent Ergonomics                           | Released 2026-08-08 |
-| [v0.14](#v014--batch-apply)                                                       | Batch Apply                                | Planned             |
+| [v0.14](#v014--batch-apply-released-2026-08-08)                                   | Batch Apply                                | Released 2026-08-08 |
 | [v0.15](#v015--judged-repoints)                                                   | Judged Repoints                            | Planned             |
 
 ---
@@ -395,7 +395,7 @@ diagnostic's severity.
 
 ---
 
-## v0.14 — Batch Apply
+## v0.14 — Batch Apply _(released 2026-08-08)_
 
 **Goal:** Let an agent make a whole set of write operations in one call
 instead of one subprocess per change.

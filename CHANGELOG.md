@@ -5,10 +5,20 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
-## [Unreleased]
+## [0.14.0] — 2026-08-08
 
 ### Added
 
+- **`knap apply [--dry-run] [--json]`** — apply a JSON array of change
+  operations (`rename-file`, `rename-heading`, `rename-tag`, `fix`) read
+  from stdin, sequentially and all-or-nothing. Operations run against a
+  scratch copy of the workspace; the real workspace is only touched once
+  every operation in the batch has succeeded, so a batch either lands
+  completely or not at all — never partially applied. Lets an agent that's
+  already picked a set of fixes from `knap lint --suggest --json` apply the
+  whole batch in one call instead of one subprocess per change. `--dry-run`
+  previews the planned result without touching disk; `--json` emits an
+  `ApplyReport` (`dry_run`, `operations`, `files_touched`).
 - **`knap rename-file` gains a `move-file` alias.** `knap move-file <old>
 <new>` behaves identically to `knap rename-file <old> <new>`.
 
