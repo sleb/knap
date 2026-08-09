@@ -16,7 +16,7 @@ down untested code for the next step to build on.
 | 1 — Root-parameterized rename core               | Done   |       |
 | 2 — Shared fix target-setup                      | Done   |       |
 | 3 — Batch operation model (`ChangeOp`)           | Done   |       |
-| 4 — Scratch workspace machinery                  | Todo   |       |
+| 4 — Scratch workspace machinery                  | Done   |       |
 | 5 — `apply_one` dispatch and `knap apply` wiring | Todo   |       |
 | 6 — Integration tests                            | Todo   |       |
 
