@@ -357,7 +357,7 @@ position.
 | US-D09 | `knap rename-heading <file> <old> <new>` — rewrite heading text + all anchor links        |
 | US-D10 | `knap rename-tag <old> <new>` — rewrite every frontmatter occurrence across the workspace |
 
-See `docs/design/releases/v0.12/design.md` for the full design.
+See `docs/design/releases/archive/v0.12/design.md` for the full design.
 
 ---
 
@@ -387,7 +387,7 @@ CLI surface or internal to already-shared `handlers::` logic.
 | US-D15 | `skill/knap/SKILL.md` — shippable skill documenting the agent lint/fix/rename loop              |
 | US-D17 | `knap lint --suggest [N]` / `--fix` — ranked candidate fixes, and apply-then-report in one call |
 
-See `docs/design/releases/v0.13/design.md` for the full design, including two
+See `docs/design/releases/archive/v0.13/design.md` for the full design, including two
 corrections found while scoping: a sixth diagnostic code
 (`invalid-field-value`) the original candidate list omitted, and why
 `--fail-on` ships as a mechanical threshold without reassigning any
@@ -411,7 +411,7 @@ them sequentially, all-or-nothing.
 | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | US-D18 | `knap apply --json` — apply a JSON array of change operations (rename-file, rename-heading, rename-tag, fix) from stdin, sequentially and all-or-nothing, with `--dry-run` support |
 
-See `docs/design/releases/v0.14/design.md` for the full design.
+See `docs/design/releases/archive/v0.14/design.md` for the full design.
 
 ---
 
