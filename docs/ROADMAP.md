@@ -27,6 +27,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.12](#v012--headless-rename-released-2026-08-07)                               | Headless Rename                            | Released 2026-08-07 |
 | [v0.13](#v013--agent-ergonomics-released-2026-08-08)                              | Agent Ergonomics                           | Released 2026-08-08 |
 | [v0.14](#v014--batch-apply)                                                       | Batch Apply                                | Planned             |
+| [v0.15](#v015--judged-repoints)                                                   | Judged Repoints                            | Planned             |
 
 ---
 
@@ -411,6 +412,26 @@ them sequentially, all-or-nothing.
 | US-D18 | `knap apply --json` — apply a JSON array of change operations (rename-file, rename-heading, rename-tag, fix) from stdin, sequentially and all-or-nothing, with `--dry-run` support |
 
 See `docs/design/releases/v0.14/design.md` for the full design.
+
+---
+
+## v0.15 — Judged Repoints
+
+**Goal:** Let an agent's own judged pick from `knap lint --suggest`'s ranked
+candidates ride in the same all-or-nothing `knap apply` batch as any
+`rename-*`/`fix` operations, instead of falling back to a hand edit outside
+the batch.
+
+v0.14's `knap apply` batches structural changes, but had no operation for an
+agent's judged fix to a `broken-link`/`broken-anchor` diagnostic — `--suggest`
+surfaces ranked candidates precisely for the ambiguous cases `fix` declines
+to touch, and picking one still meant a separate `Edit` call outside `apply`.
+This release adds two operations that apply an agent-chosen target at a
+diagnostic's own range.
+
+| Story  | Feature                                                                                                                                                                                           |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| US-D19 | `knap apply` gains `repoint-link`/`repoint-anchor` operations — apply an agent-picked target from `lint --suggest`'s candidates at a diagnostic's own range, inside the same all-or-nothing batch |
 
 ---
 

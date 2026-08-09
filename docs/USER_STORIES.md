@@ -373,6 +373,15 @@ batch is all-or-nothing — the workspace ends up either fully changed or
 untouched, never partially applied. `--dry-run` previews the planned result
 without touching disk.
 
+**US-D19** — As an agent, I can include `repoint-link { file, range, target }`
+and `repoint-anchor { file, range, anchor }` operations in the same `knap
+apply --json` batch as any `rename-*`/`fix` operations, so a judgement call I
+made from `knap lint --suggest`'s ranked candidates for a `broken-link`/
+`broken-anchor` diagnostic can be applied atomically alongside everything
+else in one call — instead of falling back to a hand edit outside the batch.
+`file` and `range` are exactly the diagnostic's own `path`/`range` fields, so
+no re-locating the edit is needed.
+
 ---
 
 ### The Skill
