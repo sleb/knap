@@ -28,15 +28,7 @@ pub(crate) struct PlannedFix {
 /// prints the plan (`--dry-run`) or applies it and prints a summary.
 pub fn run(path: &Path, dry_run: bool) -> anyhow::Result<()> {
     let path_abs = absolute(path)?;
-    let config = config::for_path(&path_abs, None)?;
-    let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
-    let (idx, _) = index::build(&config.index_roots, &extensions);
-
-    let targets: Vec<PathBuf> = if path_abs.is_file() {
-        vec![path_abs.clone()]
-    } else {
-        idx.all_notes().map(|n| n.path.clone()).collect()
-    };
+    let (idx, config, targets) = targets_for(&path_abs)?;
 
     let fixes = plan_fixes(&idx, &config, &targets);
 
@@ -59,6 +51,22 @@ pub fn run(path: &Path, dry_run: bool) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Builds the index and fix targets for `path_abs` (already absolutized): a
+/// file path scopes to just that note, a directory scopes to every indexed
+/// note — the setup `fix::run` and `knap apply`'s `fix` operation both need
+/// before calling `plan_fixes`.
+pub(crate) fn targets_for(path_abs: &Path) -> anyhow::Result<(NoteIndex, Config, Vec<PathBuf>)> {
+    let config = config::for_path(path_abs, None)?;
+    let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
+    let (idx, _) = index::build(&config.index_roots, &extensions);
+    let targets: Vec<PathBuf> = if path_abs.is_file() {
+        vec![path_abs.to_path_buf()]
+    } else {
+        idx.all_notes().map(|n| n.path.clone()).collect()
+    };
+    Ok((idx, config, targets))
 }
 
 /// For every link in every note in `targets`, computes the fix
@@ -192,4 +200,43 @@ fn absolute(path: &Path) -> anyhow::Result<PathBuf> {
         std::env::current_dir()?.join(path)
     };
     Ok(index::normalize_path(&joined))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::*;
+
+    #[test]
+    fn targets_for_file_path_returns_single_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("a.md"), "# A\n").unwrap();
+        std::fs::write(root.join("b.md"), "# B\n").unwrap();
+
+        let path_abs = index::normalize_path(&root.join("a.md"));
+        let (_idx, _config, targets) = targets_for(&path_abs).unwrap();
+
+        assert_eq!(targets, vec![path_abs]);
+    }
+
+    #[test]
+    fn targets_for_directory_path_returns_all_notes() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("a.md"), "# A\n").unwrap();
+        std::fs::write(root.join("b.md"), "# B\n").unwrap();
+        std::fs::write(root.join("c.md"), "# C\n").unwrap();
+
+        let path_abs = index::normalize_path(root);
+        let (_idx, _config, targets) = targets_for(&path_abs).unwrap();
+
+        let got: HashSet<PathBuf> = targets.into_iter().collect();
+        let want: HashSet<PathBuf> = ["a.md", "b.md", "c.md"]
+            .into_iter()
+            .map(|name| index::normalize_path(&root.join(name)))
+            .collect();
+        assert_eq!(got, want);
+    }
 }
