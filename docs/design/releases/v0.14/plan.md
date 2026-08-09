@@ -18,7 +18,7 @@ down untested code for the next step to build on.
 | 3 — Batch operation model (`ChangeOp`)           | Done   |       |
 | 4 — Scratch workspace machinery                  | Done   |       |
 | 5 — `apply_one` dispatch and `knap apply` wiring | Done   |       |
-| 6 — Integration tests                            | Todo   |       |
+| 6 — Integration tests                            | Done   |       |
 
 ---
 
