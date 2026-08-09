@@ -111,8 +111,7 @@ For Neovim, Helix, and others, follow your editor's standard procedure for
 adding a custom LSP server, pointing it at the `knap` binary with the `lsp`
 subcommand: `knap lsp`. The server then speaks the standard Language Server
 Protocol over stdin/stdout. (Bare `knap` with no subcommand no longer starts
-the server — see [Command-line usage](../README.md#command-line-usage) in the
-README for the other subcommands.)
+the server — see the [README](../README.md) for the other subcommands.)
 
 ---
 

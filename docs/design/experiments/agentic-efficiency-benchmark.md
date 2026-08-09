@@ -523,6 +523,67 @@ step-4 note that got created but never actually linked in from anywhere;
 spot review of the transcripts didn't find such a gap, but it wasn't
 checked as rigorously as correctness was.
 
+## Opportunities for improvement surfaced by Trial 3
+
+**Status: proposed, not yet implemented.**
+
+### 1. Drop `--fix` from the skill's default loop — the false-positive risk outweighs the tool-call savings
+
+Trial 3's two qualitative findings above both trace to the same root cause:
+`lint --fix`'s auto-apply step ranks candidates by raw edit distance only,
+with no signal about whether a repoint is _semantically_ correct, and it
+reports what it applied as a fully resolved diagnostic rather than
+something to double-check. That's not a corner case at this vault size —
+it fired in 1 of 4 knap-assisted runs for a wrong-target repoint
+(`workflow-554.md` over `workflow.md`) and in roughly half the runs for
+the stub-creation pitfall, on a 200-note vault with only 20 seeded
+defects.
+
+A live rerun of the edit-verify loop on this repo's own docs (not the
+benchmark vault, no seeded defects — real, human-authored broken links
+that had drifted out of sync with a doc reorganization) reproduced both
+failure modes on the first attempt:
+
+- `knap lint --fix` repointed a broken anchor to `#coding-agents`, a
+  heading with no semantic connection to the sentence linking it
+  ("Command-line usage" in `docs/GETTING_STARTED.md`) — it was simply the
+  closest heading slug by edit distance.
+- `knap lint --fix` repointed a directory-shaped link
+  (`docs/design/components/`, which can't resolve to any single file) to
+  one arbitrary file inside that directory (`parser.md`), as if it were
+  the actual intended target.
+
+Both fixes were only caught by reading the diff afterward — `knap lint`'s
+own report gave no indication either one was suspect, which matches
+Trial 3's finding exactly: `lint` reports a repoint as a fully resolved
+link, not a candidate worth a second look. Restarting the same task with
+`knap fix`/`knap lint --fix` withheld entirely — using only read-only
+`knap lint --suggest --json` and hand-picking (or overriding) the target
+for every diagnostic — produced correct fixes on the first pass, at the
+cost of the agent doing the picking itself instead of trusting an
+auto-apply.
+
+**Proposed change:** drop the `--fix` step from `skill/knap/SKILL.md`'s
+default hand-edit loop. Keep `knap lint --suggest --json` (read-only) as
+the enumeration step, and require a hand decision from
+`data.suggestions` (or an override when no suggestion is right) for every
+`broken-link`/`broken-anchor` diagnostic — the same posture the skill
+already takes for the four frontmatter codes, which never auto-fix.
+`rename-*`'s atomic guarantees are unrelated to this and are unaffected —
+this only touches the manual hand-edit branch of the loop.
+
+**Trade-off:** this gives up part of Trial 3's tool-call/token win —
+`lint --fix --suggest --json` collapsing "fix everything unambiguous, show
+what's left" into one call is exactly what shrank the gap between
+conditions in that trial. Losing `--fix` moves the unambiguous cases back
+to two calls (one `lint --suggest` to see the diagnostic, one `Edit` to
+apply it) instead of one. Worth measuring in a follow-up trial whether the
+correctness/trust win is worth the reintroduced overhead, or whether a
+narrower mitigation (e.g. `--fix` declines to auto-apply when the broken
+target has no file extension/looks directory-shaped, or raises its
+confidence bar) recovers most of the safety without giving up the
+collapse entirely.
+
 ## Threats to validity (call these out alongside results, don't bury them)
 
 - **N is small.** This is a manual protocol for a directional check, not a

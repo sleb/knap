@@ -8,9 +8,9 @@ that emits a `WorkspaceEdit` (e.g. the "create missing file" quick fix) can
 be applied here.
 
 Introduced in v0.12 (see
-[`releases/v0.12/design.md`](../releases/v0.12/design.md) § Edit Applicator
-for the full rationale). This doc tracks the living contract; the release
-doc is the historical record of why it exists.
+[`releases/archive/v0.12/design.md`](../releases/archive/v0.12/design.md) §
+Edit Applicator for the full rationale). This doc tracks the living contract;
+the release doc is the historical record of why it exists.
 
 ---
 
