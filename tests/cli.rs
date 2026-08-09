@@ -552,6 +552,25 @@ fn rename_file_new_path_exists_errors() {
     );
 }
 
+#[test]
+fn move_file_is_alias_for_rename_file() {
+    let dir = copy_fixture("rename_file");
+
+    let output = knap()
+        .args(["move-file", "sub/old.md", "new.md"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(!dir.path().join("sub/old.md").exists());
+    assert!(dir.path().join("new.md").exists());
+}
+
 // ── rename-heading ───────────────────────────────────────────────────────
 
 #[test]

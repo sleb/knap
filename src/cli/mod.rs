@@ -89,6 +89,7 @@ enum Commands {
         path: PathBuf,
     },
     /// Move a note, rewriting incoming and outgoing links.
+    #[command(alias = "move-file")]
     RenameFile {
         /// Existing path of the note.
         old: PathBuf,

@@ -260,9 +260,9 @@ $ knap rename-tag draft published
 #draft → #published (3 file(s) touched)
 ```
 
-- `knap rename-file <old> <new>` — moves `<old>` to `<new>` on disk and
-  rewrites every incoming and outgoing link affected by the move. Fails if
-  `<old>` doesn't exist or `<new>` already does.
+- `knap rename-file <old> <new>` (alias: `knap move-file`) — moves `<old>` to
+  `<new>` on disk and rewrites every incoming and outgoing link affected by
+  the move. Fails if `<old>` doesn't exist or `<new>` already does.
 - `knap rename-heading <file> <old> <new>` — renames a heading in `<file>`
   (`<old>` may be the heading's text or its GFM slug) and rewrites every
   same-file and cross-file anchor link that targets it. Fails if no heading
