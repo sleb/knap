@@ -10,11 +10,17 @@ description: >
 
 # knap Design & Plan
 
-You are helping design and plan a knap release. Your job is to produce two
-documents:
+You are helping design and plan one feature or bugfix within a knap release.
+A release (`vX.Y`) can bundle multiple features — each gets its own
+subfolder. Your job is to produce two documents:
 
-- `docs/design/releases/vX.Y/design.md` — what to build and why
-- `docs/design/releases/vX.Y/plan.md` — the order to build it and how to verify each step
+- `docs/design/releases/vX.Y/<feature-slug>/design.md` — what to build and why
+- `docs/design/releases/vX.Y/<feature-slug>/plan.md` — the order to build it and how to verify each step
+
+`<feature-slug>` is a kebab-case slug of the feature name (e.g. "Batch
+Apply" → `batch-apply`). Every release uses this subfolder layout, even one
+that ends up with only a single feature — there's no flat `vX.Y/design.md`
+form.
 
 Work through the phases below in order. Each phase has a concrete output.
 
@@ -25,11 +31,19 @@ Work through the phases below in order. Each phase has a concrete output.
 Ask the user:
 
 1. What version is this? (e.g. `v0.7`)
-2. What user stories or issues does it deliver? (story IDs or free-form description)
+2. What feature or bugfix is this? (a short name — used to derive the
+   feature-slug folder)
+3. What user stories or issues does it deliver? (story IDs or free-form description)
 
 If the user described the feature rather than giving story IDs, map what they
 said to stories in `docs/USER_STORIES.md` before proceeding. Read only the
 sections that seem relevant — don't load the entire file unless needed.
+
+If `docs/design/releases/vX.Y/` already exists with other feature
+subfolders (a prior `knap-design` run already planned another feature for
+this release), skim each sibling's `design.md` goal section for context —
+enough to avoid a colliding slug or overlapping scope. Don't re-derive or
+re-validate their content.
 
 Then read these files to orient yourself:
 
@@ -46,11 +60,11 @@ Don't read component docs yet; you'll read only the ones you need in Phase 2.
 For each component the release touches (parser, index, handlers, protocol
 handler), read the relevant source file **and** the matching component doc:
 
-| Component | Source | Doc |
-|-----------|--------|-----|
-| Parser | `src/parser/mod.rs` | `docs/design/components/parser.md` |
-| Note Index | `src/index/mod.rs` | `docs/design/components/note-index.md` |
-| Handlers | `src/handlers.rs` | `docs/design/components/handlers.md` |
+| Component        | Source              | Doc                                          |
+| ---------------- | ------------------- | -------------------------------------------- |
+| Parser           | `src/parser/mod.rs` | `docs/design/components/parser.md`           |
+| Note Index       | `src/index/mod.rs`  | `docs/design/components/note-index.md`       |
+| Handlers         | `src/handlers.rs`   | `docs/design/components/handlers.md`         |
 | Protocol Handler | `src/server/mod.rs` | `docs/design/components/protocol-handler.md` |
 
 Use `LSP hover` and `LSP goToDefinition` to resolve types and trait bounds
@@ -68,17 +82,17 @@ After reading, summarise for yourself (not the user):
 
 ## Phase 3 — Draft the design doc
 
-Write `docs/design/releases/vX.Y/design.md` following the template in
-`docs/design/releases/templates/design.md`.
+Write `docs/design/releases/vX.Y/<feature-slug>/design.md` following the
+template in `docs/design/releases/templates/design.md`.
 
 Guidelines for each section:
 
-**Title and stories table** — list every story this release delivers. For bugs,
+**Title and stories table** — list every story this feature delivers. For bugs,
 include the issue number and type (`Bug`).
 
 **Goal** — one paragraph. Lead with user value ("A writer can…"), not
-implementation detail. Explain why these stories ship together — what makes
-them a coherent release.
+implementation detail. Explain why these stories belong together — what makes
+them a coherent feature.
 
 **Config Changes** — omit if none. Show the exact Rust field additions to
 `InitOptions` and `Config`, with a one-line comment describing each.
@@ -115,8 +129,8 @@ types, correct method names)? Fix before showing the user.
 
 ## Phase 4 — Draft the implementation plan
 
-Write `docs/design/releases/vX.Y/plan.md` following the template in
-`docs/design/releases/templates/plan.md`.
+Write `docs/design/releases/vX.Y/<feature-slug>/plan.md` following the
+template in `docs/design/releases/templates/plan.md`.
 
 Guidelines:
 
@@ -134,6 +148,7 @@ say so explicitly and explain why.
 
 **TDD flag** — mark steps that use test-driven development with this exact
 cycle, stated explicitly in the step body:
+
 1. Write all unit tests for this step first — stub the function signature if needed to compile
 2. Run `cargo test` and confirm the new tests **fail**
 3. Implement until tests pass, then run `cargo clippy -- -D warnings`
@@ -166,7 +181,7 @@ Every story in the stories table of the design doc must appear here.
 
 Before presenting the documents to the user, verify:
 
-- [ ] Every story in the ROADMAP milestone is covered by the design doc
+- [ ] Every story this feature delivers is covered by the design doc
 - [ ] Every handler in the design doc has a matching entry in the unit test table
 - [ ] Every unit test in the design doc appears in the plan's step tables
 - [ ] The Done table accounts for every story
@@ -174,6 +189,7 @@ Before presenting the documents to the user, verify:
 - [ ] Code sketches reference only types and methods that exist (verify with LSP)
 
 Then present both documents to the user. Offer a brief summary of:
+
 - What the design introduces (components touched, new types, new capabilities)
 - The implementation order and why it was chosen
 - Any open questions or tradeoffs the user should weigh in on before coding starts

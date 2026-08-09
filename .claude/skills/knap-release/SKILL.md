@@ -20,12 +20,16 @@ the release plan path.
 
 ## Step 2 — Verify implementation is complete
 
-- Read `docs/design/releases/v{N}/plan.md`. Every step must show ✅ Done.
-- Read `docs/ROADMAP.md` and `docs/USER_STORIES.md`. Confirm all milestone
-  user stories are implemented.
+- Find every feature subfolder for this release:
+  `docs/design/releases/v{N}/*/plan.md`. A release can bundle multiple
+  features or bugfixes, each in its own subfolder.
+- Read each matched `plan.md`. Every step in every one must show ✅ Done.
+- Read `docs/ROADMAP.md` and `docs/USER_STORIES.md`. Confirm all user
+  stories from every feature subfolder are implemented.
 
-Report any incomplete items and stop if any are found — do not proceed to step
-3 until the user confirms they are resolved.
+Report any incomplete items — naming which feature subfolder they're in —
+and stop if any are found; do not proceed to step 3 until the user confirms
+they are resolved.
 
 ## Step 3 — Verify docs are in sync with the code
 
@@ -69,41 +73,44 @@ Make all of these changes:
    ### Added / Fixed / Changed
    - ...
    ```
-   Pull the content from the release plan and git log since the last tag.
-   Use only the sections that apply. Write from the user's perspective.
+   Pull the content from every feature subfolder's plan under `v{N}` and the
+   git log since the last tag. Use only the sections that apply. Write from
+   the user's perspective.
 3. **`README.md`** — update the version badge; update the "What it does"
    feature list to reflect only shipped features (remove future-milestone items)
-4. **`docs/ROADMAP.md`** — add the release date to the completed milestone:
-   `## v{MINOR} — <name> _(released {TODAY})_`
-5. **`docs/design/releases/v{N}/plan.md`** — confirm all steps show ✅ Done
-   (no edit needed if already done in step 2)
+4. **`docs/ROADMAP.md`** — add the release date to the completed version
+   heading: `## v{MINOR} — <name> _(released {TODAY})_`. Give the version one
+   subsection per feature subfolder (`### <feature title>`), each with its
+   own short goal paragraph and stories table, in place of a single combined
+   table.
+5. **`docs/design/releases/v{N}/*/plan.md`** — confirm all steps in every
+   feature subfolder show ✅ Done (no edit needed if already done in step 2)
 
 ## Step 6 — Archive the release design docs
 
-Step 3 already reconciled anything from `docs/design/releases/v{N}/design.md`
-that belongs in `docs/ARCHITECTURE.md` or `docs/design/components/*.md` — the
-release design doc's job is done. Move the release folder into the archive
-so it's preserved for historical context but stops being read as a source of
-truth:
+Step 3 already reconciled anything from each feature's `design.md` that
+belongs in `docs/ARCHITECTURE.md` or `docs/design/components/*.md` — every
+release design doc's job is done. Move the whole release folder (with all
+its feature subfolders) into the archive in one step, so it's preserved for
+historical context but stops being read as a source of truth:
 
 ```bash
-mkdir -p docs/design/releases/archive/v{N}
-git mv docs/design/releases/v{N}/design.md docs/design/releases/archive/v{N}/design.md
-git mv docs/design/releases/v{N}/plan.md docs/design/releases/archive/v{N}/plan.md
-rmdir docs/design/releases/v{N} 2>/dev/null
+mkdir -p docs/design/releases/archive
+git mv docs/design/releases/v{N} docs/design/releases/archive/v{N}
 ```
 
 Then fix any doc that still links to the pre-archive path — most commonly
-`docs/ROADMAP.md`'s "See `docs/design/releases/v{N}/design.md`..." line for
-this milestone:
+`docs/ROADMAP.md`'s "See `docs/design/releases/v{N}/<feature-slug>/design.md`..."
+lines, one per feature subsection for this version:
 
 ```bash
 grep -rn "design/releases/v{N}/" docs/ --include="*.md" | grep -v /archive/
 ```
 
-Update every match to point at `docs/design/releases/archive/v{N}/...`. While
-here, it costs nothing to sweep for archive links a _previous_ release
-missed too — fix any that turn up:
+Update every match to point at
+`docs/design/releases/archive/v{N}/<feature-slug>/...`. While here, it costs
+nothing to sweep for archive links a _previous_ release missed too — fix any
+that turn up:
 
 ```bash
 grep -rn "design/releases/v0\." docs/ --include="*.md" | grep -v /archive/
@@ -130,4 +137,5 @@ Remind the user to:
 
 - Verify the GitHub release page (notes match CHANGELOG, all binaries attached)
 - Open the next milestone in `docs/ROADMAP.md`
-- Create `docs/design/releases/v{N+1}/plan.md` if it doesn't exist yet
+- Run `knap-design` for the first feature of `v{N+1}` if no feature subfolder
+  exists under `docs/design/releases/v{N+1}/` yet
