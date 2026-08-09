@@ -26,8 +26,9 @@ from v0.1 alone and accumulate more with each release.
 | [v0.11.1](#v0111--lint--index-false-positives-released-2026-08-05)                | Lint & Index False Positives               | Released 2026-08-05 |
 | [v0.12](#v012--headless-rename-released-2026-08-07)                               | Headless Rename                            | Released 2026-08-07 |
 | [v0.13](#v013--agent-ergonomics-released-2026-08-08)                              | Agent Ergonomics                           | Released 2026-08-08 |
-| [v0.14](#v014--daily-notes)                                                       | Daily Notes                                | Planned             |
-| [v0.15](#v015--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
+| [v0.14](#v014--batch-apply)                                                       | Batch Apply                                | Planned             |
+| [v0.15](#v015--daily-notes)                                                       | Daily Notes                                | Planned             |
+| [v0.16](#v016--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
 
 ---
 
@@ -395,7 +396,25 @@ diagnostic's severity.
 
 ---
 
-## v0.14 — Daily Notes
+## v0.14 — Batch Apply
+
+**Goal:** Let an agent make a whole set of write operations in one call
+instead of one subprocess per change.
+
+`knap lint --suggest` (v0.13) already surfaces ranked candidate fixes for
+every diagnostic; an agent applies its own judgement to pick the right one
+per finding but still has to shell out to `rename-file`/`rename-heading`/
+`rename-tag`/`fix` once per change today. This release adds a batch runner
+that takes the whole set of chosen changes as one JSON payload and applies
+them sequentially, all-or-nothing.
+
+| Story  | Feature                                                                                                                                                                            |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| US-D18 | `knap apply --json` — apply a JSON array of change operations (rename-file, rename-heading, rename-tag, fix) from stdin, sequentially and all-or-nothing, with `--dry-run` support |
+
+---
+
+## v0.15 — Daily Notes
 
 **Goal:** Open today's journal entry with one command, creating it from a
 template if it doesn't exist.
@@ -413,7 +432,7 @@ template if it doesn't exist.
 
 ---
 
-## v0.15 — Extract to New Note
+## v0.16 — Extract to New Note
 
 **Goal:** Restructure notes without leaving your editor.
 

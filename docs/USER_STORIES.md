@@ -384,6 +384,19 @@ one case where `knap lint` mutates files on disk.
 
 ---
 
+### Batch Apply
+
+**US-D18** — As an agent, I can run `knap apply --json` and pipe a JSON array
+of change operations (`rename-file`, `rename-heading`, `rename-tag`, `fix`)
+on stdin, so after running `knap lint --suggest --json` and picking the right
+fix for each finding myself, I can apply the whole batch in one call instead
+of one subprocess per change. Changes are applied in the order given; the
+batch is all-or-nothing — the workspace ends up either fully changed or
+untouched, never partially applied. `--dry-run` previews the planned result
+without touching disk.
+
+---
+
 ### The Skill
 
 **US-D15** — As an agent, a `skill/knap/SKILL.md` shipped with knap documents
