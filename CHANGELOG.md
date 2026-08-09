@@ -5,6 +5,15 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **`knap rename-file` gains a `move-file` alias.** `knap move-file <old>
+<new>` behaves identically to `knap rename-file <old> <new>`.
+
+---
+
 ## [0.13.0] — 2026-08-08
 
 ### Added

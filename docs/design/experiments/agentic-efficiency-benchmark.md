@@ -1,35 +1,37 @@
-# Benchmark: does knap make agentic Markdown editing faster and more accurate?
+# Benchmark: does knap make agentic Markdown editing more efficient?
 
 A manual A/B protocol for comparing a coding agent editing a linked Markdown
 vault **with** knap's headless CLI (`lint`/`index`/`fix`/`rename-*` +
 `skill/knap/SKILL.md`) against the same agent editing the same vault with
 only generic tools (`grep`/`sed`/`Read`/`Edit`). This is the evidence behind
-the README's "efficiently and accurately" claim — it should be re-runnable
-whenever the claim needs re-checking (new model, new knap release).
+the README's "efficiently" claim — it should be re-runnable whenever the
+claim needs re-checking (new model, new knap release).
 
 ## Hypothesis
 
 For a task that requires touching cross-linked notes (rename, restructure,
-retag), the knap-assisted agent:
+retag), the knap-assisted agent **finishes in fewer tokens and less wall
+time**, because it doesn't have to `grep` the whole vault to enumerate
+backlinks/anchors by hand.
 
-1. **finishes in fewer tokens and less wall time**, because it doesn't have
-   to `grep` the whole vault to enumerate backlinks/anchors by hand, and
-2. **leaves fewer broken links/anchors behind**, because it verifies with
-   `knap lint` instead of trusting its own `grep` coverage.
-
-Both must hold — a faster agent that leaves broken links doesn't support the
-claim, and neither does a slower-but-accurate one.
+Correctness (broken links/anchors left behind) is still measured every run
+as a safety check — a token/time win that quietly breaks the vault
+wouldn't be a win — but it's dropped as a gating criterion of the
+hypothesis itself: across Trials 1–3 it was 0 for both conditions every
+time, at every vault size tried so far, so it hasn't yet been a dimension
+that distinguishes the two conditions.
 
 ## Corpus
 
 Real public vaults were tried first and rejected — see
-[Real-vault candidates considered](#real-vault-candidates-considered) below.
-The consistent failure mode was that a public single-author vault is almost
-always a curated excerpt of a private whole, so a large share of its
-internal links dangle outside what's public, which kills exactly the
-density this benchmark needs. Docs-site repos solve density but use link
-formats (absolute site paths, not relative `.md` paths) that knap doesn't
-resolve without a rewrite pass big enough that it's simpler to generate.
+[Appendix: real-vault candidates considered](#appendix-real-vault-candidates-considered)
+at the end of this doc. The consistent failure mode was that a public
+single-author vault is almost always a curated excerpt of a private whole,
+so a large share of its internal links dangle outside what's public, which
+kills exactly the density this benchmark needs. Docs-site repos solve
+density but use link formats (absolute site paths, not relative `.md`
+paths) that knap doesn't resolve without a rewrite pass big enough that
+it's simpler to generate.
 
 **Use `examples/gen_bench_vault.rs`** (`cargo run --example gen_bench_vault
 -- --out <dir> --seed <n>`) instead. It builds a closed, self-contained
@@ -62,21 +64,6 @@ own idea of what should resolve.
 Commit a generated snapshot (or regenerate with a pinned `--seed` per
 run) as the commit everything resets to, so every trial starts from
 byte-identical `git reset --hard`.
-
-### Real-vault candidates considered
-
-| Repo                                                                    | Link format                                     | Verdict                                                                                                                                                                                              |
-| ----------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [rust-lang/book](https://github.com/rust-lang/book)                     | plain `.md` relative links                      | compatible, but too sparse — only 6 in-content cross-links across 478 files (linking lives in `SUMMARY.md`'s linear TOC, not chapter content), no frontmatter/tags                                   |
-| [kepano/kepano-obsidian](https://github.com/kepano/kepano-obsidian)     | `[[wikilinks]]`, converts via `obsidian-export` | too sparse post-conversion — only 4 real cross-file links survived across 51 notes; most of the vault's wikilinks point to notes outside this public excerpt and got silently stripped to plain text |
-| [mdn/content](https://github.com/mdn/content)                           | absolute `/en-US/docs/...` site paths           | incompatible outright — 7,719 links in the `web/css` subtree use absolute URLs, only 3 use a relative `.md` path; would read as ~100% broken to knap without a full path rewrite                     |
-| [nikitavoloboev/knowledge](https://github.com/nikitavoloboev/knowledge) | n/a                                             | repo has been repurposed into a Go CLI project; no longer a markdown vault                                                                                                                           |
-
-If a better real candidate turns up later (a large, _complete_ public vault
-rather than an excerpt), swap it in — the seeded-defect approach the
-generator uses (mangle N existing links/anchors with a fixed RNG seed
-before the benchmark's seed commit) applies just as well on top of a real
-corpus.
 
 ## Task script ("typical agentic editing session")
 
@@ -166,9 +153,10 @@ Present as a single comparison table, median across trials:
 | Broken links/anchors left (`knap lint`) |          |               |     |
 | Tasks fully completed (of 7)            |          |               |     |
 
-Call the hypothesis supported only if knap-assisted wins (or ties) on both
-tokens/time **and** correctness — a token win that trades away correctness
-isn't the claim the README makes.
+Call the hypothesis supported only if knap-assisted wins (or ties) on
+tokens/time, **provided** correctness also ties or wins — a token win that
+trades away correctness isn't the claim the README makes, but correctness
+is a check on the result, not itself the thing being measured.
 
 ## Results
 
@@ -548,3 +536,21 @@ checked as rigorously as correctness was.
   expected. If it doesn't, that itself is worth reporting.
 - **Model version drift.** Pin and record the exact model used per run;
   re-running after a model upgrade is a new experiment, not a continuation.
+
+## Appendix: real-vault candidates considered
+
+Before writing `examples/gen_bench_vault.rs` (see [Corpus](#corpus)), real
+public vaults were evaluated and rejected:
+
+| Repo                                                                    | Link format                                     | Verdict                                                                                                                                                                                              |
+| ----------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [rust-lang/book](https://github.com/rust-lang/book)                     | plain `.md` relative links                      | compatible, but too sparse — only 6 in-content cross-links across 478 files (linking lives in `SUMMARY.md`'s linear TOC, not chapter content), no frontmatter/tags                                   |
+| [kepano/kepano-obsidian](https://github.com/kepano/kepano-obsidian)     | `[[wikilinks]]`, converts via `obsidian-export` | too sparse post-conversion — only 4 real cross-file links survived across 51 notes; most of the vault's wikilinks point to notes outside this public excerpt and got silently stripped to plain text |
+| [mdn/content](https://github.com/mdn/content)                           | absolute `/en-US/docs/...` site paths           | incompatible outright — 7,719 links in the `web/css` subtree use absolute URLs, only 3 use a relative `.md` path; would read as ~100% broken to knap without a full path rewrite                     |
+| [nikitavoloboev/knowledge](https://github.com/nikitavoloboev/knowledge) | n/a                                             | repo has been repurposed into a Go CLI project; no longer a markdown vault                                                                                                                           |
+
+If a better real candidate turns up later (a large, _complete_ public vault
+rather than an excerpt), swap it in — the seeded-defect approach the
+generator uses (mangle N existing links/anchors with a fixed RNG seed
+before the benchmark's seed commit) applies just as well on top of a real
+corpus.

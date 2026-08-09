@@ -270,7 +270,7 @@ own — use `knap lsp`.**
 | `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--fix]` | v0.11, `--fail-on`/`--since`/`--suggest`/`--fix` added v0.13                          |
 | `index`          | `knap index <path> [--json]`                                                                   | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13 |
 | `parse`          | `knap parse <file>`                                                                            | v0.1                                                                                  |
-| `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                            | v0.12, `move-file` alias added later                                                  |
+| `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                            | v0.12, `move-file` alias added unreleased                                             |
 | `rename-heading` | `knap rename-heading <file> <old> <new>`                                                       | v0.12                                                                                 |
 | `rename-tag`     | `knap rename-tag <old> <new>`                                                                  | v0.12                                                                                 |
 | `fix`            | `knap fix [path] [--dry-run]`                                                                  | v0.13                                                                                 |
