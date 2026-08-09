@@ -129,6 +129,16 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Apply a batch of change operations (rename-file/rename-heading/
+    /// rename-tag/fix) read as a JSON array from stdin, all-or-nothing.
+    Apply {
+        /// Print the plan without changing anything in the real workspace.
+        #[arg(long)]
+        dry_run: bool,
+        /// Emit machine-readable JSON instead of text.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn run() -> anyhow::Result<()> {
@@ -162,5 +172,6 @@ pub fn run() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Fix { path, dry_run } => fix::run(&path, dry_run),
+        Commands::Apply { dry_run, json } => apply::run(dry_run, json),
     }
 }
