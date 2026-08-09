@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn knap() -> Command {
@@ -40,6 +40,30 @@ fn git_init_and_commit_all(dir: &Path) -> String {
     git(dir, &["rev-parse", "HEAD"])
 }
 
+/// Runs `knap` with `args` in `dir`, piping `stdin` to the process and
+/// waiting for it to finish — the plumbing every `apply` test needs to feed
+/// a batch in without a temp file of its own.
+fn knap_with_stdin(args: &[&str], dir: &Path, stdin: &str) -> std::process::Output {
+    use std::io::Write as _;
+    use std::process::Stdio;
+
+    let mut child = knap()
+        .args(args)
+        .current_dir(dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn knap");
+    child
+        .stdin
+        .take()
+        .expect("stdin was piped")
+        .write_all(stdin.as_bytes())
+        .expect("failed to write to knap's stdin");
+    child.wait_with_output().expect("failed to run knap")
+}
+
 fn copy_dir(src: &Path, dst: &Path) {
     for entry in std::fs::read_dir(src).expect("failed to read fixture dir") {
         let entry = entry.expect("failed to read fixture entry");
@@ -51,6 +75,28 @@ fn copy_dir(src: &Path, dst: &Path) {
             std::fs::copy(entry.path(), &dest).expect("failed to copy fixture file");
         }
     }
+}
+
+/// Reads every file under `dir` into a path→content map, for asserting a
+/// directory is byte-for-byte unchanged after an `apply` run that's supposed
+/// to have failed, been a dry-run, or been a no-op.
+fn snapshot_dir(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    fn walk(dir: &Path, root: &Path, out: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
+        for entry in std::fs::read_dir(dir).expect("failed to read dir") {
+            let entry = entry.expect("failed to read entry");
+            let path = entry.path();
+            if entry.file_type().expect("failed to stat entry").is_dir() {
+                walk(&path, root, out);
+            } else {
+                let rel = path.strip_prefix(root).unwrap().to_path_buf();
+                out.insert(rel, std::fs::read(&path).expect("failed to read file"));
+            }
+        }
+    }
+
+    let mut out = std::collections::BTreeMap::new();
+    walk(dir, dir, &mut out);
+    out
 }
 
 #[test]
@@ -983,4 +1029,218 @@ fn fix_dry_run_makes_no_changes() {
     assert!(!dir.path().join("missing.md").exists());
     let note = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
     assert_eq!(note, "# Note\n\nA [broken link](missing.md) to nowhere.\n");
+}
+
+// ── apply ────────────────────────────────────────────────────────────────
+
+#[test]
+fn apply_runs_rename_file_then_rename_heading_in_sequence() {
+    let dir = copy_fixture("apply_batch");
+    let batch = r#"[
+        {"op":"rename-file","old":"sub/note.md","new":"note.md"},
+        {"op":"rename-heading","file":"note.md","old":"Old Section","new":"New Section"}
+    ]"#;
+
+    let output = knap_with_stdin(&["apply"], dir.path(), batch);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // The file-rename ran first, so the heading-rename saw it at its new
+    // location — proves later operations see earlier operations' effects.
+    assert!(!dir.path().join("sub/note.md").exists());
+    let note = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
+    assert!(note.contains("# New Section"), "note was: {note}");
+
+    let linker = std::fs::read_to_string(dir.path().join("linker.md")).unwrap();
+    assert!(
+        linker.contains("(note.md#new-section)"),
+        "linker was: {linker}"
+    );
+}
+
+#[test]
+fn apply_mixed_batch_rename_tag_and_fix() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("note.md"),
+        "---\ntags: draft\n---\n\n# Note\n\nA [broken link](missing.md) to nowhere.\n",
+    )
+    .unwrap();
+
+    let batch = r#"[
+        {"op":"rename-tag","old":"draft","new":"published"},
+        {"op":"fix"}
+    ]"#;
+
+    let output = knap_with_stdin(&["apply"], dir.path(), batch);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let note = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
+    assert!(note.contains("tags: published"), "note was: {note}");
+    assert!(
+        dir.path().join("missing.md").exists(),
+        "fix should have created the missing stub"
+    );
+}
+
+#[test]
+fn apply_all_or_nothing_rolls_back_on_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "# A\n").unwrap();
+    std::fs::write(dir.path().join("b.md"), "# B\n").unwrap();
+    let before = snapshot_dir(dir.path());
+
+    // The second op fails: by the time it runs, the first op has already
+    // taken "c.md" in the scratch copy.
+    let batch = r#"[
+        {"op":"rename-file","old":"a.md","new":"c.md"},
+        {"op":"rename-file","old":"b.md","new":"c.md"}
+    ]"#;
+
+    let output = knap_with_stdin(&["apply"], dir.path(), batch);
+    assert!(!output.status.success());
+
+    assert_eq!(
+        snapshot_dir(dir.path()),
+        before,
+        "real workspace should be byte-for-byte unchanged, including the first op's would-be effect"
+    );
+}
+
+#[test]
+fn apply_dry_run_reports_plan_without_touching_disk() {
+    let dir = copy_fixture("apply_batch");
+    let before = snapshot_dir(dir.path());
+    let batch = r#"[
+        {"op":"rename-file","old":"sub/note.md","new":"note.md"},
+        {"op":"rename-heading","file":"note.md","old":"Old Section","new":"New Section"}
+    ]"#;
+
+    let output = knap_with_stdin(&["apply", "--dry-run"], dir.path(), batch);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("would apply rename-file"),
+        "stdout was: {stdout}"
+    );
+    assert!(
+        stdout.contains("would apply rename-heading"),
+        "stdout was: {stdout}"
+    );
+
+    assert_eq!(
+        snapshot_dir(dir.path()),
+        before,
+        "--dry-run must not touch disk"
+    );
+}
+
+#[test]
+fn apply_json_output_shape() {
+    let batch = r#"[
+        {"op":"rename-file","old":"sub/note.md","new":"note.md"},
+        {"op":"rename-heading","file":"note.md","old":"Old Section","new":"New Section"}
+    ]"#;
+
+    let dir = copy_fixture("apply_batch");
+    let output = knap_with_stdin(&["apply", "--dry-run", "--json"], dir.path(), batch);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+
+    assert_eq!(value["dry_run"], true);
+    let operations = value["operations"].as_array().expect("operations present");
+    assert_eq!(operations.len(), 2, "operations were: {operations:?}");
+    let files_touched = value["files_touched"]
+        .as_u64()
+        .expect("files_touched present");
+
+    // Same batch, same starting fixture, non-JSON output this time — the
+    // total in the summary line must match the JSON report's count.
+    let dir2 = copy_fixture("apply_batch");
+    let text_output = knap_with_stdin(&["apply", "--dry-run"], dir2.path(), batch);
+    assert!(text_output.status.success());
+    let text_stdout = String::from_utf8_lossy(&text_output.stdout);
+    let total_line = text_stdout.lines().last().expect("summary line present");
+    assert!(
+        total_line.contains(&format!("{files_touched} file(s)")),
+        "summary line was: {total_line}"
+    );
+}
+
+#[test]
+fn apply_invalid_json_input_errors() {
+    let dir = copy_fixture("lint_clean");
+    let before = snapshot_dir(dir.path());
+
+    let output = knap_with_stdin(&["apply"], dir.path(), "not valid json");
+    assert!(!output.status.success());
+
+    assert_eq!(
+        snapshot_dir(dir.path()),
+        before,
+        "fixture dir should be unchanged"
+    );
+}
+
+#[test]
+fn apply_rejects_path_outside_workspace_root() {
+    let dir = copy_fixture("lint_clean");
+    let before = snapshot_dir(dir.path());
+    let outside = tempfile::tempdir().unwrap();
+    let outside_path = outside.path().join("ghost.md");
+
+    let batch = format!(
+        r#"[{{"op":"rename-file","old":"{}","new":"new.md"}}]"#,
+        outside_path.display()
+    );
+
+    let output = knap_with_stdin(&["apply"], dir.path(), &batch);
+    assert!(!output.status.success());
+
+    assert!(
+        !outside_path.exists(),
+        "no file should have been created outside the workspace root"
+    );
+    assert_eq!(
+        snapshot_dir(dir.path()),
+        before,
+        "fixture dir should be unchanged"
+    );
+}
+
+#[test]
+fn apply_empty_batch_is_a_noop() {
+    let dir = copy_fixture("lint_clean");
+    let before = snapshot_dir(dir.path());
+
+    let output = knap_with_stdin(&["apply"], dir.path(), "[]");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("0 operation(s)"), "stdout was: {stdout}");
+
+    assert_eq!(
+        snapshot_dir(dir.path()),
+        before,
+        "fixture dir should be unchanged"
+    );
 }

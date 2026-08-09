@@ -119,7 +119,16 @@ fn diff_and_sync(src: &Path, dst: &Path, commit: bool) -> anyhow::Result<usize> 
     let mut changed = 0;
     for rel in &src_files {
         let (from, to) = (src.join(rel), dst.join(rel));
-        if fs::read(&from)? != fs::read(&to).unwrap_or_default() {
+        // `to` missing entirely must count as "differs" regardless of
+        // `from`'s content — comparing against `unwrap_or_default()` would
+        // treat a brand-new *empty* file (e.g. `fix`'s stub creation) as
+        // identical to a `to` that doesn't exist at all, since both read as
+        // `[]`, and silently drop it from the sync.
+        let differs = match fs::read(&to) {
+            Ok(existing) => existing != fs::read(&from)?,
+            Err(_) => true,
+        };
+        if differs {
             changed += 1;
             if commit {
                 if let Some(parent) = to.parent() {
@@ -389,6 +398,21 @@ mod tests {
             fs::read_to_string(dst.path().join("new.md")).unwrap(),
             "new content"
         );
+    }
+
+    #[test]
+    fn diff_and_sync_counts_and_copies_new_empty_file() {
+        // Regression test: a brand-new *empty* file (e.g. `fix`'s stub
+        // creation) must not be mistaken for "unchanged" just because an
+        // absent `dst` file also reads as empty.
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+        fs::write(src.path().join("stub.md"), "").unwrap();
+
+        let count = diff_and_sync(src.path(), dst.path(), true).unwrap();
+
+        assert_eq!(count, 1);
+        assert!(dst.path().join("stub.md").exists());
     }
 
     #[test]
