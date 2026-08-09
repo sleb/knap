@@ -13,7 +13,7 @@ down untested code for the next step to build on.
 
 | Step                                             | Status | Notes |
 | ------------------------------------------------ | ------ | ----- |
-| 1 — Root-parameterized rename core               | Todo   |       |
+| 1 — Root-parameterized rename core               | Done   |       |
 | 2 — Shared fix target-setup                      | Todo   |       |
 | 3 — Batch operation model (`ChangeOp`)           | Todo   |       |
 | 4 — Scratch workspace machinery                  | Todo   |       |
