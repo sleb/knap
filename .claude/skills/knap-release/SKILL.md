@@ -33,15 +33,15 @@ For each doc below, read the doc and the relevant source files side-by-side
 (use LSP `hover`/`goToDefinition` to resolve types as needed). List every
 discrepancy found, then fix each one.
 
-| Doc | What to check |
-|-----|---------------|
-| `docs/ARCHITECTURE.md` | `Config` shape, Note Index method names, handler table, Debug CLI table, data-flow descriptions, invariants |
-| `docs/GETTING_STARTED.md` | CLI examples, configuration option table, troubleshooting commands |
-| `docs/design/components/parser.md` | dependency versions, all public types (`Note`, `WikiLink`, `Heading`, `Frontmatter`, `Tag`, `MarkdownLink`), `parse()` body, extraction function signatures |
-| `docs/design/components/note-index.md` | `NoteIndex` struct fields, `resolve()` lookup strategy, `index()`/`remove()` steps, all read methods, `build()` signature |
-| `docs/design/components/handlers.md` | handler signatures, return types, diagnostic message strings, all handlers present for shipped capabilities |
-| `docs/design/components/protocol-handler.md` | `Config` struct, capabilities block, notification routing table |
-| `docs/design/components/transport.md` | transport layer description, public types or interfaces |
+| Doc                                          | What to check                                                                                                                                               |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/ARCHITECTURE.md`                       | `Config` shape, Note Index method names, handler table, Debug CLI table, data-flow descriptions, invariants                                                 |
+| `docs/GETTING_STARTED.md`                    | CLI examples, configuration option table, troubleshooting commands                                                                                          |
+| `docs/design/components/parser.md`           | dependency versions, all public types (`Note`, `WikiLink`, `Heading`, `Frontmatter`, `Tag`, `MarkdownLink`), `parse()` body, extraction function signatures |
+| `docs/design/components/note-index.md`       | `NoteIndex` struct fields, `resolve()` lookup strategy, `index()`/`remove()` steps, all read methods, `build()` signature                                   |
+| `docs/design/components/handlers.md`         | handler signatures, return types, diagnostic message strings, all handlers present for shipped capabilities                                                 |
+| `docs/design/components/protocol-handler.md` | `Config` struct, capabilities block, notification routing table                                                                                             |
+| `docs/design/components/transport.md`        | transport layer description, public types or interfaces                                                                                                     |
 
 After fixing all drift, summarise: "Docs sync: N files updated, M files
 already correct."
@@ -78,14 +78,45 @@ Make all of these changes:
 5. **`docs/design/releases/v{N}/plan.md`** — confirm all steps show ✅ Done
    (no edit needed if already done in step 2)
 
-## Step 6 — Commit, tag, and push
+## Step 6 — Archive the release design docs
 
-Stage only the files changed in steps 3–5:
+Step 3 already reconciled anything from `docs/design/releases/v{N}/design.md`
+that belongs in `docs/ARCHITECTURE.md` or `docs/design/components/*.md` — the
+release design doc's job is done. Move the release folder into the archive
+so it's preserved for historical context but stops being read as a source of
+truth:
+
+```bash
+mkdir -p docs/design/releases/archive/v{N}
+git mv docs/design/releases/v{N}/design.md docs/design/releases/archive/v{N}/design.md
+git mv docs/design/releases/v{N}/plan.md docs/design/releases/archive/v{N}/plan.md
+rmdir docs/design/releases/v{N} 2>/dev/null
+```
+
+Then fix any doc that still links to the pre-archive path — most commonly
+`docs/ROADMAP.md`'s "See `docs/design/releases/v{N}/design.md`..." line for
+this milestone:
+
+```bash
+grep -rn "design/releases/v{N}/" docs/ --include="*.md" | grep -v /archive/
+```
+
+Update every match to point at `docs/design/releases/archive/v{N}/...`. While
+here, it costs nothing to sweep for archive links a _previous_ release
+missed too — fix any that turn up:
+
+```bash
+grep -rn "design/releases/v0\." docs/ --include="*.md" | grep -v /archive/
+```
+
+## Step 7 — Commit, tag, and push
+
+Stage the files changed in steps 3, 5, and 6:
 
 ```bash
 git add CHANGELOG.md Cargo.toml Cargo.lock README.md docs/ROADMAP.md \
-  docs/design/releases/v{N}/plan.md
-# plus any docs/ files updated in step 3
+  docs/design/releases/archive/v{N}/
+# plus any docs/ files updated in steps 3 or 6
 git commit -m "Release v{VERSION}"
 git tag -a v{VERSION} -m "v{VERSION}"
 git push && git push --tags
@@ -93,9 +124,10 @@ git push && git push --tags
 
 Report the commit hash and confirm the tag was pushed.
 
-## Step 7 — Post-release
+## Step 8 — Post-release
 
 Remind the user to:
+
 - Verify the GitHub release page (notes match CHANGELOG, all binaries attached)
 - Open the next milestone in `docs/ROADMAP.md`
 - Create `docs/design/releases/v{N+1}/plan.md` if it doesn't exist yet
