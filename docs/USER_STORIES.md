@@ -221,33 +221,11 @@ created by the Quick Fix "Create note" action land in that folder — relative t
 the workspace root — instead of next to the current file. This lets me keep all
 unprocessed stubs in one place (an inbox) regardless of where the link appears.
 
-**US-19** — As a writer, I can select text in a note and apply a code action to
-extract it into a new note, replacing the selection with a standard Markdown link
-to the new note, so I can split overgrown notes without manual copy-paste.
-
 **US-42** — As a writer, I can optionally configure a `templateDir` in
 `initializationOptions` pointing to a folder of Markdown templates; when a new
-note is created (via Quick Fix or extract), the server picks a matching template
+note is created via Quick Fix, the server picks a matching template
 and expands it with variables like `{{title}}` and `{{date}}`, so new notes
 start with consistent structure.
-
----
-
-### Daily Notes
-
-**US-43** — As a writer, I can invoke an "open daily note" command from my
-editor's command palette or a keyboard shortcut to open today's note, creating
-it from a template if it doesn't exist. The server registers a
-`workspace/executeCommand` handler for `knap.openDailyNote` and uses a
-configured `dailyNotePattern` (e.g. `journal/%Y/%m/%d.md`) to determine the
-path, then sends `window/showDocument` to navigate the editor there.
-
-The user-visible trigger depends on the editor. In VS Code, vscode-knap
-registers a named command that can be bound to a key. In Neovim, users can call
-`vim.lsp.buf.execute_command` directly and bind it to any key. In Zed, the
-extension API does not currently support registering arbitrary command palette
-entries or keybindable actions, so this command is not accessible from
-zed-knap; Zed support depends on future extension API expansion.
 
 ---
 

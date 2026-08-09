@@ -27,8 +27,6 @@ from v0.1 alone and accumulate more with each release.
 | [v0.12](#v012--headless-rename-released-2026-08-07)                               | Headless Rename                            | Released 2026-08-07 |
 | [v0.13](#v013--agent-ergonomics-released-2026-08-08)                              | Agent Ergonomics                           | Released 2026-08-08 |
 | [v0.14](#v014--batch-apply)                                                       | Batch Apply                                | Planned             |
-| [v0.15](#v015--daily-notes)                                                       | Daily Notes                                | Planned             |
-| [v0.16](#v016--extract-to-new-note)                                               | Extract to New Note                        | Planned             |
 
 ---
 
@@ -411,36 +409,6 @@ them sequentially, all-or-nothing.
 | Story  | Feature                                                                                                                                                                            |
 | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | US-D18 | `knap apply --json` — apply a JSON array of change operations (rename-file, rename-heading, rename-tag, fix) from stdin, sequentially and all-or-nothing, with `--dry-run` support |
-
----
-
-## v0.15 — Daily Notes
-
-**Goal:** Open today's journal entry with one command, creating it from a
-template if it doesn't exist.
-
-| Story | Feature                                                                                                                                                                 |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| US-43 | `knap.openDailyNote` command — server advertises the command; editor extensions bind it to a key or palette entry; server sends `window/showDocument` to navigate there |
-
-**LSP capabilities delivered:** `workspace/executeCommand`, `window/showDocument`
-
-> Requires `dailyNotePattern` config (e.g. `journal/%Y/%m/%d.md`). VS Code via
-> a registered extension command; Neovim via `vim.lsp.buf.execute_command`. Zed
-> does not currently support registering arbitrary command palette actions from
-> an extension; Zed support depends on future extension API expansion.
-
----
-
-## v0.16 — Extract to New Note
-
-**Goal:** Restructure notes without leaving your editor.
-
-| Story | Feature                                                                                    |
-| ----- | ------------------------------------------------------------------------------------------ |
-| US-19 | Extract selection to new note — code action replaces selection with a link to the new file |
-
-**LSP capabilities delivered:** `textDocument/codeAction` (extended)
 
 ---
 
