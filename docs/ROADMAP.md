@@ -410,6 +410,8 @@ them sequentially, all-or-nothing.
 | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | US-D18 | `knap apply --json` — apply a JSON array of change operations (rename-file, rename-heading, rename-tag, fix) from stdin, sequentially and all-or-nothing, with `--dry-run` support |
 
+See `docs/design/releases/v0.14/design.md` for the full design.
+
 ---
 
 ## Backlog
