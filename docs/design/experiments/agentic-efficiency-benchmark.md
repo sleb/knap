@@ -109,19 +109,25 @@ Everything else — model, system prompt, starting repo state — held constant.
 
 Capture these per run:
 
-| Metric                                                     | How to capture                                                                                                                                                                                             |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Wall-clock time                                            | timestamp at first tool call → timestamp at final "done" message                                                                                                                                           |
-| Total tokens (input + output, cache read/write broken out) | Claude Code's `/cost` or session summary at end of run                                                                                                                                                     |
-| Tool-call count                                            | count of tool invocations in the transcript                                                                                                                                                                |
-| Files read                                                 | distinct files opened via `Read`/`grep`, whether or not edited (proxy for exploration cost)                                                                                                                |
-| **Correctness (primary)**                                  | run `knap lint --json .` **out-of-band**, after the session ends, regardless of condition — count `problem_count` and specifically new broken-link/broken-anchor diagnostics not present in the seeded set |
-| Task completion                                            | did all 7 steps actually get applied? (diff against an expected end-state fixture)                                                                                                                         |
-| Self-corrections                                           | count of turns where the agent redoes or patches its own prior edit in the same session                                                                                                                    |
+| Metric                                                     | How to capture                                                                                                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wall-clock time                                            | timestamp at first tool call → timestamp at final "done" message                                                                                                                                                                                                                                                                                                                              |
+| Total tokens (input + output, cache read/write broken out) | Claude Code's `/cost` or session summary at end of run                                                                                                                                                                                                                                                                                                                                        |
+| Tool-call count                                            | count of tool invocations in the transcript                                                                                                                                                                                                                                                                                                                                                   |
+| Files read                                                 | distinct files opened via `Read`/`grep`, whether or not edited (proxy for exploration cost)                                                                                                                                                                                                                                                                                                   |
+| **Correctness (primary)**                                  | run `knap lint --json .` **out-of-band**, after the session ends, regardless of condition — count `problem_count` and specifically new broken-link/broken-anchor diagnostics not present in the seeded set                                                                                                                                                                                    |
+| **Seeded-fix accuracy (ground truth)**                     | for every entry in step 6's seeded-defect list, compare the repointed target actually present in the file against `BENCH_MANIFEST.json`'s `original_target` field (the real pre-mangling answer) — catches a repoint that resolves cleanly (so `knap lint` sees nothing wrong) but landed on the wrong existing file/heading. Automate with a small script; don't rely on spot-reading diffs. |
+| Task completion                                            | did all 7 steps actually get applied? (diff against an expected end-state fixture)                                                                                                                                                                                                                                                                                                            |
+| Self-corrections                                           | count of turns where the agent redoes or patches its own prior edit in the same session                                                                                                                                                                                                                                                                                                       |
 
 Correctness must be measured with the **same external tool** (`knap lint`)
 for both conditions — that's what makes it a fair ground truth rather than
-"did the agent believe it was done."
+"did the agent believe it was done." `knap lint` alone is necessary but not
+sufficient, though: it validates that a link/anchor _resolves_, not that it
+resolves to the _right_ target. Trial 4 found a case where it missed a
+33%-wrong repoint rate entirely (see below) — **seeded-fix accuracy against
+`BENCH_MANIFEST.json` must run alongside `knap lint` from Trial 4 onward,
+not just be spot-checked from transcripts.**
 
 ## Procedure
 
@@ -134,6 +140,10 @@ for both conditions — that's what makes it a fair ground truth rather than
    whichever metric shows the widest spread.
 4. After each run, independently of the agent's own claims:
    - `knap lint --json .` → correctness metrics.
+   - For every step-6 seeded defect, diff the file's actual final target
+     against `BENCH_MANIFEST.json`'s `original_target` → seeded-fix
+     accuracy. `knap lint` passing is not sufficient on its own; a repoint
+     can resolve cleanly and still be the wrong file/heading.
    - `git diff --stat` against the seed → files-touched / lines-changed,
      as a cross-check on "efficiency" that isn't just token count.
 5. Record all metrics in a table per run, then take median (not mean —
@@ -151,6 +161,7 @@ Present as a single comparison table, median across trials:
 | Tool calls                              |          |               |     |
 | Files read                              |          |               |     |
 | Broken links/anchors left (`knap lint`) |          |               |     |
+| Seeded-fix accuracy (vs. ground truth)  |          |               |     |
 | Tasks fully completed (of 7)            |          |               |     |
 
 Call the hypothesis supported only if knap-assisted wins (or ties) on
@@ -525,7 +536,12 @@ checked as rigorously as correctness was.
 
 ## Opportunities for improvement surfaced by Trial 3
 
-**Status: proposed, not yet implemented.**
+**Status: implemented** (`312c852`, "Switch knap skill to lint-then-apply
+workflow") — `skill/knap/SKILL.md` now prescribes exactly the proposed
+loop: `knap lint --suggest --json` (read-only, no `--fix`) followed by a
+hand decision from `data.suggestions` for every `broken-link`/
+`broken-anchor` diagnostic. See Trial 4 below for how well that hand
+decision actually held up under a weaker model.
 
 ### 1. Drop `--fix` from the skill's default loop — the false-positive risk outweighs the tool-call savings
 
@@ -583,6 +599,152 @@ narrower mitigation (e.g. `--fix` declines to auto-apply when the broken
 target has no file extension/looks directory-shaped, or raises its
 confidence bar) recovers most of the safety without giving up the
 collapse entirely.
+
+### Trial 4 — 2026-08-13, N=1 per condition, Haiku 4.5, 200-note vault (dry run, not the official run)
+
+A dry run ahead of the official Trial 4, both to check the protocol still
+holds with a cheaper model (Haiku 4.5, not Sonnet/Opus as in Trials 1–3)
+and to shake out tooling issues before spending the full N≥3 run. **Treat
+this as directional only.**
+
+Setup: `examples/gen_bench_vault.rs --seed 1 --notes 200 --broken-links 12
+--broken-anchors 8` — the exact same seed and parameters as Trial 3,
+confirmed byte-identical by matching hub note (`topics/release.md`, 17
+backlinks), split target (`reference/cache.md`, 14 backlinks), and tag
+counts against Trial 3's numbers. Two fresh git repos seeded at an
+identical `bench-vault-seed` tag commit; `knap` (this branch) and
+`skill/knap/SKILL.md` present only in the knap-assisted repo. Both agents
+ran as isolated in-process subagents (not separate `claude` CLI processes —
+this sandbox blocks nested `claude -p --permission-mode
+bypassPermissions`, so the harness's own Agent-subagent mechanism was used
+instead), both pinned to `claude-haiku-4-5`, given identical task text with
+no mention of knap in either prompt. Wall time, tokens, and tool calls came
+from the harness's own per-agent usage accounting. Correctness was checked
+both ways: `knap lint --json` (structural), and, newly, seeded-fix accuracy
+against `BENCH_MANIFEST.json`'s recorded `original_target` for every one of
+the 20 seeded defects (see [Metrics](#metrics) — this check was added
+_because of_ what this trial found; earlier trials didn't run it).
+
+| Metric                                  | Baseline  | knap-assisted | Δ                     |
+| --------------------------------------- | --------- | ------------- | --------------------- |
+| Wall time (harness `duration_ms`)       | 362.2s    | 267.2s        | knap **26.2% faster** |
+| Tokens (harness `subagent_tokens`)      | 64,179    | 52,266        | knap **18.6% fewer**  |
+| Tool calls (harness `tool_uses`)        | 93        | 50            | knap **46.2% fewer**  |
+| Files changed (`git diff --stat`)       | 90        | 89            | tie                   |
+| Broken links/anchors left (`knap lint`) | 0         | 0             | tie                   |
+| Seeded-fix accuracy (vs. ground truth)  | **20/20** | **16/20**     | knap **worse**        |
+| Tasks fully completed (of 7)            | 7/7       | 7/7           | tie                   |
+
+**Efficiency numbers are directionally consistent with Trial 3** (knap
+faster, fewer tokens, fewer tool calls), though the gap is narrower here
+than Trial 3's 27–46% wins — plausibly N=1 noise, or Haiku's flatter
+per-call cost making the skill-file-read/JSON-verbosity overhead matter
+less proportionally. Not enough to conclude anything on its own; that's
+what the official run is for.
+
+**Correctness is the real finding, and it inverts the usual result:** for
+the first time across all four trials, `knap lint`'s `problem_count: 0`
+did **not** mean the vault was actually fixed correctly. Cross-checking
+every one of the 20 seeded defects against `BENCH_MANIFEST.json`'s
+`original_target` (the real answer, recorded before the defect was
+planted) found the baseline agent got all 20 right, by hand-`grep`ing and
+reading context — but the knap-assisted agent got **4 of the 12 broken
+links wrong**, repointing them to a different existing file than the
+seeded-correct one, every time with a visible link-text mismatch that
+would catch a human's eye on read:
+
+| File                        | Link text says | Repointed to            | Correct target             |
+| --------------------------- | -------------- | ----------------------- | -------------------------- |
+| `reference/deployment.md`   | "Workflow"     | `topics/index-274.md`   | `projects/workflow.md`     |
+| `reference/billing.md`      | "Sync 835"     | `topics/sync-800.md`    | `reference/sync-835.md`    |
+| `projects/gateway.md`       | "Storage"      | `notes/storage.md`      | `projects/storage.md`      |
+| `projects/retrospective.md` | "Incident 954" | `notes/incident-981.md` | `projects/incident-954.md` |
+
+`knap lint` reported all four as fully resolved — every target is a real
+file in the vault, so structurally there's nothing to flag. The 8 seeded
+broken anchors all ended up correct, but only because the first-round
+guess for one of them (`reference/incident.md`) happened to be
+_structurally_ broken too (pointed at a heading slug that doesn't exist),
+which `lint` caught and forced a second pass; that second pass landed on
+the right answer, but not because anything checked its semantics either.
+
+**Root cause, read from the transcript:** the skill (post-`312c852`) tells
+the agent to "pick from `data.suggestions` (or override)" for every
+`broken-link`/`broken-anchor` diagnostic — but doesn't say _how_ to pick.
+Left to fill that gap, the Haiku agent wrote its own Python script that
+piped `knap lint --suggest --json` into a loop that unconditionally took
+`suggestions[0]` for every diagnostic and fed the result straight into
+`knap apply`:
+
+```python
+if code == 'broken-link':
+    if suggestions:
+        target = suggestions[0]['target']   # <- no tie check, no text check
+```
+
+This is **worse than `knap fix`/`--fix`**, not a repeat of the same
+severity: `--fix` at least declines to auto-apply when the top two
+candidates are within a tie (see the skill's own `--suggest` example).
+This home-grown script had no such restraint — it took the top of the
+ranked list regardless of margin. Dropping `--fix` from the skill's
+prescribed loop (Trial 3's Opportunity 1) successfully stopped the _tool_
+from silently auto-applying bad repoints, but it didn't stop the _agent_
+from reinventing the same pattern one level up, because nothing in the
+skill said not to.
+
+## Opportunities for improvement surfaced by Trial 4
+
+**Status: proposed, not yet implemented.**
+
+### 1. Tell the skill explicitly how to pick, not just that a pick is required
+
+`skill/knap/SKILL.md`'s current instruction — "Pick from `data.suggestions`
+(or override)" — states _that_ a decision is needed but not _what makes a
+decision correct_, so it's silent on the exact failure mode that sank 4 of
+12 fixes in this trial: taking the ranked-top candidate without checking
+whether it's actually what the link is talking about.
+
+**Proposed change**, in the `broken-link`/`broken-anchor` row of the
+edit→verify loop's table (or immediately below it):
+
+- Before repointing, compare the link's own visible text (and, if that's
+  generic, the surrounding sentence) against each candidate's filename or
+  heading — `data.suggestions` is ranked by raw path/slug edit distance
+  only and has no idea what the link is _about_. A link labeled `[Sync
+835]` pointing at a candidate named `sync-800.md` is a mismatch worth
+  noticing even though `sync-800.md` is closer by edit distance to
+  whatever the broken text was.
+- Explicitly name the anti-pattern to avoid: **do not** write a script (or
+  otherwise mechanically iterate) that applies `suggestions[0]` to every
+  diagnostic without a per-diagnostic check. That collapses the hand-pick
+  step back into exactly what dropping `--fix` was meant to prevent, minus
+  `--fix`'s tie-safety.
+- If no candidate's name plausibly matches the link text, say so rather
+  than picking the least-wrong option — leave it for a `grep`/manual
+  search, the same way the four frontmatter codes already require a real
+  look rather than a guess.
+
+**Expected effect:** doesn't remove the extra tool-call cost of hand-
+picking (that trade-off was already accepted when `--fix` was dropped),
+but should close the gap this trial found between "the skill requires a
+human/agent decision" and "the agent actually exercises judgment in that
+decision" — the current wording got the first without the second from a
+smaller model.
+
+### 2. Make ground-truth seeded-fix accuracy a standing part of every future trial, not just this one
+
+This trial is the first time seeded-fix accuracy against
+`BENCH_MANIFEST.json` was checked at all — Trials 1–3 relied on `knap
+lint`'s `problem_count` plus spot-reading transcripts, and Trial 3's own
+"Threats to validity" section already flagged this exact gap ("No
+independent end-state fixture diff was built... it wasn't checked as
+rigorously as correctness was"). That gap is why 4 wrong repoints in Trial
+3's own seed-1 vault could have gone unnoticed too, if the qualitative
+review in that trial hadn't happened to catch `workflow-554.md` by eye.
+**This is now folded into [Metrics](#metrics) and
+[Procedure](#procedure) above** — every future trial (including the
+official Trial 4 run) should run the ground-truth check unconditionally,
+not opportunistically.
 
 ## Threats to validity (call these out alongside results, don't bury them)
 
