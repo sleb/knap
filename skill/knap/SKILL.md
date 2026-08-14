@@ -61,6 +61,24 @@ that can actually leave something broken. Match the check to the edit:
      see the example below. The four frontmatter codes always need a
      human/agent decision about the right value and are still fixed by hand.
 
+     **How to pick, not just that you must:** `data.suggestions` is ranked
+     by raw path/slug edit distance only — it has no idea what the link is
+     _about_, so the closest-ranked candidate is not automatically the
+     right one. Before repointing, read the link's own visible text (and,
+     if that's generic, the surrounding sentence) and check it against
+     each candidate's filename or heading. A link labeled `[Sync 835]`
+     pointing at a candidate named `sync-800.md` is a mismatch worth
+     noticing even though `sync-800.md` may be closer by edit distance to
+     the broken target string. **Never mechanically apply
+     `suggestions[0]` to every diagnostic in a loop or script** — that
+     reintroduces exactly the false-positive risk `--fix` was dropped from
+     this loop to avoid, minus even `--fix`'s tie-safety (`--fix` declines
+     to auto-apply when the top two candidates are within a tie; a script
+     that always takes `suggestions[0]` doesn't). If no candidate's name
+     plausibly matches the link text, say so and go find the right target
+     by hand (`grep`, `knap index`) rather than picking the least-wrong
+     option.
+
 **Always finish with one `knap lint --json` (or plain `knap lint` — exit
 code `0`, no output means clean) over the whole task's changes**, whichever
 path was taken to get there — that's the check that actually backs a "no
