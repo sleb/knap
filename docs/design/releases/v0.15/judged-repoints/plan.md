@@ -15,7 +15,7 @@ down untested code for the next step to build on.
 | ---------------------------------------------- | ------ | ----- |
 | 1 — `repoint-link`/`repoint-anchor` operations | Done   |       |
 | 2 — Integration tests                          | Done   |       |
-| 3 — Skill doc update                           | Todo   |       |
+| 3 — Skill doc update                           | Done   |       |
 
 ---
 

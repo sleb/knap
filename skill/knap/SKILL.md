@@ -1,26 +1,26 @@
 ---
 name: knap
 description: >
-  Use knap's headless CLI (lint, fix, index, rename-*) to safely edit
-  Markdown notes in a vault. Trigger whenever a task edits, creates, or
-  restructures notes in a directory with a knap.toml or an existing
-  note/link structure — verify every edit with `knap lint --fix --suggest`
-  and resolve what it can't fix itself with `knap rename-*` or a hand edit
+  Use knap's headless CLI (lint, fix, index, rename-*, apply) to safely edit
+  Markdown docs in a workspace. Trigger whenever a task edits, creates, or
+  restructures docs in a directory with a knap.toml or an existing
+  doc/link structure — verify every edit with `knap lint --suggest` and
+  resolve what it reports with `knap rename-*`, `knap apply`, or a hand edit
   before finishing.
 ---
 
 # knap
 
-knap is a linter, indexer, and refactoring tool for plain-Markdown notes
-(`[text](path/to/note.md)` links, no wiki-link syntax). When editing notes in
-a vault that has it installed, use its CLI to catch and fix broken links
+knap is a linter, indexer, and refactoring tool for plain-Markdown docs
+(`[text](path/to/doc.md)` links, no wiki-link syntax). When editing docs in
+a workspace that has it installed, use its CLI to catch and fix broken links
 instead of eyeballing the Markdown by hand.
 
 ## When to reach for this
 
-Any task that edits, creates, moves, or deletes Markdown notes in a vault
+Any task that edits, creates, moves, or deletes Markdown docs in a workspace
 with a `knap.toml` at its root, or that already has a recognizable
-note/link structure. If `knap --help` runs successfully in the vault, use
+doc/link structure. If `knap --help` runs successfully in the workspace, use
 the loop below rather than manually re-checking links.
 
 ## The edit → verify loop
@@ -37,37 +37,29 @@ that can actually leave something broken. Match the check to the edit:
   guarantee. Chain as many `rename-*` calls as the task needs back to back,
   with **no lint in between** — verify once at the end of the batch, not
   after each call.
-- **Hand-edits** (a new note, a manually added or rewritten link, a
+- **Hand-edits** (a new doc, a manually added or rewritten link, a
   manually fixed target) — these are where mistakes actually happen, so
   lint right after each one:
   1. Make the edit.
-  2. `knap lint --fix --suggest --json`. One call does three things: apply
-     every unambiguous fix `knap fix` would make, then report what's left —
-     so what you get back is the _post-fix_ state, not the state your edit
-     actually left behind. Add `--since <git-ref>` to narrow the _report_ to
-     files changed since a commit instead of paging the whole vault on every
-     check (`--fix` itself always runs over the whole vault regardless —
-     a fix elsewhere, e.g. a file `--since` wouldn't consider "yours", can
-     still be what resolves a diagnostic in a file that is).
-  3. For each diagnostic still in the report, branch on its `code`:
+  2. `knap lint --suggest --json` (read-only — no `--fix`). Add
+     `--since <git-ref>` to narrow the report to files changed since a
+     commit.
+  3. For each diagnostic in the report, branch on its `code`:
 
-     | `code`                   | Meaning                                                           | Resolution                                                           |
-     | ------------------------ | ----------------------------------------------------------------- | -------------------------------------------------------------------- |
-     | `broken-link`            | Link target file doesn't exist                                    | Ambiguous — pick from `data.suggestions`, or none exist: fix by hand |
-     | `broken-anchor`          | `#slug` doesn't match any heading in the target                   | Ambiguous — pick from `data.suggestions`, or none exist: fix by hand |
-     | `missing-frontmatter`    | Note has no frontmatter block at all, but the schema requires one | Add frontmatter by hand                                              |
-     | `missing-required-field` | Frontmatter exists but a required key is absent                   | Add the field by hand                                                |
-     | `invalid-field-value`    | A field's value isn't in the schema's allowed list                | Fix the value by hand                                                |
-     | `unknown-field`          | A frontmatter key isn't in the schema                             | Fix the typo, or extend the schema                                   |
+     | `code`                   | Meaning                                                          | Resolution                                                                       |
+     | ------------------------ | ---------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+     | `broken-link`            | Link target file doesn't exist                                   | Pick from `data.suggestions` (or override) → `repoint-link` in the apply batch   |
+     | `broken-anchor`          | `#slug` doesn't match any heading in the target                  | Pick from `data.suggestions` (or override) → `repoint-anchor` in the apply batch |
+     | `missing-frontmatter`    | Doc has no frontmatter block at all, but the schema requires one | Add frontmatter by hand                                                          |
+     | `missing-required-field` | Frontmatter exists but a required key is absent                  | Add the field by hand                                                            |
+     | `invalid-field-value`    | A field's value isn't in the schema's allowed list               | Fix the value by hand                                                            |
+     | `unknown-field`          | A frontmatter key isn't in the schema                            | Fix the typo, or extend the schema                                               |
 
-     Any `broken-link`/`broken-anchor` with a single unambiguous closest
-     match was already applied by the `--fix` pass above and won't appear
-     here at all — what's left is genuinely ambiguous (two or more equally
-     close candidates) or has no candidate to begin with. `data.suggestions`
-     (from `--suggest`) gives you the ranked candidates for the ambiguous
-     case; pick one and edit the link by hand. The four frontmatter codes
-     always need a human/agent decision about the right value, so `--fix`
-     never touches them regardless.
+     `data.suggestions` (from `--suggest`) gives you the ranked candidates
+     for `broken-link`/`broken-anchor`; pick one and apply it with a
+     `repoint-link`/`repoint-anchor` entry in a `knap apply --json` batch —
+     see the example below. The four frontmatter codes always need a
+     human/agent decision about the right value and are still fixed by hand.
 
 **Always finish with one `knap lint --json` (or plain `knap lint` — exit
 code `0`, no output means clean) over the whole task's changes**, whichever
@@ -81,14 +73,14 @@ $ knap lint . --json
 {
   "diagnostics": [
     {
-      "path": "notes/index.md",
+      "path": "docs/index.md",
       "diagnostics": [
         {
           "range": { "start": { "line": 11, "character": 2 }, "end": { "line": 11, "character": 26 } },
           "severity": 2,
           "code": "broken-link",
           "source": "knap",
-          "message": "Link target not found: 'notes/missing.md'"
+          "message": "Link target not found: 'docs/missing.md'"
         }
       ]
     }
@@ -109,18 +101,18 @@ $ knap lint . --json --suggest
 {
   "diagnostics": [
     {
-      "path": "notes/index.md",
+      "path": "docs/index.md",
       "diagnostics": [
         {
           "range": { "start": { "line": 11, "character": 2 }, "end": { "line": 11, "character": 26 } },
           "severity": 2,
           "code": "broken-link",
           "source": "knap",
-          "message": "Link target not found: 'notes/missing.md'",
+          "message": "Link target not found: 'docs/missing.md'",
           "data": {
             "suggestions": [
-              { "target": "notes/mission.md", "distance": 2 },
-              { "target": "notes/missions.md", "distance": 3 }
+              { "target": "docs/mission.md", "distance": 2 },
+              { "target": "docs/missions.md", "distance": 3 }
             ]
           }
         }
@@ -139,45 +131,36 @@ fix` uses to decide, not just the leftovers. Two candidates this close
 together means `knap fix` would leave this one alone; if `suggestions[0]`
 were strictly closer than `suggestions[1]`, `fix` would already have applied
 it. A diagnostic with no `data` field at all had zero candidates in the
-vault — `knap fix`'s create-a-stub case.
+workspace — `knap fix`'s create-a-stub case.
 
-## Example: `--fix` applies first, then reports what's left
+## Example: `lint --suggest` → pick → `apply` round trip
+
+Given the ambiguous `broken-link` diagnostic from the `--suggest` example
+above (`docs/index.md`, range `11:2`–`11:26`, candidates `docs/mission.md`
+and `docs/missions.md`), pick a target and repoint it at that exact range:
 
 ```
-$ knap lint . --fix --suggest --json
+$ echo '[{"op":"repoint-link","file":"docs/index.md","range":{"start":{"line":11,"character":2},"end":{"line":11,"character":26}},"target":"docs/mission.md"}]' \
+  | knap apply --json
 {
-  "diagnostics": [
+  "dry_run": false,
+  "operations": [
     {
-      "path": "notes/index.md",
-      "diagnostics": [
-        {
-          "...": "...",
-          "code": "broken-anchor",
-          "message": "Heading not found: '#c'",
-          "data": { "suggestions": [
-            { "target": "#a", "distance": 1 },
-            { "target": "#b", "distance": 1 }
-          ] }
-        }
-      ]
+      "op": "repoint-link",
+      "summary": "docs/index.md: repoint → 'docs/mission.md'",
+      "files_touched": 1
     }
   ],
-  "problem_count": 1,
-  "file_count": 1,
-  "blocking_count": 1,
-  "fixes_applied": [
-    "notes/index.md: repoint 'notes/old-name.md' → 'notes/new-name.md'"
-  ]
+  "files_touched": 1
 }
 ```
 
-`fixes_applied` (only present when `--fix` was passed) lists every fix that
-was actually applied to disk before this report was computed — the broken
-link in this example is already gone by the time you see the JSON. The one
-diagnostic still shown is the one `--fix` couldn't resolve on its own (a tie
-between `#a` and `#b`); its `data.suggestions` is where you pick from.
-`--fix` mutates files — this is the one case where `knap lint` isn't
-read-only.
+`repoint-anchor` works the same way, with an `anchor` field instead of
+`target` (a leading `#` on `anchor` is optional — `knap apply` strips it
+either way). Both operations use the diagnostic's own `range`, so there's no
+need to re-locate the link/anchor text by hand before repointing it. They
+compose with `rename-*` in the same batch — mix as many operations as the
+task needs into one array; `apply` applies all of them or none.
 
 ## Example: `blocking_count` vs. `problem_count`
 
@@ -197,14 +180,14 @@ $ echo $?
 Exit code follows `blocking_count`, not `problem_count` — a non-zero
 `problem_count` with `blocking_count: 0` still exits `0`.
 
-## Inspecting one note: `knap index <file> --json`
+## Inspecting one doc: `knap index <file> --json`
 
-After editing a single note, get just its neighborhood — headings, outgoing
+After editing a single doc, get just its neighborhood — headings, outgoing
 links (resolved/broken), backlinks, tags — without paging the whole
 workspace snapshot:
 
 ```
-$ knap index notes/index.md --json
+$ knap index docs/index.md --json
 {
   "headings": [...],
   "links": [...],
@@ -219,6 +202,6 @@ full-workspace `{ "notes": [...], "tags": {...} }` envelope.)
 ## Full reference
 
 This skill covers the edit-verify loop `knap lint`/`knap fix`/`knap
-rename-*` were built for. For every flag, exit code, and config option, see
-the vault's `knap`-installing project's `README.md`, or run `knap <command>
---help`.
+rename-*`/`knap apply` were built for. For every flag, exit code, and config
+option, see the workspace's `knap`-installing project's `README.md`, or run
+`knap <command> --help`.
