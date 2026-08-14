@@ -6,8 +6,10 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
+use lsp_types::Range;
+
 use crate::cli::{fix, rename};
-use crate::index;
+use crate::{edit, handlers, index};
 
 /// A single batch entry `knap apply` reads from stdin, one variant per
 /// existing mutating subcommand (`rename-file`/`rename-heading`/
@@ -34,6 +36,16 @@ enum ChangeOp {
         #[serde(default = "default_fix_path")]
         path: PathBuf,
     },
+    RepointLink {
+        file: PathBuf,
+        range: Range,
+        target: String,
+    },
+    RepointAnchor {
+        file: PathBuf,
+        range: Range,
+        anchor: String,
+    },
 }
 
 /// The `#[serde(default = ...)]` target for `Fix.path`: `knap fix`'s own
@@ -53,6 +65,8 @@ impl ChangeOp {
             ChangeOp::RenameHeading { .. } => "rename-heading",
             ChangeOp::RenameTag { .. } => "rename-tag",
             ChangeOp::Fix { .. } => "fix",
+            ChangeOp::RepointLink { .. } => "repoint-link",
+            ChangeOp::RepointAnchor { .. } => "repoint-anchor",
         }
     }
 }
@@ -229,6 +243,37 @@ fn apply_one(root: &Path, op: &ChangeOp) -> anyhow::Result<AppliedOp> {
                 files_touched,
             })
         }
+        ChangeOp::RepointLink {
+            file,
+            range,
+            target,
+        } => {
+            ensure_scoped(root, file)?;
+            let file_abs = index::normalize_path(&root.join(file));
+            let files_touched =
+                edit::apply(&handlers::compute_link_fix(&file_abs, *range, target))?;
+            Ok(AppliedOp {
+                op: op.kind(),
+                summary: format!("{}: repoint → '{target}'", file.display()),
+                files_touched,
+            })
+        }
+        ChangeOp::RepointAnchor {
+            file,
+            range,
+            anchor,
+        } => {
+            ensure_scoped(root, file)?;
+            let file_abs = index::normalize_path(&root.join(file));
+            let anchor = anchor.strip_prefix('#').unwrap_or(anchor);
+            let files_touched =
+                edit::apply(&handlers::compute_anchor_fix(&file_abs, *range, anchor))?;
+            Ok(AppliedOp {
+                op: op.kind(),
+                summary: format!("{}: anchor → '#{anchor}'", file.display()),
+                files_touched,
+            })
+        }
     }
 }
 
@@ -350,6 +395,56 @@ mod tests {
             op,
             ChangeOp::Fix {
                 path: PathBuf::from(".")
+            }
+        );
+    }
+
+    #[test]
+    fn change_op_deserializes_repoint_link() {
+        let op: ChangeOp = serde_json::from_str(
+            r#"{"op":"repoint-link","file":"a.md","range":{"start":{"line":0,"character":7},"end":{"line":0,"character":13}},"target":"real.md"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            op,
+            ChangeOp::RepointLink {
+                file: PathBuf::from("a.md"),
+                range: Range {
+                    start: lsp_types::Position {
+                        line: 0,
+                        character: 7,
+                    },
+                    end: lsp_types::Position {
+                        line: 0,
+                        character: 13,
+                    },
+                },
+                target: "real.md".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn change_op_deserializes_repoint_anchor() {
+        let op: ChangeOp = serde_json::from_str(
+            r##"{"op":"repoint-anchor","file":"a.md","range":{"start":{"line":0,"character":8},"end":{"line":0,"character":11}},"anchor":"#slug"}"##,
+        )
+        .unwrap();
+        assert_eq!(
+            op,
+            ChangeOp::RepointAnchor {
+                file: PathBuf::from("a.md"),
+                range: Range {
+                    start: lsp_types::Position {
+                        line: 0,
+                        character: 8,
+                    },
+                    end: lsp_types::Position {
+                        line: 0,
+                        character: 11,
+                    },
+                },
+                anchor: "#slug".to_string(),
             }
         );
     }
@@ -519,6 +614,147 @@ mod tests {
         let op = ChangeOp::RenameFile {
             old: outside_old,
             new: PathBuf::from("new.md"),
+        };
+
+        assert!(apply_one(root.path(), &op).is_err());
+    }
+
+    #[test]
+    fn apply_one_repoint_link_replaces_target_range_with_new_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.md"), "[text](old.md)\n").unwrap();
+
+        let op = ChangeOp::RepointLink {
+            file: PathBuf::from("a.md"),
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 7,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 13,
+                },
+            },
+            target: "real.md".to_string(),
+        };
+
+        let applied = apply_one(root, &op).unwrap();
+
+        assert_eq!(applied.op, "repoint-link");
+        assert_eq!(applied.files_touched, 1);
+        assert_eq!(
+            fs::read_to_string(root.join("a.md")).unwrap(),
+            "[text](real.md)\n"
+        );
+    }
+
+    #[test]
+    fn apply_one_repoint_anchor_replaces_range_with_bare_slug() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.md"), "[text](#old)\n").unwrap();
+
+        let op = ChangeOp::RepointAnchor {
+            file: PathBuf::from("a.md"),
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 11,
+                },
+            },
+            anchor: "new".to_string(),
+        };
+
+        let applied = apply_one(root, &op).unwrap();
+
+        assert_eq!(applied.op, "repoint-anchor");
+        assert_eq!(applied.files_touched, 1);
+        assert_eq!(
+            fs::read_to_string(root.join("a.md")).unwrap(),
+            "[text](#new)\n"
+        );
+    }
+
+    #[test]
+    fn apply_one_repoint_anchor_strips_leading_hash_from_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.md"), "[text](#old)\n").unwrap();
+
+        let op = ChangeOp::RepointAnchor {
+            file: PathBuf::from("a.md"),
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 11,
+                },
+            },
+            anchor: "#new".to_string(),
+        };
+
+        apply_one(root, &op).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("a.md")).unwrap(),
+            "[text](#new)\n"
+        );
+    }
+
+    #[test]
+    fn apply_one_rejects_repoint_link_file_outside_root() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("a.md");
+        fs::write(&outside_file, "[text](old.md)\n").unwrap();
+
+        let op = ChangeOp::RepointLink {
+            file: outside_file,
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 7,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 13,
+                },
+            },
+            target: "real.md".to_string(),
+        };
+
+        assert!(apply_one(root.path(), &op).is_err());
+    }
+
+    #[test]
+    fn apply_one_rejects_repoint_anchor_file_outside_root() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let outside_file = outside.path().join("a.md");
+        fs::write(&outside_file, "[text](#old)\n").unwrap();
+
+        let op = ChangeOp::RepointAnchor {
+            file: outside_file,
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 11,
+                },
+            },
+            anchor: "new".to_string(),
         };
 
         assert!(apply_one(root.path(), &op).is_err());
