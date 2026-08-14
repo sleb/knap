@@ -360,6 +360,18 @@ collapsing the usual lint → fix → lint-again sequence into one call;
 `fixes_applied` in `--json` output lists what was applied. `--fix` is the
 one case where `knap lint` mutates files on disk.
 
+**US-D20** — As an agent, `knap fix`'s auto-apply and `knap lint --suggest`'s
+ranked candidates both weigh a `broken-link`/`broken-anchor`'s own visible
+link text against each candidate's name, not just the broken target/slug
+string's path distance, so a same-shape decoy that's closer by raw edit
+distance (`sync-800.md`) doesn't outrank the candidate the link text actually
+names (`sync-835.md`, for link text "Sync 835"). Every diagnostic's `data`
+also carries a `text_mismatch` flag when the two signals disagree on which
+candidate is best, so I get an explicit warning instead of a silently
+plausible top pick — and `knap fix`/`knap lint --fix` decline to auto-apply
+when that flag is set, even if the combined ranking otherwise found a single
+unambiguous winner.
+
 ---
 
 ### Batch Apply

@@ -28,6 +28,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.13](#v013--agent-ergonomics-released-2026-08-08)                              | Agent Ergonomics                           | Released 2026-08-08 |
 | [v0.14](#v014--batch-apply-released-2026-08-08)                                   | Batch Apply                                | Released 2026-08-08 |
 | [v0.15](#v015--judged-repoints)                                                   | Judged Repoints                            | Planned             |
+| [v0.16](#v016--text-aware-repoint-ranking)                                        | Text-Aware Repoint Ranking                 | Planned             |
 
 ---
 
@@ -432,6 +433,30 @@ diagnostic's own range.
 | Story  | Feature                                                                                                                                                                                           |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | US-D19 | `knap apply` gains `repoint-link`/`repoint-anchor` operations — apply an agent-picked target from `lint --suggest`'s candidates at a diagnostic's own range, inside the same all-or-nothing batch |
+
+---
+
+## v0.16 — Text-Aware Repoint Ranking
+
+**Goal:** Stop `knap fix`/`lint --suggest`'s repoint ranking from being fooled
+by a candidate that's merely closer by raw path/slug edit distance to the
+broken target string, when the link's own visible text points somewhere else
+entirely.
+
+The [agentic efficiency benchmark](experiments/agentic-efficiency-benchmark.md)'s
+Trial 4 found the ranking picking a plausible-but-wrong link target 4 of 12
+times against a weaker model — every case had a visible link-text mismatch
+(`[Sync 835]` repointed to `sync-800.md` instead of `sync-835.md`) that the
+ranking had no signal to catch, because it only ever compared the broken
+target/slug string against candidate paths/slugs, never the link's own text
+against candidate names. This release adds a second edit-distance signal from
+link text, blends it into the ranking, and flags disagreement between the two
+signals so an agent (or `knap fix`'s auto-apply) has something to distrust
+instead of a silently confident top pick.
+
+| Story  | Feature                                                                                                                                                                                 |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| US-D20 | Ranking blends link-text distance with path/slug distance; `text_mismatch` flag on `lint --suggest` output; `knap fix`/`lint --fix` decline to auto-apply when the two signals disagree |
 
 ---
 
