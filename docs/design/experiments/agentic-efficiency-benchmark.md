@@ -746,6 +746,89 @@ review in that trial hadn't happened to catch `workflow-554.md` by eye.
 official Trial 4 run) should run the ground-truth check unconditionally,
 not opportunistically.
 
+### 3. knap-side opportunities — give the ranking richer context, not just the skill better wording
+
+Opportunity 1 above treats the failure as a prompting gap: the skill
+didn't tell the agent _how_ to pick. But the underlying ranking both
+`suggest_link_fix`/`rank_link_candidates` and `suggest_anchor_fix`/
+`rank_anchor_candidates` hand back (`src/handlers.rs:1443-1511`) has the
+same blind spot regardless of which agent or skill wording is driving it:
+it scores every candidate purely by edit distance between the _broken
+target/slug string_ and that candidate's path/slug. Neither function ever
+looks at the link's own visible Markdown text (`[Sync 835](...)`) or the
+target note's title — both signals knap already has parsed and sitting in
+the AST, just unused by the ranker. A prompting fix can only get a model
+to compensate for that blind spot by hand; it can't close it. Five
+knap-side (tool-side) options, roughly ordered by expected impact:
+
+1. **Fold link text into the ranking signal.** Add a second edit-distance
+   term — slugified link text vs. candidate filename/title — and combine
+   it with the existing path-distance term (e.g. weighted sum, or "text
+   distance breaks ties/overrides when path distance calls two candidates
+   close"). This is the direct fix: it targets the exact failure mode
+   this trial found — "Sync 835" scores far closer to `sync-835.md` on
+   text distance than to `sync-800.md`, even though the latter won on raw
+   path distance against the broken target string.
+2. **Surface disagreement instead of (or alongside) re-ranking.** Lower
+   risk, no combined-scoring formula to get right: keep path-distance
+   ranking as the primary order, but compute the text-similarity score
+   too and attach a `text_mismatch: true`-style flag to `--suggest`'s
+   `data` whenever the top path-ranked candidate isn't also the top
+   text-ranked one. Doesn't fix the ranking, but turns a silent trap into
+   an explicit "don't trust this one blindly" signal in the same
+   `lint --suggest --json` call an agent already makes.
+3. **Widen "unambiguous" from a strict-min to a margin.**
+   `suggest_link_fix`/`suggest_anchor_fix` currently auto-pick whenever
+   the winner is _strictly_ closer than the runner-up, even by a single
+   edit — and every wrong repoint in Trials 3 and 4 was a false-confidence
+   win by a hair, not a genuine landslide. Requiring a real margin (e.g.
+   winner must be ≥2 closer, or some ratio) before something counts as
+   unambiguous would push more close calls into "show the ranked list,
+   make the agent look" instead of a silently-plausible top pick.
+4. **De-weight the generator's numeric-suffix noise pattern.** Narrower
+   and more heuristic than the others, but targets what's mechanically
+   fooling the ranking in this specific benchmark: decoys like
+   `sync-800.md`, `index-274.md`, `incident-981.md` are same-shape
+   `stem-NNN.md` files, and raw edit distance treats a digit swap the same
+   as any other character swap. A stem-aware distance — split `name` from
+   its `-NNN` suffix and weight the stem match more heavily — would blunt
+   this whole failure family without needing the link-text signal at all,
+   though it's tied to this vault-shape pattern specifically rather than
+   being a general semantic fix.
+5. **Bring in note metadata (title/H1, frontmatter tags) as a third
+   signal.** Beyond the filename, compare a broken link against the
+   candidate note's actual title or tags — catches cases where the
+   filename itself is uninformative (`index-274.md`) but the note's
+   content says clearly what it's about, which neither path-distance nor
+   link-text-vs-filename would catch on its own.
+
+**Recommendation: build 1 and 2 together, leave 3–5 as noted but
+unbuilt for now.** #1 is the actual fix — it directly targets the
+demonstrated failure rather than mitigating around it. #2 is a cheap
+complement worth doing regardless of #1's outcome: even a good combined
+ranking can still be wrong sometimes, and a mismatch flag catches that
+case too, belt-and-suspenders style, at low implementation cost (it's a
+second read-only score, not a change to what gets auto-applied). #3
+trades away real coverage on already-hard-to-resolve cases for safety and
+is worth a future look if 1+2 don't fully close the gap; #4 is
+narrow/vault-shape-specific; #5 needs more design thought about which
+metadata is actually reliable signal (a note's tags are shared across many
+notes, so may not discriminate as well as a title). None of the five are
+implemented yet.
+
+This trial is the first time seeded-fix accuracy against
+`BENCH_MANIFEST.json` was checked at all — Trials 1–3 relied on `knap
+lint`'s `problem_count` plus spot-reading transcripts, and Trial 3's own
+"Threats to validity" section already flagged this exact gap ("No
+independent end-state fixture diff was built... it wasn't checked as
+rigorously as correctness was"). That gap is why 4 wrong repoints in Trial
+3's own seed-1 vault could have gone unnoticed too, if the qualitative
+review in that trial hadn't happened to catch `workflow-554.md` by eye.
+**This is now folded into [Metrics](#metrics) and
+[Procedure](#procedure) above** — every future trial (including the
+official Trial 4 run) should run the ground-truth check unconditionally,
+not opportunistically.
+
 ## Threats to validity (call these out alongside results, don't bury them)
 
 - **N is small.** This is a manual protocol for a directional check, not a
