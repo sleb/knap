@@ -1244,3 +1244,160 @@ fn apply_empty_batch_is_a_noop() {
         "fixture dir should be unchanged"
     );
 }
+
+#[test]
+fn apply_batch_repoints_broken_link_at_diagnostic_range() {
+    let dir = copy_fixture("fix_repoint_broken_link");
+
+    let lint = knap()
+        .args(["lint", ".", "--json", "--suggest"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    let lint_stdout = String::from_utf8_lossy(&lint.stdout);
+    let lint_value: serde_json::Value =
+        serde_json::from_str(&lint_stdout).expect("lint stdout was not JSON");
+    let file = lint_value["diagnostics"][0]["path"]
+        .as_str()
+        .expect("diagnostic path present");
+    let diag = &lint_value["diagnostics"][0]["diagnostics"][0];
+    let range = &diag["range"];
+    let target = diag["data"]["suggestions"][0]["target"]
+        .as_str()
+        .expect("suggestion target present");
+
+    let batch = serde_json::json!([{
+        "op": "repoint-link",
+        "file": file,
+        "range": range,
+        "target": target,
+    }])
+    .to_string();
+
+    let output = knap_with_stdin(&["apply"], dir.path(), &batch);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let note = std::fs::read_to_string(dir.path().join(file)).unwrap();
+    assert!(note.contains("(config.md)"), "note was: {note}");
+
+    let relint = knap()
+        .args(["lint", "."])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        relint.status.success(),
+        "stdout: {}",
+        String::from_utf8_lossy(&relint.stdout)
+    );
+}
+
+#[test]
+fn apply_batch_repoints_broken_anchor_at_diagnostic_range() {
+    let dir = copy_fixture("fix_unambiguous_anchor");
+
+    let lint = knap()
+        .args(["lint", ".", "--json", "--suggest"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    let lint_stdout = String::from_utf8_lossy(&lint.stdout);
+    let lint_value: serde_json::Value =
+        serde_json::from_str(&lint_stdout).expect("lint stdout was not JSON");
+    let file = lint_value["diagnostics"][0]["path"]
+        .as_str()
+        .expect("diagnostic path present");
+    let diag = &lint_value["diagnostics"][0]["diagnostics"][0];
+    let range = &diag["range"];
+    let anchor = diag["data"]["suggestions"][0]["target"]
+        .as_str()
+        .expect("suggestion target present");
+
+    let batch = serde_json::json!([{
+        "op": "repoint-anchor",
+        "file": file,
+        "range": range,
+        "anchor": anchor,
+    }])
+    .to_string();
+
+    let output = knap_with_stdin(&["apply"], dir.path(), &batch);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let note = std::fs::read_to_string(dir.path().join(file)).unwrap();
+    assert!(note.contains("target.md#target"), "note was: {note}");
+
+    let relint = knap()
+        .args(["lint", "."])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        relint.status.success(),
+        "stdout: {}",
+        String::from_utf8_lossy(&relint.stdout)
+    );
+}
+
+#[test]
+fn apply_batch_mixes_rename_file_and_repoint_link_atomically() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "[text](old.md)\n").unwrap();
+    std::fs::write(dir.path().join("b.md"), "# B\n").unwrap();
+    let before = snapshot_dir(dir.path());
+
+    // The rename-file op succeeds on its own, but the repoint-link op
+    // targets a file that doesn't exist — the whole batch must roll back,
+    // including the rename, matching
+    // `apply_all_or_nothing_rolls_back_on_failure`'s guarantee across
+    // operation types, not just within one.
+    let batch = r#"[
+        {"op":"rename-file","old":"a.md","new":"c.md"},
+        {"op":"repoint-link","file":"missing.md","range":{"start":{"line":0,"character":7},"end":{"line":0,"character":13}},"target":"real.md"}
+    ]"#;
+
+    let output = knap_with_stdin(&["apply"], dir.path(), batch);
+    assert!(!output.status.success());
+
+    assert_eq!(
+        snapshot_dir(dir.path()),
+        before,
+        "real workspace should be byte-for-byte unchanged, including the rename's would-be effect"
+    );
+}
+
+#[test]
+fn apply_repoint_link_rejects_path_outside_workspace_root() {
+    let dir = copy_fixture("lint_clean");
+    let before = snapshot_dir(dir.path());
+    let outside = tempfile::tempdir().unwrap();
+    let outside_path = outside.path().join("ghost.md");
+    std::fs::write(&outside_path, "[text](old.md)\n").unwrap();
+
+    let batch = format!(
+        r#"[{{"op":"repoint-link","file":"{}","range":{{"start":{{"line":0,"character":7}},"end":{{"line":0,"character":13}}}},"target":"real.md"}}]"#,
+        outside_path.display()
+    );
+
+    let output = knap_with_stdin(&["apply"], dir.path(), &batch);
+    assert!(!output.status.success());
+
+    assert_eq!(
+        std::fs::read_to_string(&outside_path).unwrap(),
+        "[text](old.md)\n",
+        "file outside the workspace root should not have been touched"
+    );
+    assert_eq!(
+        snapshot_dir(dir.path()),
+        before,
+        "fixture dir should be unchanged"
+    );
+}
