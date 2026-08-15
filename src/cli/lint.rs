@@ -51,15 +51,16 @@ pub fn run(
     since: Option<&str>,
     suggest_n: usize,
     fix: bool,
+    exclude: &[String],
 ) -> anyhow::Result<()> {
-    let config = config::for_path(path, None, &[])?;
+    let config = config::for_path(path, None, exclude)?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
     let (mut idx, _) = index::build(&config.index_roots, &extensions, &config.exclude)?;
 
     let mut fixes_applied = None;
     if fix {
         let abs_path = absolute(path)?;
-        let fix_config = config::for_path(&abs_path, None, &[])?;
+        let fix_config = config::for_path(&abs_path, None, exclude)?;
         let fix_extensions: Vec<&str> = fix_config.extensions.iter().map(String::as_str).collect();
         let (fix_idx, _) =
             index::build(&fix_config.index_roots, &fix_extensions, &fix_config.exclude)?;

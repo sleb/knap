@@ -13,11 +13,11 @@ use crate::parser::Note;
 /// `config::for_path` would otherwise treat the file's own directory as the
 /// whole index root, silently dropping backlinks from anywhere else in the
 /// vault (the same bug `rename-heading`/`rename-tag` fixed in v0.12).
-pub fn run(path: &Path, json: bool) -> anyhow::Result<()> {
+pub fn run(path: &Path, json: bool, exclude: &[String]) -> anyhow::Result<()> {
     let config = if path.is_file() {
-        config::for_path(Path::new("."), None, &[])?
+        config::for_path(Path::new("."), None, exclude)?
     } else {
-        config::for_path(path, None, &[])?
+        config::for_path(path, None, exclude)?
     };
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
     let (idx, _) = index::build(&config.index_roots, &extensions, &config.exclude)?;
