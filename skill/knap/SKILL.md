@@ -62,14 +62,23 @@ that can actually leave something broken. Match the check to the edit:
      human/agent decision about the right value and are still fixed by hand.
 
      **How to pick, not just that you must:** `data.suggestions` is ranked
-     by raw path/slug edit distance only — it has no idea what the link is
-     _about_, so the closest-ranked candidate is not automatically the
-     right one. Before repointing, read the link's own visible text (and,
-     if that's generic, the surrounding sentence) and check it against
-     each candidate's filename or heading. A link labeled `[Sync 835]`
-     pointing at a candidate named `sync-800.md` is a mismatch worth
-     noticing even though `sync-800.md` may be closer by edit distance to
-     the broken target string. **Never mechanically apply
+     by a blended `combined` score that factors in both the path edit distance
+     and the link's own visible text — so the closest-ranked candidate balances
+     both signals but doesn't guarantee a correct pick. Before repointing, read
+     the link's own visible text (and, if that's generic, the surrounding
+     sentence) and check it against each candidate's filename or heading.
+
+     When `data.text_mismatch: true` is present, the ranking's own two signals
+     disagree — treat it as a hard stop, not a hint: don't repoint from
+     `suggestions[0]` when this is set without finding the right target yourself
+     (`grep`, `knap index`). Its absence doesn't guarantee the pick is right —
+     it only means the two signals agreed, and both can still be wrong together —
+     so the existing advice to read the link text against the candidate name
+     before repointing still applies to every diagnostic, not just flagged ones.
+
+     A link labeled `[Sync 835]` pointing at a candidate named `sync-800.md` is
+     a mismatch worth noticing even though `sync-800.md` may be closer by path
+     distance to the broken target string. **Never mechanically apply
      `suggestions[0]` to every diagnostic in a loop or script** — that
      reintroduces exactly the false-positive risk `--fix` was dropped from
      this loop to avoid, minus even `--fix`'s tie-safety (`--fix` declines
@@ -129,8 +138,8 @@ $ knap lint . --json --suggest
           "message": "Link target not found: 'docs/missing.md'",
           "data": {
             "suggestions": [
-              { "target": "docs/mission.md", "distance": 2 },
-              { "target": "docs/missions.md", "distance": 3 }
+              { "target": "docs/mission.md", "distance": 2, "text_distance": 5 },
+              { "target": "docs/missions.md", "distance": 3, "text_distance": 6 }
             ]
           }
         }
@@ -143,13 +152,54 @@ $ knap lint . --json --suggest
 }
 ```
 
-`data.suggestions` lists every candidate `--suggest` found (closest first,
-capped at N), whether or not it's ambiguous — it's the same ranking `knap
-fix` uses to decide, not just the leftovers. Two candidates this close
-together means `knap fix` would leave this one alone; if `suggestions[0]`
-were strictly closer than `suggestions[1]`, `fix` would already have applied
-it. A diagnostic with no `data` field at all had zero candidates in the
-workspace — `knap fix`'s create-a-stub case.
+## Example: `--suggest` with `text_mismatch` (signals disagree)
+
+When the ranking's two signals disagree on which candidate is best, `text_mismatch: true` is set as a warning flag:
+
+```json
+{
+  "diagnostics": [
+    {
+      "path": "docs/index.md",
+      "diagnostics": [
+        {
+          "range": {
+            "start": { "line": 5, "character": 1 },
+            "end": { "line": 5, "character": 19 }
+          },
+          "severity": 2,
+          "code": "broken-link",
+          "source": "knap",
+          "message": "Link target not found: 'docs/sync-835.md'",
+          "data": {
+            "suggestions": [
+              { "target": "sync-800.md", "distance": 1, "text_distance": 2 },
+              {
+                "target": "archive/sync-835.md",
+                "distance": 9,
+                "text_distance": 0
+              }
+            ],
+            "text_mismatch": true
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+Here, the path/slug signal picks `sync-800.md` (closest by `distance`), but the link's visible text `[Sync 835]` aligns with `archive/sync-835.md` (closest by `text_distance`). The `text_mismatch: true` flag signals this disagreement — don't auto-apply the first candidate without verifying the link's intent yourself.
+
+`data.suggestions` lists every candidate `--suggest` found, ranked by their
+blended `combined` score (path distance + text distance), closest first, capped
+at N. This is the same ranking `knap fix` uses to decide, not just the
+leftovers. Each suggestion carries both `distance` (path edit distance) and
+`text_distance` (visible link text vs. candidate name). Two candidates this
+close together by combined score means `knap fix` would leave this one alone;
+if `suggestions[0]` were strictly closer than `suggestions[1]`, `fix` would
+already have applied it. A diagnostic with no `data` field at all had zero
+candidates in the workspace — `knap fix`'s create-a-stub case.
 
 ## Example: `lint --suggest` → pick → `apply` round trip
 

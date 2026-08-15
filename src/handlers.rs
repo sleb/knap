@@ -442,6 +442,14 @@ fn relative_path(from_dir: &Path, to: &Path) -> String {
     result.to_string_lossy().into_owned()
 }
 
+/// A path's file stem (filename without its final extension) as `&str`,
+/// lossily — `""` when there's no file stem or it isn't valid UTF-8. Used to
+/// compare a link's display text against the note it points at, ignoring
+/// directory structure and extension.
+fn file_stem(path: &Path) -> &str {
+    path.file_stem().and_then(|s| s.to_str()).unwrap_or("")
+}
+
 /// Returns the line text and cursor byte offset when `pos` falls inside a
 /// frontmatter block (between the opening and closing `---` delimiters,
 /// exclusive). Returns `None` when the file has no frontmatter, or the cursor
@@ -1435,6 +1443,96 @@ fn edit_distance(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
+/// One ranked candidate, with both distance signals kept separate so
+/// callers can inspect either one — `combined` is what candidates are
+/// sorted and auto-apply decisions are made on; `text_distance` is `None`
+/// when the link has no usable display text to compare against (empty, or
+/// identical to its own target — nothing to signal with).
+struct RankedCandidate<T> {
+    candidate: T,
+    path_distance: usize,
+    text_distance: Option<usize>,
+    combined: f64,
+}
+
+/// Weight given to the path/slug-distance term vs. the link-text-distance
+/// term when blending into `combined`. Equal weight by default — no trial
+/// evidence yet favors one signal over the other; a future trial re-run
+/// is what would justify moving this.
+const PATH_WEIGHT: f64 = 0.5;
+const TEXT_WEIGHT: f64 = 0.5;
+
+/// Normalize a raw edit distance to roughly `[0, 1]` by dividing by the
+/// longer of the two compared strings' character counts, so a distance of 2
+/// on a 4-character string counts for more than a distance of 2 on a
+/// 40-character one — otherwise the text-distance term (usually short link
+/// text) would be swamped by the path-distance term (full relative paths)
+/// or vice versa, regardless of `PATH_WEIGHT`/`TEXT_WEIGHT`.
+fn normalized_distance(distance: usize, a: &str, b: &str) -> f64 {
+    let len = a.chars().count().max(b.chars().count()).max(1);
+    distance as f64 / len as f64
+}
+
+/// Blend a path-distance and an optional text-distance into one score.
+/// Falls back to the path term alone when there's no text signal, so a
+/// link with unusable display text ranks exactly as it would have before
+/// this release.
+fn combined_distance(
+    path_distance: usize,
+    path_a: &str,
+    path_b: &str,
+    text_distance: Option<usize>,
+    text_a: &str,
+    text_b: &str,
+) -> f64 {
+    let path_norm = normalized_distance(path_distance, path_a, path_b);
+    match text_distance {
+        Some(d) => {
+            PATH_WEIGHT * path_norm + TEXT_WEIGHT * normalized_distance(d, text_a, text_b)
+        }
+        None => path_norm,
+    }
+}
+
+/// The candidate the ranking is confident enough in to auto-apply, or
+/// `None` when it isn't: no candidates, two or more tie on `combined`, or
+/// the combined winner disagrees with what the link's own text names
+/// (`text_mismatch`) — a confident-looking combined score can still be
+/// wrong when the two signals actually point at different candidates and
+/// the blend just happened to average out in one direction. Shared by
+/// `suggest_link_fix`/`suggest_anchor_fix`; `compute_diagnostics_with_suggestions`
+/// computes `text_mismatch` itself since it wants to report it, not act on
+/// it.
+fn unambiguous_winner<T: PartialEq>(ranked: &[RankedCandidate<T>]) -> Option<&T> {
+    let winner = match ranked {
+        [only] => only,
+        [best, next, ..] if best.combined < next.combined => best,
+        _ => return None,
+    };
+    if text_mismatch(ranked) {
+        return None;
+    }
+    Some(&winner.candidate)
+}
+
+/// True when the top-`combined`-ranked candidate isn't also the top
+/// candidate by text distance alone — i.e. the link's own visible text
+/// points somewhere the blended ranking didn't land. `false` (never a
+/// mismatch) when no candidate has a text signal (empty/unusable link
+/// text) — there's nothing to disagree with.
+fn text_mismatch<T: PartialEq>(ranked: &[RankedCandidate<T>]) -> bool {
+    let Some(top_combined) = ranked.first() else {
+        return false;
+    };
+    if top_combined.text_distance.is_none() {
+        return false;
+    }
+    ranked
+        .iter()
+        .min_by_key(|c| c.text_distance.unwrap_or(usize::MAX))
+        .is_some_and(|top_text| top_text.candidate != top_combined.candidate)
+}
+
 /// Every heading in `target_note`, ranked by GFM-slug edit distance to
 /// `broken_slug`, closest first. Ties keep original heading order (a stable
 /// sort on distance alone). Shared by `suggest_anchor_fix` (which only wants
@@ -1442,14 +1540,40 @@ fn edit_distance(a: &str, b: &str) -> usize {
 /// ranked list to show the agent).
 fn rank_anchor_candidates<'a>(
     broken_slug: &str,
+    link_text: &str,
     target_note: &'a parser::Note,
-) -> Vec<(usize, &'a parser::Heading)> {
-    let mut ranked: Vec<(usize, &parser::Heading)> = target_note
+) -> Vec<RankedCandidate<&'a parser::Heading>> {
+    let text_slug = slug(link_text);
+    let text_signal = (!text_slug.is_empty()).then_some(&text_slug);
+
+    let mut ranked: Vec<RankedCandidate<&parser::Heading>> = target_note
         .headings
         .iter()
-        .map(|h| (edit_distance(broken_slug, &slug(&h.text)), h))
+        .map(|h| {
+            let heading_slug = slug(&h.text);
+            let path_distance = edit_distance(broken_slug, &heading_slug);
+            let text_distance = text_signal.map(|t| edit_distance(t, &heading_slug));
+            let combined = combined_distance(
+                path_distance,
+                broken_slug,
+                &heading_slug,
+                text_distance,
+                text_slug.as_str(),
+                &heading_slug,
+            );
+            RankedCandidate {
+                candidate: h,
+                path_distance,
+                text_distance,
+                combined,
+            }
+        })
         .collect();
-    ranked.sort_by_key(|(dist, _)| *dist);
+    ranked.sort_by(|a, b| {
+        a.combined
+            .partial_cmp(&b.combined)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     ranked
 }
 
@@ -1460,13 +1584,10 @@ fn rank_anchor_candidates<'a>(
 /// action keeps listing every heading, since a human can pick.
 pub(crate) fn suggest_anchor_fix<'a>(
     broken_slug: &str,
+    link_text: &str,
     target_note: &'a parser::Note,
 ) -> Option<&'a parser::Heading> {
-    match rank_anchor_candidates(broken_slug, target_note).as_slice() {
-        [(_, heading)] => Some(heading),
-        [(best, heading), (next, _), ..] if best < next => Some(heading),
-        _ => None,
-    }
+    unambiguous_winner(&rank_anchor_candidates(broken_slug, link_text, target_note)).copied()
 }
 
 /// Every note in `index`, ranked by edit distance between `broken_target`
@@ -1476,20 +1597,45 @@ pub(crate) fn suggest_anchor_fix<'a>(
 /// shows the whole ranked list.
 fn rank_link_candidates(
     broken_target: &str,
+    link_text: &str,
     source: &Path,
     index: &NoteIndex,
-) -> Vec<(usize, String)> {
+) -> Vec<RankedCandidate<String>> {
     let clean_target = index::unescape_link_target(broken_target);
     let source_dir = source.parent().unwrap_or(source);
-    let mut ranked: Vec<(usize, String)> = index
+    let text_slug = slug(link_text);
+    let text_signal = (!text_slug.is_empty()).then_some(&text_slug);
+
+    let mut ranked: Vec<RankedCandidate<String>> = index
         .all_notes()
         .filter(|n| n.path != source) // a link can't be "fixed" by pointing at its own note
         .map(|n| {
             let rel = relative_path(source_dir, &n.path);
-            (edit_distance(&clean_target, &rel), rel)
+            let path_distance = edit_distance(&clean_target, &rel);
+            let stem_slug = slug(file_stem(&n.path));
+            let text_distance = text_signal.map(|t| edit_distance(t, &stem_slug));
+            let combined = combined_distance(
+                path_distance,
+                &clean_target,
+                &rel,
+                text_distance,
+                text_slug.as_str(),
+                &stem_slug,
+            );
+            RankedCandidate {
+                candidate: rel,
+                path_distance,
+                text_distance,
+                combined,
+            }
         })
         .collect();
-    ranked.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    ranked.sort_by(|a, b| {
+        a.combined
+            .partial_cmp(&b.combined)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.candidate.cmp(&b.candidate))
+    });
     ranked
 }
 
@@ -1500,14 +1646,11 @@ fn rank_link_candidates(
 /// for `knap lint --suggest` to surface instead of guessing.
 pub(crate) fn suggest_link_fix(
     broken_target: &str,
+    link_text: &str,
     source: &Path,
     index: &NoteIndex,
 ) -> Option<String> {
-    match rank_link_candidates(broken_target, source, index).as_slice() {
-        [(_, rel)] => Some(rel.clone()),
-        [(best, rel), (next, _), ..] if best < next => Some(rel.clone()),
-        _ => None,
-    }
+    unambiguous_winner(&rank_link_candidates(broken_target, link_text, source, index)).cloned()
 }
 
 /// One ranked candidate fix, as attached to a diagnostic's `data` field for
@@ -1519,6 +1662,10 @@ struct FixSuggestion {
     /// dropped straight into the link.
     target: String,
     distance: usize,
+    /// Edit distance between the link's own visible text and this
+    /// candidate's name (file stem for links, heading text for anchors);
+    /// `None` when the link has no usable display text to compare against.
+    text_distance: Option<usize>,
 }
 
 /// Same diagnostics as `compute_diagnostics`, but each `broken-link`/
@@ -1548,15 +1695,22 @@ pub(crate) fn compute_diagnostics_with_suggestions(
         let Some(NumberOrString::String(code)) = &d.code else {
             continue;
         };
-        let suggestions = if code == CODE_BROKEN_LINK {
+        let (suggestions, mismatch) = if code == CODE_BROKEN_LINK {
             let Some(link) = note.md_links.iter().find(|l| l.target_range == d.range) else {
                 continue;
             };
-            rank_link_candidates(&link.target, path, index)
+            let ranked = rank_link_candidates(&link.target, &link.text, path, index);
+            let mismatch = text_mismatch(&ranked);
+            let suggestions: Vec<FixSuggestion> = ranked
                 .into_iter()
                 .take(top_n)
-                .map(|(distance, target)| FixSuggestion { target, distance })
-                .collect::<Vec<_>>()
+                .map(|c| FixSuggestion {
+                    target: c.candidate,
+                    distance: c.path_distance,
+                    text_distance: c.text_distance,
+                })
+                .collect();
+            (suggestions, mismatch)
         } else if code == CODE_BROKEN_ANCHOR {
             let range = d.range;
             let Some(link) = note.md_links.iter().find(|l| {
@@ -1572,20 +1726,28 @@ pub(crate) fn compute_diagnostics_with_suggestions(
             let Some(target_note) = index.get_note(&target_path) else {
                 continue;
             };
-            rank_anchor_candidates(&slug(anchor), target_note)
+            let ranked = rank_anchor_candidates(&slug(anchor), &link.text, target_note);
+            let mismatch = text_mismatch(&ranked);
+            let suggestions: Vec<FixSuggestion> = ranked
                 .into_iter()
                 .take(top_n)
-                .map(|(distance, heading)| FixSuggestion {
-                    target: format!("#{}", slug(&heading.text)),
-                    distance,
+                .map(|c| FixSuggestion {
+                    target: format!("#{}", slug(&c.candidate.text)),
+                    distance: c.path_distance,
+                    text_distance: c.text_distance,
                 })
-                .collect::<Vec<_>>()
+                .collect();
+            (suggestions, mismatch)
         } else {
             continue;
         };
 
         if !suggestions.is_empty() {
-            d.data = Some(serde_json::json!({ "suggestions": suggestions }));
+            let mut data = serde_json::json!({ "suggestions": suggestions });
+            if mismatch {
+                data["text_mismatch"] = serde_json::json!(true);
+            }
+            d.data = Some(data);
         }
     }
 
@@ -3885,22 +4047,236 @@ mod tests {
     }
 
     #[test]
+    fn normalized_distance_divides_by_longer_string_length() {
+        assert_eq!(normalized_distance(2, "abcd", "wxyz"), 0.5);
+    }
+
+    #[test]
+    fn normalized_distance_handles_empty_strings_without_div_by_zero() {
+        assert_eq!(normalized_distance(0, "", ""), 0.0);
+    }
+
+    #[test]
+    fn combined_distance_falls_back_to_path_term_when_no_text_signal() {
+        let path_distance = 3;
+        let path_a = "docs/guide.md";
+        let path_b = "docs/guides.md";
+        let result = combined_distance(path_distance, path_a, path_b, None, "", "");
+        assert_eq!(
+            result,
+            normalized_distance(path_distance, path_a, path_b)
+        );
+    }
+
+    #[test]
+    fn combined_distance_blends_both_terms_when_text_signal_present() {
+        let path_distance = 3;
+        let path_a = "docs/guide.md";
+        let path_b = "docs/guides.md";
+        let text_distance = 1;
+        let text_a = "Guide";
+        let text_b = "Guides";
+        let result = combined_distance(
+            path_distance,
+            path_a,
+            path_b,
+            Some(text_distance),
+            text_a,
+            text_b,
+        );
+        let path_norm = normalized_distance(path_distance, path_a, path_b);
+        let text_norm = normalized_distance(text_distance, text_a, text_b);
+        let expected = PATH_WEIGHT * path_norm + TEXT_WEIGHT * text_norm;
+        assert!((result - expected).abs() < 1e-9);
+    }
+
+    fn ranked_candidate(
+        candidate: &str,
+        path_distance: usize,
+        text_distance: Option<usize>,
+        combined: f64,
+    ) -> RankedCandidate<String> {
+        RankedCandidate {
+            candidate: candidate.to_string(),
+            path_distance,
+            text_distance,
+            combined,
+        }
+    }
+
+    #[test]
+    fn unambiguous_winner_none_on_tied_combined_score() {
+        let ranked = vec![
+            ranked_candidate("a", 1, None, 0.5),
+            ranked_candidate("b", 1, None, 0.5),
+        ];
+        assert!(unambiguous_winner(&ranked).is_none());
+    }
+
+    #[test]
+    fn unambiguous_winner_none_when_text_mismatch_even_with_strict_winner() {
+        // "a" strictly wins on `combined` (0.3 < 0.5), but "b" is the closer
+        // match by text_distance alone (1 < 4) — the two signals disagree.
+        let ranked = vec![
+            ranked_candidate("a", 1, Some(4), 0.3),
+            ranked_candidate("b", 5, Some(1), 0.5),
+        ];
+        assert!(unambiguous_winner(&ranked).is_none());
+    }
+
+    #[test]
+    fn unambiguous_winner_some_when_signals_agree() {
+        // "a" is both the strict `combined` winner and the closest match by
+        // text_distance alone — the signals agree.
+        let ranked = vec![
+            ranked_candidate("a", 1, Some(0), 0.2),
+            ranked_candidate("b", 5, Some(4), 0.6),
+        ];
+        assert_eq!(unambiguous_winner(&ranked), Some(&"a".to_string()));
+    }
+
+    #[test]
+    fn text_mismatch_false_when_no_candidate_has_a_text_signal() {
+        let ranked = vec![
+            ranked_candidate("a", 1, None, 0.1),
+            ranked_candidate("b", 5, None, 0.5),
+        ];
+        assert!(!text_mismatch(&ranked));
+    }
+
+    #[test]
+    fn text_mismatch_true_when_top_combined_and_top_text_disagree() {
+        let ranked = vec![
+            ranked_candidate("a", 1, Some(4), 0.3),
+            ranked_candidate("b", 5, Some(1), 0.5),
+        ];
+        assert!(text_mismatch(&ranked));
+    }
+
+    #[test]
+    fn text_mismatch_false_on_empty_ranked() {
+        let ranked: Vec<RankedCandidate<String>> = vec![];
+        assert!(!text_mismatch(&ranked));
+    }
+
+    #[test]
+    fn rank_link_candidates_orders_by_combined_not_raw_path_distance() {
+        // Broken link target: "reference/config-old.md" — link text: "Cache".
+        // "reference/cache.md" is a worse raw path match than
+        // "reference/config-new.md" but its file stem ("cache") matches the
+        // link text closely, so it should win on `combined`.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/reference/cache.md", ""));
+        idx.seed(note("/vault/reference/config-new.md", ""));
+        idx.seed(note(
+            "/vault/a.md",
+            "[Cache](reference/config-old.md)",
+        ));
+        let ranked = rank_link_candidates(
+            "reference/config-old.md",
+            "Cache",
+            Path::new("/vault/a.md"),
+            &idx,
+        );
+        assert_eq!(ranked[0].candidate, "reference/cache.md");
+    }
+
+    #[test]
+    fn rank_link_candidates_skips_text_term_for_empty_link_text() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/reference/config.md", ""));
+        idx.seed(note("/vault/reference/cache.md", ""));
+        idx.seed(note("/vault/a.md", "[text](reference/config-removed.md)"));
+
+        let with_empty_text = rank_link_candidates(
+            "reference/config-removed.md",
+            "",
+            Path::new("/vault/a.md"),
+            &idx,
+        );
+        assert!(with_empty_text.iter().all(|c| c.text_distance.is_none()));
+
+        let path_only_order: Vec<String> = {
+            let mut v: Vec<(usize, String)> = idx
+                .all_notes()
+                .filter(|n| n.path != Path::new("/vault/a.md"))
+                .map(|n| {
+                    let rel = relative_path(Path::new("/vault"), &n.path);
+                    (edit_distance("reference/config-removed.md", &rel), rel)
+                })
+                .collect();
+            v.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            v.into_iter().map(|(_, rel)| rel).collect()
+        };
+        let combined_order: Vec<String> =
+            with_empty_text.into_iter().map(|c| c.candidate).collect();
+        assert_eq!(combined_order, path_only_order);
+    }
+
+    #[test]
+    fn rank_link_candidates_compares_text_against_file_stem_not_full_path() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a/b/c/target.md", ""));
+        idx.seed(note("/vault/a.md", "[Target](missing.md)"));
+        let ranked = rank_link_candidates(
+            "missing.md",
+            "Target",
+            Path::new("/vault/a.md"),
+            &idx,
+        );
+        let candidate = ranked
+            .iter()
+            .find(|c| c.candidate == "a/b/c/target.md")
+            .expect("expected the nested candidate");
+        assert_eq!(candidate.text_distance, Some(0));
+    }
+
+    #[test]
+    fn rank_anchor_candidates_orders_by_combined_including_link_text_term() {
+        // Broken slug: "instalaton" — link text: "Configuration".
+        // "Installation" is the closer raw slug edit-distance match to
+        // "instalaton" (distance 2 vs. 8 for "configuration"), but the link
+        // text exactly matches "configuration"'s slug (distance 0 vs. 7), so
+        // `combined` should still put "Configuration" first:
+        // installation: 0.5*(2/12) + 0.5*(7/13) ≈ 0.353
+        // configuration: 0.5*(8/13) + 0.5*(0/13) ≈ 0.308
+        let target = note("/vault/b.md", "## Installation\n## Configuration\n");
+        let ranked = rank_anchor_candidates("instalaton", "Configuration", &target);
+        assert_eq!(ranked[0].candidate.text, "Configuration");
+    }
+
+    #[test]
     fn suggest_anchor_fix_picks_unique_closest() {
         let target = note("/vault/b.md", "## Introduction\n## Installation Guide\n");
-        let heading = suggest_anchor_fix("introducton", &target).expect("expected a suggestion");
+        let heading =
+            suggest_anchor_fix("introducton", "", &target).expect("expected a suggestion");
         assert_eq!(heading.text, "Introduction");
     }
 
     #[test]
     fn suggest_anchor_fix_none_on_tied_distance() {
         let target = note("/vault/b.md", "## Cat\n## Bat\n");
-        assert!(suggest_anchor_fix("hat", &target).is_none());
+        assert!(suggest_anchor_fix("hat", "", &target).is_none());
     }
 
     #[test]
     fn suggest_anchor_fix_none_when_no_headings() {
         let target = note("/vault/b.md", "no headings here\n");
-        assert!(suggest_anchor_fix("anything", &target).is_none());
+        assert!(suggest_anchor_fix("anything", "", &target).is_none());
+    }
+
+    #[test]
+    fn suggest_anchor_fix_declines_when_text_mismatch() {
+        // Broken slug "gettingstarted" is the closer raw slug-distance match
+        // to heading "Getting Started" (path_distance=1) than to "Quick
+        // Start" (path_distance=9) — "Getting Started" is the decoy: it wins
+        // on `combined` (0.300 vs. 0.321, a strict unambiguous win). But the
+        // link's own text "Quick Start" matches the other heading exactly
+        // (text_distance=0 vs. 8 for the decoy). Pre-step-3
+        // (path-distance-only) logic would confidently pick the decoy; the
+        // text-mismatch gate should now decline instead.
+        let target = note("/vault/b.md", "## Getting Started\n## Quick Start\n");
+        assert!(suggest_anchor_fix("gettingstarted", "Quick Start", &target).is_none());
     }
 
     // ── suggest_link_fix / rank_link_candidates ─────────────────────────────
@@ -3913,6 +4289,7 @@ mod tests {
         idx.seed(note("/vault/a.md", "[text](reference/config-removed.md)"));
         let target = suggest_link_fix(
             "reference/config-removed.md",
+            "",
             Path::new("/vault/a.md"),
             &idx,
         )
@@ -3926,7 +4303,7 @@ mod tests {
         idx.seed(note("/vault/cat.md", ""));
         idx.seed(note("/vault/bat.md", ""));
         idx.seed(note("/vault/a.md", "[text](hat.md)"));
-        assert!(suggest_link_fix("hat.md", Path::new("/vault/a.md"), &idx).is_none());
+        assert!(suggest_link_fix("hat.md", "", Path::new("/vault/a.md"), &idx).is_none());
     }
 
     #[test]
@@ -3935,7 +4312,54 @@ mod tests {
         // which is never a valid repoint target for its own broken link.
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/note.md", "[text](missing.md)"));
-        assert!(suggest_link_fix("missing.md", Path::new("/vault/note.md"), &idx).is_none());
+        assert!(
+            suggest_link_fix("missing.md", "", Path::new("/vault/note.md"), &idx).is_none()
+        );
+    }
+
+    #[test]
+    fn suggest_link_fix_declines_the_trial_4_sync_835_case() {
+        // Regression test for the release's motivating bug. "sync-800.md" is
+        // a strong raw path-distance match to the broken target
+        // "sync-830.md" (path_distance=1), but it's a decoy: its file stem
+        // ("sync-800") doesn't match the link's own text "Sync 835"
+        // (text_distance=2). The correct note, "archive/sync-835.md", is a
+        // worse raw path match (path_distance=9) but its file stem matches
+        // the link text exactly (text_distance=0). On `combined` the decoy
+        // still wins (0.170 vs. 0.237) — pre-step-3 (path-distance-only)
+        // logic, and even the blended-but-ungated combined score, would
+        // confidently repoint to the decoy. The text-mismatch gate (decoy is
+        // the top-`combined` candidate but not the top-text-distance one)
+        // should now decline instead.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/sync-800.md", ""));
+        idx.seed(note("/vault/archive/sync-835.md", ""));
+        idx.seed(note("/vault/a.md", "[Sync 835](sync-830.md)"));
+        assert!(suggest_link_fix(
+            "sync-830.md",
+            "Sync 835",
+            Path::new("/vault/a.md"),
+            &idx
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn suggest_link_fix_still_repoints_when_signals_agree() {
+        // Unchanged pre-release case: an unambiguous path winner whose file
+        // stem also matches the link text closely.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/reference/config.md", ""));
+        idx.seed(note("/vault/reference/cache.md", ""));
+        idx.seed(note("/vault/a.md", "[Config](reference/config-removed.md)"));
+        let target = suggest_link_fix(
+            "reference/config-removed.md",
+            "Config",
+            Path::new("/vault/a.md"),
+            &idx,
+        )
+        .expect("expected a suggestion");
+        assert_eq!(target, "reference/config.md");
     }
 
     // ── compute_diagnostics_with_suggestions ────────────────────────────────
@@ -3976,6 +4400,77 @@ mod tests {
         );
         assert_eq!(diags.len(), 1);
         assert!(diags[0].data.is_none());
+    }
+
+    #[test]
+    fn compute_diagnostics_with_suggestions_includes_text_distance_field() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/reference/config.md", ""));
+        idx.seed(note("/vault/a.md", "[text](reference/config-removed.md)"));
+        let diags = compute_diagnostics_with_suggestions(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+            3,
+        );
+        assert_eq!(diags.len(), 1);
+        let suggestions = diags[0]
+            .data
+            .as_ref()
+            .expect("expected suggestions data")
+            .get("suggestions")
+            .expect("expected a suggestions key")
+            .as_array()
+            .expect("suggestions is an array");
+        assert!(!suggestions.is_empty());
+        for s in suggestions {
+            assert!(
+                s.as_object().unwrap().contains_key("text_distance"),
+                "expected text_distance key present in {s:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn compute_diagnostics_with_suggestions_sets_text_mismatch_on_data() {
+        // Same shape as the Trial-4 regression test: "sync-800.md" is a
+        // strong raw path-distance decoy for broken target "sync-830.md",
+        // but the link's own text "Sync 835" matches "archive/sync-835.md"'s
+        // file stem instead — so the top-combined candidate and the
+        // top-text-distance candidate disagree.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/sync-800.md", ""));
+        idx.seed(note("/vault/archive/sync-835.md", ""));
+        idx.seed(note("/vault/a.md", "[Sync 835](sync-830.md)"));
+        let diags = compute_diagnostics_with_suggestions(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+            3,
+        );
+        assert_eq!(diags.len(), 1);
+        let data = diags[0].data.as_ref().expect("expected suggestions data");
+        assert_eq!(data["text_mismatch"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn compute_diagnostics_with_suggestions_omits_text_mismatch_when_false() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/reference/config.md", ""));
+        idx.seed(note("/vault/reference/cache.md", ""));
+        idx.seed(note("/vault/a.md", "[Config](reference/config-removed.md)"));
+        let diags = compute_diagnostics_with_suggestions(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+            3,
+        );
+        assert_eq!(diags.len(), 1);
+        let data = diags[0].data.as_ref().expect("expected suggestions data");
+        assert!(
+            data.get("text_mismatch").is_none(),
+            "expected no text_mismatch key, got {data:?}"
+        );
     }
 
     // ── anchor completion (US-45) ─────────────────────────────────────────────

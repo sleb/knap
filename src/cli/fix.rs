@@ -92,7 +92,7 @@ pub(crate) fn plan_fixes(idx: &NoteIndex, config: &Config, targets: &[PathBuf]) 
             match idx.resolve(&note.path, &link.target) {
                 ResolvedLink::Broken => {
                     if let Some(new_target) =
-                        handlers::suggest_link_fix(&link.target, &note.path, idx)
+                        handlers::suggest_link_fix(&link.target, &link.text, &note.path, idx)
                     {
                         fixes.push(PlannedFix {
                             edit: handlers::compute_link_fix(
@@ -130,7 +130,8 @@ pub(crate) fn plan_fixes(idx: &NoteIndex, config: &Config, targets: &[PathBuf]) 
                     if anchor_matches {
                         continue;
                     }
-                    let Some(heading) = handlers::suggest_anchor_fix(&slug(anchor), target_note)
+                    let Some(heading) =
+                        handlers::suggest_anchor_fix(&slug(anchor), &link.text, target_note)
                     else {
                         continue;
                     };

@@ -12,12 +12,12 @@ untested code for the next step to build on.
 
 | Step                                                           | Status | Notes |
 | -------------------------------------------------------------- | ------ | ----- |
-| 1 — Combined-distance data model and helpers                   | Todo   |       |
-| 2 — `rank_link_candidates`/`rank_anchor_candidates`            | Todo   |       |
-| 3 — `unambiguous_winner`/`text_mismatch` + `suggest_*_fix`     | Todo   |       |
-| 4 — `FixSuggestion.text_distance` + diagnostic `text_mismatch` | Todo   |       |
-| 5 — Skill doc update                                           | Todo   |       |
-| 6 — Integration tests                                          | Todo   |       |
+| 1 — Combined-distance data model and helpers                   | Done   |       |
+| 2 — `rank_link_candidates`/`rank_anchor_candidates`            | Done   |       |
+| 3 — `unambiguous_winner`/`text_mismatch` + `suggest_*_fix`     | Done   |       |
+| 4 — `FixSuggestion.text_distance` + diagnostic `text_mismatch` | Done   |       |
+| 5 — Skill doc update                                           | Done   |       |
+| 6 — Integration tests                                          | Done   |       |
 
 ---
 

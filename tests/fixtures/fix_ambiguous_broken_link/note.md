@@ -1,3 +1,3 @@
 # Note
 
-A [broken link](hat.md) with two equally-close candidates.
+A [hat](hat.md) with two equally-close candidates.

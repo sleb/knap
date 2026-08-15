@@ -293,6 +293,111 @@ fn lint_fix_leaves_ambiguous_diagnostics_with_suggestions() {
 }
 
 #[test]
+fn lint_suggest_reports_text_mismatch_for_decoy_and_correct_candidate() {
+    // Trial 4 regression shape: "sync-800.md" is a strong raw path-distance
+    // decoy for broken target "sync-830.md", but the link's own text
+    // "Sync 835" matches "archive/sync-835.md"'s file stem instead — so the
+    // top-combined candidate and the top-text-distance candidate disagree.
+    let dir = copy_fixture("fix_text_mismatch_link");
+
+    let output = knap()
+        .args(["lint", ".", "--json", "--suggest"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success(), "should still be flagged");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+
+    let diag = &value["diagnostics"][0]["diagnostics"][0];
+    assert_eq!(diag["code"], "broken-link");
+    assert_eq!(diag["data"]["text_mismatch"], serde_json::json!(true));
+    let suggestions = diag["data"]["suggestions"]
+        .as_array()
+        .expect("suggestions present");
+    assert!(!suggestions.is_empty());
+    for suggestion in suggestions {
+        assert!(
+            suggestion.get("text_distance").is_some(),
+            "expected text_distance on every suggestion: {suggestion:?}"
+        );
+    }
+}
+
+#[test]
+fn fix_declines_repoint_when_text_mismatch_leaves_stub_fallback() {
+    let dir = copy_fixture("fix_text_mismatch_link");
+    let before = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
+
+    let output = knap()
+        .args(["fix", "."])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Text-mismatch gate declines the repoint (the decoy "sync-800.md"
+    // wins on raw path distance but disagrees with the link's own text),
+    // so fix falls back to stub creation rather than guessing.
+    let after = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
+    assert_eq!(
+        before, after,
+        "text-mismatched link target should be left alone"
+    );
+    assert!(
+        !after.contains("sync-800.md"),
+        "must not repoint to the decoy: {after}"
+    );
+    assert!(dir.path().join("sync-830.md").exists());
+}
+
+#[test]
+fn lint_fix_reports_stub_fallback_not_wrong_repoint_for_mismatch_case() {
+    let dir = copy_fixture("fix_text_mismatch_link");
+
+    let output = knap()
+        .args(["lint", ".", "--fix", "--suggest", "--json"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+
+    let fixes_applied = value["fixes_applied"]
+        .as_array()
+        .expect("fixes_applied present");
+    assert_eq!(
+        fixes_applied.len(),
+        1,
+        "expected exactly one fix (stub creation): {fixes_applied:?}"
+    );
+    let fix_description = fixes_applied[0].as_str().unwrap();
+    assert!(
+        !fix_description.contains("sync-800.md"),
+        "must not repoint to the decoy: {fix_description}"
+    );
+
+    let after = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
+    assert!(
+        !after.contains("sync-800.md"),
+        "must not repoint to the decoy: {after}"
+    );
+    assert!(dir.path().join("sync-830.md").exists());
+
+    // Stub creation resolves the broken-link target, so the diagnostic
+    // should no longer be reported after --fix.
+    assert!(
+        output.status.success(),
+        "expected no remaining diagnostics after stub fallback: {stdout}"
+    );
+    assert_eq!(value["diagnostics"].as_array().map(|a| a.len()), Some(0));
+}
+
+#[test]
 fn lint_without_fix_does_not_touch_disk() {
     let dir = copy_fixture("fix_repoint_broken_link");
     let before = std::fs::read_to_string(dir.path().join("note.md")).unwrap();

@@ -1,3 +1,3 @@
 # Note
 
-See [wrong anchor](target.md#c) for details.
+See [x](target.md#c) for details.
