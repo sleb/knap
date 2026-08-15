@@ -564,17 +564,17 @@ pub(crate) fn compute_anchor_fix(
   once per candidate heading (a human picks); `knap fix` calls it once,
   for the single heading `suggest_anchor_fix` (below) picks.
 
-### `suggest_anchor_fix()`, `edit_distance()` (v0.13)
+### `suggest_anchor_fix()`, `edit_distance()` (v0.13, text-aware since v0.16)
 
-The one piece of new domain logic this release adds: picking a single
-best-guess replacement heading for a broken anchor, for callers with no
-cursor to let a human choose from every heading the way the interactive
-code action does.
+The one piece of new domain logic v0.13 added: picking a single best-guess
+replacement heading for a broken anchor, for callers with no cursor to let a
+human choose from every heading the way the interactive code action does.
 
 ```rust
 fn edit_distance(a: &str, b: &str) -> usize
 pub(crate) fn suggest_anchor_fix<'a>(
     broken_slug: &str,
+    link_text: &str,
     target_note: &'a parser::Note,
 ) -> Option<&'a parser::Heading>
 ```
@@ -582,22 +582,72 @@ pub(crate) fn suggest_anchor_fix<'a>(
 - `edit_distance` — byte-wise Levenshtein distance. GFM slugs are already
   lowercase ASCII alphanumerics and hyphens, so byte-wise is equivalent to
   char-wise here.
-- `suggest_anchor_fix` — the heading in `target_note` whose GFM slug is
-  closest (by `edit_distance`) to `broken_slug`. Returns `None` when the
-  target has no headings, or when two or more headings tie for closest —
-  `knap fix` only makes a fix when it can pick exactly one candidate
-  unambiguously.
+- `suggest_anchor_fix` — the heading in `target_note` picked by
+  `unambiguous_winner` (below) over `rank_anchor_candidates(broken_slug,
+link_text, target_note)`. Returns `None` when the target has no headings,
+  when two or more headings tie for closest, or when the two ranking
+  signals disagree (`text_mismatch`) — `knap fix` only makes a fix when it
+  can pick exactly one candidate both rankings agree on.
 
 Used only by `knap fix` (`src/cli/fix.rs`) — the interactive "Change anchor
 to..." code action keeps listing every heading, since a human can pick.
 
-`suggest_anchor_fix` is built on a private `rank_anchor_candidates(broken_slug,
-target_note) -> Vec<(usize, &Heading)>` — every heading ranked by edit
-distance, closest first — instead of its own tie-tracking loop, so the same
-ranking is available in full to `knap lint --suggest` (below), not just
-collapsed to the single winner.
+### Text-aware ranking: `RankedCandidate`, `combined_distance()`, `unambiguous_winner()`, `text_mismatch()` (v0.16)
 
-### `compute_link_fix()`, `suggest_link_fix()` (v0.13)
+Added to stop `rank_link_candidates`/`rank_anchor_candidates` from being
+fooled by a broken target/slug that happens to be textually close to the
+_wrong_ note when the link's own visible text names the _right_ one (e.g.
+`[Sync 835](sync-800.md)` — the raw target is one edit from `sync-800.md`
+but the link text names `sync-835.md`). Every ranked candidate now carries
+two distance signals blended into one sort key, and both `suggest_link_fix`/
+`suggest_anchor_fix` decline to pick a winner when the two signals disagree,
+rather than trusting the blended score alone.
+
+```rust
+struct RankedCandidate<T> {
+    candidate: T,
+    path_distance: usize,
+    text_distance: Option<usize>, // None when the link has no usable display text
+    combined: f64,
+}
+const PATH_WEIGHT: f64 = 0.5;
+const TEXT_WEIGHT: f64 = 0.5;
+fn normalized_distance(distance: usize, a: &str, b: &str) -> f64
+fn combined_distance(
+    path_distance: usize, path_a: &str, path_b: &str,
+    text_distance: Option<usize>, text_a: &str, text_b: &str,
+) -> f64
+fn unambiguous_winner<T: PartialEq>(ranked: &[RankedCandidate<T>]) -> Option<&T>
+fn text_mismatch<T: PartialEq>(ranked: &[RankedCandidate<T>]) -> bool
+```
+
+- `normalized_distance` — a raw edit distance divided by the longer of the
+  two compared strings' character counts, so short link text isn't swamped
+  by (or doesn't swamp) full relative paths regardless of the weights.
+- `combined_distance` — `PATH_WEIGHT * normalized(path_distance) +
+TEXT_WEIGHT * normalized(text_distance)`, falling back to the path term
+  alone when there's no text signal (empty link text, or text identical to
+  its own target) — a link with no usable display text ranks exactly as it
+  did before v0.16.
+- `unambiguous_winner` — the sole candidate, or the strict-best candidate by
+  `combined` when it's not tied with the next-best; `None` on a tie, an
+  empty list, or `text_mismatch`.
+- `text_mismatch` — `true` when the top-`combined` candidate isn't also the
+  top candidate by `text_distance` alone, i.e. the link's own visible text
+  points somewhere the blended ranking didn't land. Always `false` when no
+  candidate has a text signal — nothing to disagree with.
+
+`rank_anchor_candidates(broken_slug, link_text, target_note) ->
+Vec<RankedCandidate<&Heading>>` and `rank_link_candidates(broken_target,
+link_text, source, index) -> Vec<RankedCandidate<String>>` (both private)
+compute `path_distance` as before (slug-to-slug / target-to-relative-path)
+and `text_distance` as the edit distance between the link text's GFM slug
+and the candidate's own slug (heading text, or file stem for links), then
+sort by `combined`. Both are shared by `suggest_anchor_fix`/`suggest_link_fix`
+(which only want `unambiguous_winner`) and `knap lint --suggest` (which
+wants the whole ranked list, `text_distance` included, to show the agent).
+
+### `compute_link_fix()`, `suggest_link_fix()` (v0.13, text-aware since v0.16)
 
 The link-target counterparts to `compute_anchor_fix`/`suggest_anchor_fix`,
 added alongside `knap lint --suggest`/`--fix` (after the six functions
@@ -607,25 +657,24 @@ back to creating a stub file.
 
 ```rust
 pub(crate) fn compute_link_fix(source: &Path, target_range: Range, new_target: &str) -> WorkspaceEdit
-pub(crate) fn suggest_link_fix(broken_target: &str, source: &Path, index: &NoteIndex) -> Option<String>
+pub(crate) fn suggest_link_fix(broken_target: &str, link_text: &str, source: &Path, index: &NoteIndex) -> Option<String>
 ```
 
 - `compute_link_fix` — a single `TextEdit` on `target_range` replacing it
   with `escape_link_target(new_target)`. Mirrors `compute_anchor_fix`'s
   shape exactly, just for a link's `target_range` instead of `anchor_range`.
-- `suggest_link_fix` — built on a private `rank_link_candidates(broken_target,
-source, index) -> Vec<(usize, String)>`: every other note in `index`
-  (`source` itself excluded — a link can't be "fixed" by pointing at its own
-  note), ranked by edit distance between `broken_target` (unescaped first,
-  via `index::unescape_link_target`) and that note's path relative to
-  `source`'s directory. Returns the unique closest candidate, or `None` when
-  the vault has no other notes or two or more paths tie.
+  Also the execution side of `knap apply`'s `repoint-link` op (`src/cli/apply.rs`).
+- `suggest_link_fix` — `unambiguous_winner` over `rank_link_candidates(broken_target,
+link_text, source, index)`: every other note in `index` (`source` itself
+  excluded — a link can't be "fixed" by pointing at its own note). Returns
+  `None` when the vault has no other notes, two or more paths tie, or the
+  two ranking signals disagree.
 
 Used by `cli::fix::plan_fixes` (shared by `knap fix` and `knap lint --fix`):
 tried first for a broken link, falling back to
 `compute_create_missing_file_fix` only when no candidate is unambiguous.
 
-### `compute_diagnostics_with_suggestions()` (v0.13)
+### `compute_diagnostics_with_suggestions()` (v0.13, `text_distance`/`text_mismatch` since v0.16)
 
 ```rust
 pub(crate) fn compute_diagnostics_with_suggestions(
@@ -638,13 +687,16 @@ pub(crate) fn compute_diagnostics_with_suggestions(
 
 Calls `compute_diagnostics` unchanged, then — when `top_n > 0` — attaches up
 to `top_n` ranked candidates to each `broken-link`/`broken-anchor`
-diagnostic's `data` field as `{ "suggestions": [{ "target", "distance" }, ..] }`,
-via `rank_link_candidates`/`rank_anchor_candidates` re-run against the same
+diagnostic's `data` field as `{ "suggestions": [{ "target", "distance",
+"text_distance" }, ..] }`, plus `"text_mismatch": true` when the top-ranked
+candidate disagrees with the link's own text (omitted when `false`), via
+`rank_link_candidates`/`rank_anchor_candidates` re-run against the same
 link/anchor the diagnostic's range identifies. `target` is a relative path
-for a `broken-link` candidate, or `"#slug"` for a `broken-anchor` candidate.
-`top_n == 0` returns `compute_diagnostics`'s output verbatim, no `data`
-field added — this is what lets `knap lint` without `--suggest` stay
-byte-for-byte identical to before this function existed.
+for a `broken-link` candidate, or `"#slug"` for a `broken-anchor` candidate;
+`distance` is `path_distance`. `top_n == 0` returns `compute_diagnostics`'s
+output verbatim, no `data` field added — this is what lets `knap lint`
+without `--suggest` stay byte-for-byte identical to before this function
+existed.
 
 Used only by `knap lint --suggest` (`src/cli/lint.rs`) — the LSP server
 keeps calling plain `compute_diagnostics` for `textDocument/publishDiagnostics`,

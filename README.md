@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.14.0-blue)
+![Version](https://img.shields.io/badge/version-0.15.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Tooling that keeps linked Markdown notes correct — for the human writing them
@@ -163,21 +163,28 @@ Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--
 - `--since <git-ref>` — scope linting to files changed since `<git-ref>`
   (tracked diffs plus untracked new files), instead of the whole workspace.
   Requires a git repository; errors otherwise.
-- `--suggest [N]` — attach up to `N` ranked candidate fixes (closest first,
-  by edit distance) to each `broken-link`/`broken-anchor` diagnostic's `data`
-  field in `--json` output, bare `--suggest` defaults to 3. This is the same
-  ranking `knap fix` uses to decide whether a fix is unambiguous — `--suggest`
-  just shows the whole ranked list instead of collapsing it to one answer, so
-  an agent that's already running `knap lint --json` to verify an edit gets
-  the candidates for the ambiguous cases `fix` declined to touch, in the same
-  call, instead of needing a separate `knap fix --dry-run` round-trip:
+- `--suggest [N]` — attach up to `N` ranked candidate fixes to each
+  `broken-link`/`broken-anchor` diagnostic's `data` field in `--json` output,
+  bare `--suggest` defaults to 3. Ranking blends two distance signals: how
+  close the broken target/slug is to each candidate's path or heading
+  (`distance`), and how close the link's own visible text is to each
+  candidate's name (`text_distance`, `null` when the link has no usable
+  text). This is the same ranking `knap fix` uses to decide whether a fix is
+  unambiguous — `--suggest` just shows the whole ranked list instead of
+  collapsing it to one answer, so an agent that's already running
+  `knap lint --json` to verify an edit gets the candidates for the ambiguous
+  cases `fix` declined to touch, in the same call, instead of needing a
+  separate `knap fix --dry-run` round-trip. When the two signals disagree on
+  the top candidate, the diagnostic's `data` also carries
+  `"text_mismatch": true` — a signal that the top-ranked candidate may be
+  wrong even though it looks unambiguous by path distance alone:
   ```
   $ knap lint . --json --suggest
   { "...": "...",
     "code": "broken-link",
     "data": { "suggestions": [
-      { "target": "reference/config.md", "distance": 8 },
-      { "target": "reference/cache.md", "distance": 11 }
+      { "target": "reference/config.md", "distance": 8, "text_distance": 0 },
+      { "target": "reference/cache.md", "distance": 11, "text_distance": 6 }
     ] } }
   ```
 - `--fix` — apply every safe fix `knap fix` would make _before_ computing
@@ -215,13 +222,16 @@ full-workspace listing, unchanged.
 ## Fixing (`knap fix`)
 
 Applies safe quick fixes headlessly: retarget a broken link to the one
-existing note that's an unambiguous best match (by the same edit-distance
-ranking `knap lint --suggest` exposes), falling back to creating the missing
-file when no candidate is unambiguous; retarget a broken anchor to the one
-heading in its target note that's an unambiguous best match. Fixes that
-would be ambiguous — a link or anchor equally close to two or more
-candidates — are left alone for a human (or an agent reading
-`knap lint --suggest`'s ranked candidates) to resolve by hand.
+existing note that's an unambiguous best match (by the same combined
+path/text-distance ranking `knap lint --suggest` exposes), falling back to
+creating the missing file when no candidate is unambiguous; retarget a
+broken anchor to the one heading in its target note that's an unambiguous
+best match. Fixes that would be ambiguous — a link or anchor equally close
+to two or more candidates, or one where the broken target's path distance
+and the link's own visible text disagree on the winner (`text_mismatch`) —
+are left alone for a human (or an agent reading `knap lint --suggest`'s
+ranked candidates, including each one's `text_distance`) to resolve by
+hand.
 
 ```
 $ knap fix --dry-run
@@ -279,10 +289,10 @@ apply their edit atomically, and print a summary line on success.
 
 Applies a whole set of change operations in one call instead of one
 subprocess per change. Reads a JSON array of operations from stdin — one
-`rename-file`/`rename-heading`/`rename-tag`/`fix` per entry, same field
-names as that subcommand's arguments — and applies them in order,
-all-or-nothing: the workspace ends up either fully changed or untouched,
-never partially applied.
+`rename-file`/`rename-heading`/`rename-tag`/`fix`/`repoint-link`/
+`repoint-anchor` per entry — and applies them in order, all-or-nothing: the
+workspace ends up either fully changed or untouched, never partially
+applied.
 
 ```
 $ echo '[
@@ -293,6 +303,22 @@ applied rename-tag: #wip → #draft
 applied fix: applied 2 fix(es) in 2 file(s)
 2 operation(s), 3 file(s) touched
 ```
+
+- `rename-file`/`rename-heading`/`rename-tag`/`fix` — same field names as
+  that subcommand's arguments.
+- `repoint-link { file, range, target }` / `repoint-anchor { file, range,
+anchor }` — retarget a broken link or anchor at exactly `range` (a
+  diagnostic's own range, e.g. from `knap lint --suggest --json`) to a
+  candidate you've already picked, rather than letting `fix` re-derive one.
+  Useful for the ambiguous or `text_mismatch` cases `knap fix` declines to
+  touch on its own:
+  ```
+  $ echo '[{"op":"repoint-link","file":"notes/a.md",
+    "range":{"start":{"line":0,"character":7},"end":{"line":0,"character":18}},
+    "target":"reference/config.md"}]' | knap apply
+  applied repoint-link: notes/a.md: repoint → 'reference/config.md'
+  1 operation(s), 1 file(s) touched
+  ```
 
 Useful after `knap lint --suggest --json` — pick the right fix for each
 finding yourself, then apply the whole batch in one call rather than
@@ -367,12 +393,15 @@ present, `knap.toml` fills in the rest.
 
 ## Status
 
-v0.14.0 — Batch Apply: `knap apply [--dry-run] [--json]` applies a JSON
-array of change operations (`rename-file`, `rename-heading`, `rename-tag`,
-`fix`) from stdin sequentially and all-or-nothing, so an agent that's
-already picked its fixes from `knap lint --suggest` can apply the whole
-batch in one call instead of one subprocess per change. See the
-[roadmap](docs/ROADMAP.md) for planned releases.
+v0.15.0 — Judged Repoints & Text-Aware Repoint Ranking: `knap apply` gains
+`repoint-link`/`repoint-anchor` operations, applying an agent-picked
+candidate from `lint --suggest` directly at a diagnostic's range inside an
+all-or-nothing batch; and repoint ranking now blends the broken
+link/anchor's path or slug distance with how close the link's own visible
+text is to each candidate, declining to auto-apply (`knap fix`/
+`lint --fix`) and flagging `text_mismatch: true` (`lint --suggest`) when the
+two signals disagree. See the [roadmap](docs/ROADMAP.md) for planned
+releases.
 
 ## Documentation
 

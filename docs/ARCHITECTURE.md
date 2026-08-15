@@ -275,7 +275,7 @@ own — use `knap lsp`.**
 | `rename-heading` | `knap rename-heading <file> <old> <new>`                                                       | v0.12                                                                                 |
 | `rename-tag`     | `knap rename-tag <old> <new>`                                                                  | v0.12                                                                                 |
 | `fix`            | `knap fix [path] [--dry-run]`                                                                  | v0.13                                                                                 |
-| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                | v0.14                                                                                 |
+| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                | v0.14, `repoint-link`/`repoint-anchor` ops added v0.15                                |
 | `check`          | `knap check`                                                                                   | v0.2                                                                                  |
 | `version`        | `knap version`                                                                                 | v0.10.1                                                                               |
 
@@ -308,36 +308,48 @@ ambiguous) since it has no cursor to let a human choose; for a broken link it
 tries `handlers::suggest_link_fix`/`handlers::compute_link_fix` first
 (repoint to the one unambiguous closest-matching existing note), falling
 back to `compute_create_missing_file_fix` when no candidate is unambiguous.
-The fix-selection loop itself lives in `cli::fix::plan_fixes`/`apply`
+Since v0.16, "unambiguous" blends two distance signals — the broken
+target/slug against each candidate's path/heading, and the link's own
+visible text against each candidate's name — and declines (falls back the
+same as a tie) whenever the two signals disagree (`text_mismatch`), not just
+on an outright tie; see `docs/design/components/handlers.md` for the ranking
+details. The fix-selection loop itself lives in `cli::fix::plan_fixes`/`apply`
 (`pub(crate)`), shared with `lint --fix` (below) so both apply the identical
 unambiguous-only contract. No editor is needed for any of them.
 
 `lint --suggest [N]` switches diagnostic computation from
 `handlers::compute_diagnostics` to `handlers::compute_diagnostics_with_suggestions`,
 which attaches up to `N` ranked candidates (same ranking `fix` uses to pick
-its one unambiguous answer, exposed in full) to each `broken-link`/
-`broken-anchor` diagnostic's `data` field. `lint --fix` runs
-`cli::fix::plan_fixes`/`apply` over the whole target root before computing
-the report, then rebuilds the index so the diagnostics shown reflect the
-post-fix state — the one case where `lint` mutates files on disk; `--json`
-output gains a `fixes_applied` field listing what was applied.
+its one unambiguous answer, exposed in full, each with its own
+`text_distance`) to each `broken-link`/`broken-anchor` diagnostic's `data`
+field, plus a `text_mismatch: true` flag when the two signals disagree.
+`lint --fix` runs `cli::fix::plan_fixes`/`apply` over the whole target root
+before computing the report, then rebuilds the index so the diagnostics
+shown reflect the post-fix state — the one case where `lint` mutates files
+on disk; `--json` output gains a `fixes_applied` field listing what was
+applied.
 
 `apply` (`src/cli/apply.rs`) reads a JSON array of `ChangeOp`s
-(`rename-file`/`rename-heading`/`rename-tag`/`fix`, one variant per existing
-mutating subcommand with the same field names as that subcommand's
-arguments) from stdin and applies them in order, all-or-nothing. It copies
-the current directory into a scratch tempdir, dispatches each `ChangeOp` via
-`apply_one` to the matching `rename_file_at`/`rename_heading_at`/
-`rename_tag_at`/`targets_for`+`plan_fixes`/`apply` call scoped to that
-scratch root (not the process's actual cwd — the same root-parameterization
-`rename-*` already needed for testability), then, only once every operation
-has succeeded, syncs the scratch copy back onto the real workspace
-(`diff_and_sync`). If any operation fails, `run` returns before the sync
-ever runs and the scratch tempdir is discarded — the real workspace was
-never touched. `--dry-run` runs the same scratch-copy pipeline but calls
-`diff_and_sync` in count-only mode, so the reported plan is exactly what a
-real run would touch without writing anything. `--json` serializes an
-`ApplyReport { dry_run, operations, files_touched }`.
+(`rename-file`/`rename-heading`/`rename-tag`/`fix`/`repoint-link`/
+`repoint-anchor`, one variant per existing mutating subcommand or LSP-only
+edit computation, with the same field names as that subcommand's arguments)
+from stdin and applies them in order, all-or-nothing. It copies the current
+directory into a scratch tempdir, dispatches each `ChangeOp` via `apply_one`
+to the matching `rename_file_at`/`rename_heading_at`/`rename_tag_at`/
+`targets_for`+`plan_fixes`/`apply`/`handlers::compute_link_fix`/
+`handlers::compute_anchor_fix` call scoped to that scratch root (not the
+process's actual cwd — the same root-parameterization `rename-*` already
+needed for testability), then, only once every operation has succeeded,
+syncs the scratch copy back onto the real workspace (`diff_and_sync`). If
+any operation fails, `run` returns before the sync ever runs and the scratch
+tempdir is discarded — the real workspace was never touched. `repoint-link`/
+`repoint-anchor` apply an agent-picked candidate (e.g. one surfaced by
+`lint --suggest`) at a diagnostic's own `range`, rather than re-deriving a
+target the way `fix` does — the caller has already chosen. `--dry-run` runs
+the same scratch-copy pipeline but calls `diff_and_sync` in count-only mode,
+so the reported plan is exactly what a real run would touch without writing
+anything. `--json` serializes an `ApplyReport { dry_run, operations,
+files_touched }`.
 
 ---
 

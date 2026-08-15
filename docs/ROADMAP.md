@@ -3,32 +3,31 @@
 Each release is designed to be independently useful. A writer should get value
 from v0.1 alone and accumulate more with each release.
 
-| Version                                                                           | Title                                      | Status              |
-| --------------------------------------------------------------------------------- | ------------------------------------------ | ------------------- |
-| [v0.1](#v01--mvp-navigate-your-workspace-released-2026-05-09)                     | MVP: Navigate your workspace               | Released 2026-05-09 |
-| [v0.2](#v02--rename--refactor-released-2026-05-10)                                | Rename & Refactor                          | Released 2026-05-10 |
-| [v0.3](#v03--heading-navigation--anchors-released-2026-05-16)                     | Heading Navigation & Anchors               | Released 2026-05-16 |
-| [v0.3.1](#v031--smarter-path-completion-released-2026-05-16)                      | Smarter Path Completion                    | Released 2026-05-16 |
-| [v0.3.2](#v032--global-jump-in-completions-released-2026-05-17)                   | Global Jump in Completions                 | Released 2026-05-17 |
-| [v0.3.3](#v033--rename-for-unindexed-files-released-2026-05-18)                   | Rename for Unindexed Files                 | Released 2026-05-18 |
-| [v0.3.4](#v034--rename-dialog-for-formatted-headings-released-2026-05-18)         | Rename Dialog for Formatted Headings       | Released 2026-05-18 |
-| [v0.3.5](#v035--lsp-range-correctness-released-2026-05-18)                        | LSP Range Correctness                      | Released 2026-05-18 |
-| [v0.4](#v04--code-actions-released-2026-05-21)                                    | Code Actions                               | Released 2026-05-21 |
-| [v0.5](#v05--tags-released-2026-06-06)                                            | Tags                                       | Released 2026-06-06 |
-| [v0.6](#v06--backlinks-released-2026-06-08)                                       | Backlinks                                  | Released 2026-06-08 |
-| [v0.7](#v07--same-file-anchor-links-released-2026-06-08)                          | Same-file Anchor Links                     | Released 2026-06-08 |
-| [v0.8](#v08--frontmatter-schema-released-2026-06-09)                              | Frontmatter Schema                         | Released 2026-06-09 |
-| [v0.9](#v09--editor-experience-released-2026-06-10)                               | Editor Experience                          | Released 2026-06-10 |
-| [v0.10](#v010--tag-rename-released-2026-06-10)                                    | Tag Rename                                 | Released 2026-06-10 |
-| [v0.10.1](#v0101--version-subcommand-released-2026-06-14)                         | Version Subcommand                         | Released 2026-06-14 |
-| [v0.10.2](#v0102--escaped-link-targets-for-paths-with-spaces-released-2026-08-03) | Escaped Link Targets for Paths with Spaces | Released 2026-08-03 |
-| [v0.11](#v011--headless-cli-released-2026-08-04)                                  | Headless CLI                               | Released 2026-08-04 |
-| [v0.11.1](#v0111--lint--index-false-positives-released-2026-08-05)                | Lint & Index False Positives               | Released 2026-08-05 |
-| [v0.12](#v012--headless-rename-released-2026-08-07)                               | Headless Rename                            | Released 2026-08-07 |
-| [v0.13](#v013--agent-ergonomics-released-2026-08-08)                              | Agent Ergonomics                           | Released 2026-08-08 |
-| [v0.14](#v014--batch-apply-released-2026-08-08)                                   | Batch Apply                                | Released 2026-08-08 |
-| [v0.15](#v015--judged-repoints)                                                   | Judged Repoints                            | Planned             |
-| [v0.16](#v016--text-aware-repoint-ranking)                                        | Text-Aware Repoint Ranking                 | Planned             |
+| Version                                                                           | Title                                        | Status              |
+| --------------------------------------------------------------------------------- | -------------------------------------------- | ------------------- |
+| [v0.1](#v01--mvp-navigate-your-workspace-released-2026-05-09)                     | MVP: Navigate your workspace                 | Released 2026-05-09 |
+| [v0.2](#v02--rename--refactor-released-2026-05-10)                                | Rename & Refactor                            | Released 2026-05-10 |
+| [v0.3](#v03--heading-navigation--anchors-released-2026-05-16)                     | Heading Navigation & Anchors                 | Released 2026-05-16 |
+| [v0.3.1](#v031--smarter-path-completion-released-2026-05-16)                      | Smarter Path Completion                      | Released 2026-05-16 |
+| [v0.3.2](#v032--global-jump-in-completions-released-2026-05-17)                   | Global Jump in Completions                   | Released 2026-05-17 |
+| [v0.3.3](#v033--rename-for-unindexed-files-released-2026-05-18)                   | Rename for Unindexed Files                   | Released 2026-05-18 |
+| [v0.3.4](#v034--rename-dialog-for-formatted-headings-released-2026-05-18)         | Rename Dialog for Formatted Headings         | Released 2026-05-18 |
+| [v0.3.5](#v035--lsp-range-correctness-released-2026-05-18)                        | LSP Range Correctness                        | Released 2026-05-18 |
+| [v0.4](#v04--code-actions-released-2026-05-21)                                    | Code Actions                                 | Released 2026-05-21 |
+| [v0.5](#v05--tags-released-2026-06-06)                                            | Tags                                         | Released 2026-06-06 |
+| [v0.6](#v06--backlinks-released-2026-06-08)                                       | Backlinks                                    | Released 2026-06-08 |
+| [v0.7](#v07--same-file-anchor-links-released-2026-06-08)                          | Same-file Anchor Links                       | Released 2026-06-08 |
+| [v0.8](#v08--frontmatter-schema-released-2026-06-09)                              | Frontmatter Schema                           | Released 2026-06-09 |
+| [v0.9](#v09--editor-experience-released-2026-06-10)                               | Editor Experience                            | Released 2026-06-10 |
+| [v0.10](#v010--tag-rename-released-2026-06-10)                                    | Tag Rename                                   | Released 2026-06-10 |
+| [v0.10.1](#v0101--version-subcommand-released-2026-06-14)                         | Version Subcommand                           | Released 2026-06-14 |
+| [v0.10.2](#v0102--escaped-link-targets-for-paths-with-spaces-released-2026-08-03) | Escaped Link Targets for Paths with Spaces   | Released 2026-08-03 |
+| [v0.11](#v011--headless-cli-released-2026-08-04)                                  | Headless CLI                                 | Released 2026-08-04 |
+| [v0.11.1](#v0111--lint--index-false-positives-released-2026-08-05)                | Lint & Index False Positives                 | Released 2026-08-05 |
+| [v0.12](#v012--headless-rename-released-2026-08-07)                               | Headless Rename                              | Released 2026-08-07 |
+| [v0.13](#v013--agent-ergonomics-released-2026-08-08)                              | Agent Ergonomics                             | Released 2026-08-08 |
+| [v0.14](#v014--batch-apply-released-2026-08-08)                                   | Batch Apply                                  | Released 2026-08-08 |
+| [v0.15](#v015--judged-repoints--text-aware-repoint-ranking-released-2026-08-15)   | Judged Repoints & Text-Aware Repoint Ranking | Released 2026-08-15 |
 
 ---
 
@@ -416,7 +415,9 @@ See `docs/design/releases/archive/v0.14/design.md` for the full design.
 
 ---
 
-## v0.15 — Judged Repoints
+## v0.15 — Judged Repoints & Text-Aware Repoint Ranking _(released 2026-08-15)_
+
+### Judged Repoints
 
 **Goal:** Let an agent's own judged pick from `knap lint --suggest`'s ranked
 candidates ride in the same all-or-nothing `knap apply` batch as any
@@ -434,9 +435,10 @@ diagnostic's own range.
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | US-D19 | `knap apply` gains `repoint-link`/`repoint-anchor` operations — apply an agent-picked target from `lint --suggest`'s candidates at a diagnostic's own range, inside the same all-or-nothing batch |
 
----
+See `docs/design/releases/archive/v0.15/judged-repoints/design.md` for the
+full design.
 
-## v0.16 — Text-Aware Repoint Ranking
+### Text-Aware Repoint Ranking
 
 **Goal:** Stop `knap fix`/`lint --suggest`'s repoint ranking from being fooled
 by a candidate that's merely closer by raw path/slug edit distance to the
@@ -457,6 +459,9 @@ instead of a silently confident top pick.
 | Story  | Feature                                                                                                                                                                                 |
 | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | US-D20 | Ranking blends link-text distance with path/slug distance; `text_mismatch` flag on `lint --suggest` output; `knap fix`/`lint --fix` decline to auto-apply when the two signals disagree |
+
+See `docs/design/releases/archive/v0.15/text-aware-ranking/design.md` for the
+full design.
 
 ---
 

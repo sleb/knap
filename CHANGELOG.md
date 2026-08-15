@@ -5,6 +5,32 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.15.0] — 2026-08-15
+
+### Added
+
+- **`knap apply` gains `repoint-link`/`repoint-anchor` operations.** Apply an
+  agent-picked target from `lint --suggest`'s candidates directly at a
+  diagnostic's own range — no need to re-derive the fix, and it composes
+  with `rename-file`/`rename-heading`/`rename-tag`/`fix` inside the same
+  all-or-nothing batch.
+- **Text-aware repoint ranking.** `knap fix`/`lint --suggest`/`lint --fix`
+  now blend two distance signals when ranking a repoint candidate: how close
+  the broken link target (or anchor slug) is to each candidate's path/
+  heading, and how close the link's own visible text is to each candidate's
+  name. Each `lint --suggest` candidate now also reports its own
+  `text_distance`. This fixes cases where a broken link's raw target was
+  textually close to the _wrong_ note (e.g. `[Sync 835](sync-800.md)`) even
+  though the link's own text named the right one.
+- **`text_mismatch` diagnostic flag.** When the two ranking signals disagree
+  on the best candidate, `knap lint --suggest`'s JSON output flags the
+  diagnostic with `"text_mismatch": true`, and `knap fix`/`lint --fix`
+  decline to auto-apply a repoint for it — falling back to creating a stub
+  note/leaving the diagnostic open — rather than risk repointing at the
+  wrong target.
+
+---
+
 ## [0.14.0] — 2026-08-08
 
 ### Added
