@@ -27,6 +27,11 @@ pub(crate) struct Config {
     pub(crate) extensions: Vec<String>,
     pub(crate) new_note_dir: Option<String>,
     pub(crate) frontmatter_schema: FrontmatterSchema,
+    /// Glob patterns to exclude from indexing. Threaded through config
+    /// loading only for now — `index::build` doesn't honor it yet (see
+    /// v0.16 plan Step 2).
+    #[allow(dead_code)]
+    pub(crate) exclude: Vec<String>,
 }
 
 // Shared by both wire formats below: the `values`/`required` field names
@@ -48,6 +53,7 @@ struct InitOptions {
     extensions: Option<Vec<String>>,
     new_note_dir: Option<String>,
     frontmatter_schema: Option<FrontmatterSchemaJsonOpts>,
+    exclude: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -66,6 +72,7 @@ pub(crate) struct KnapToml {
     extensions: Option<Vec<String>>,
     new_note_dir: Option<String>,
     frontmatter_schema: Option<FrontmatterSchemaTomlOpts>,
+    exclude: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -84,6 +91,7 @@ struct RawConfig {
     extensions: Option<Vec<String>>,
     new_note_dir: Option<String>,
     frontmatter_schema: Option<(HashMap<String, SchemaFieldOpts>, bool, bool)>,
+    exclude: Option<Vec<String>>,
 }
 
 impl From<InitOptions> for RawConfig {
@@ -94,6 +102,7 @@ impl From<InitOptions> for RawConfig {
             frontmatter_schema: opts
                 .frontmatter_schema
                 .map(|s| (s.fields, s.require_frontmatter, s.warn_on_unknown_keys)),
+            exclude: opts.exclude,
         }
     }
 }
@@ -106,17 +115,26 @@ impl From<KnapToml> for RawConfig {
             frontmatter_schema: toml
                 .frontmatter_schema
                 .map(|s| (s.fields, s.require_frontmatter, s.warn_unknown_keys)),
+            exclude: toml.exclude,
         }
     }
 }
 
 /// `primary` wins field-by-field; `fallback` fills in what `primary` left
-/// unset.
+/// unset. `exclude` is unioned instead: both sources' patterns apply.
 fn merge(primary: RawConfig, fallback: RawConfig) -> RawConfig {
+    let exclude = match (primary.exclude, fallback.exclude) {
+        (Some(mut p), Some(f)) => {
+            p.extend(f);
+            Some(p)
+        }
+        (p, f) => p.or(f),
+    };
     RawConfig {
         extensions: primary.extensions.or(fallback.extensions),
         new_note_dir: primary.new_note_dir.or(fallback.new_note_dir),
         frontmatter_schema: primary.frontmatter_schema.or(fallback.frontmatter_schema),
+        exclude,
     }
 }
 
@@ -158,6 +176,7 @@ fn finalize(raw: RawConfig, index_roots: Vec<PathBuf>) -> Config {
         extensions: raw.extensions.unwrap_or_else(|| vec!["md".to_string()]),
         new_note_dir: raw.new_note_dir,
         frontmatter_schema,
+        exclude: raw.exclude.unwrap_or_default(),
     }
 }
 
@@ -222,8 +241,13 @@ pub(crate) fn for_lsp(params: &InitializeParams) -> Result<Config> {
 /// Loader for `knap lint`/`knap index`: `knap.toml` only, no editor
 /// involved. If `path` is a file, its parent directory is the root.
 /// `extensions_override` is unused today — reserved for a future `--ext`
-/// flag.
-pub(crate) fn for_path(path: &Path, extensions_override: Option<Vec<String>>) -> Result<Config> {
+/// flag. `exclude_additions` (a future `--exclude` flag's values) are
+/// appended to `knap.toml`'s `exclude` list.
+pub(crate) fn for_path(
+    path: &Path,
+    extensions_override: Option<Vec<String>>,
+    exclude_additions: &[String],
+) -> Result<Config> {
     let root = if path.is_file() {
         path.parent()
             .map(PathBuf::from)
@@ -237,6 +261,11 @@ pub(crate) fn for_path(path: &Path, extensions_override: Option<Vec<String>>) ->
         .unwrap_or_default();
     if extensions_override.is_some() {
         raw.extensions = extensions_override;
+    }
+    if !exclude_additions.is_empty() {
+        raw.exclude
+            .get_or_insert_with(Vec::new)
+            .extend(exclude_additions.iter().cloned());
     }
 
     Ok(finalize(raw, vec![root]))

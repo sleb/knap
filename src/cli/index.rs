@@ -15,9 +15,9 @@ use crate::parser::Note;
 /// vault (the same bug `rename-heading`/`rename-tag` fixed in v0.12).
 pub fn run(path: &Path, json: bool) -> anyhow::Result<()> {
     let config = if path.is_file() {
-        config::for_path(Path::new("."), None)?
+        config::for_path(Path::new("."), None, &[])?
     } else {
-        config::for_path(path, None)?
+        config::for_path(path, None, &[])?
     };
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
     let (idx, _) = index::build(&config.index_roots, &extensions);

@@ -3760,6 +3760,7 @@ mod tests {
             extensions: vec!["md".to_string()],
             new_note_dir: new_note_dir.map(|s| s.to_string()),
             frontmatter_schema: Default::default(),
+            exclude: Default::default(),
         }
     }
 

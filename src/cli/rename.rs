@@ -83,7 +83,7 @@ pub(crate) fn rename_file_at(root: &Path, old: &Path, new: &Path) -> anyhow::Res
     // argument's parent directory as the whole index root, which would
     // silently drop every note outside `old`'s own directory (and any
     // incoming link living there) from the index.
-    let config = config::for_path(root, None)?;
+    let config = config::for_path(root, None, &[])?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
     let (idx, _) = index::build(&config.index_roots, &extensions);
 
@@ -124,7 +124,7 @@ pub(crate) fn rename_heading_at(
     // `rename_file_at`: a file argument would otherwise narrow the index to
     // just `file`'s own directory, missing cross-file anchor links from
     // anywhere else in the vault.
-    let config = config::for_path(root, None)?;
+    let config = config::for_path(root, None, &[])?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
     let (idx, _) = index::build(&config.index_roots, &extensions);
 
@@ -158,7 +158,7 @@ pub(crate) fn rename_tag_at(root: &Path, old: &str, new: &str) -> anyhow::Result
     // and `compute_tag_rename`'s `path_to_uri` requires absolute paths (same
     // constraint `rename_file_at` works around by absolutizing before
     // indexing).
-    let config = config::for_path(root, None)?;
+    let config = config::for_path(root, None, &[])?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
     let (idx, _) = index::build(&config.index_roots, &extensions);
 
