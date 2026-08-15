@@ -485,6 +485,32 @@ fn build_excludes_directory_by_glob() {
 }
 
 #[test]
+fn build_excludes_directory_by_glob_without_opening_it() {
+    // Distinguishes "directory never read_dir'd" from "directory read_dir'd
+    // then its contents filtered" — build_excludes_directory_by_glob above
+    // already proves the output is correct either way; this proves the
+    // `dir/**` form gets the same true skip as the exact-path form.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    write_file(&root.join("tests/fixtures/note.md"), "# excluded\n");
+    write_file(&root.join("other.md"), "# kept\n");
+
+    super::DIR_READS.with(|c| c.set(0));
+    let exclude = vec!["tests/fixtures/**".to_string()];
+    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+    let reads = super::DIR_READS.with(|c| c.get());
+
+    assert!(idx.get_note(&root.join("tests/fixtures/note.md")).is_none());
+    assert!(idx.get_note(&root.join("other.md")).is_some());
+    // Only `root` and `root/tests` should ever be opened — `root/tests/fixtures`
+    // must be recognized as excluded and skipped without a `read_dir` call.
+    assert_eq!(
+        reads, 2,
+        "expected tests/fixtures itself to be skipped, not opened and filtered"
+    );
+}
+
+#[test]
 fn build_excludes_file_by_glob() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();

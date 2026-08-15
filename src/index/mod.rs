@@ -485,10 +485,23 @@ pub fn build(
     extensions: &[&str],
     exclude: &[String],
 ) -> anyhow::Result<(NoteIndex, IndexDelta)> {
-    let excludes: Vec<glob::Pattern> = exclude
+    let mut excludes: Vec<glob::Pattern> = exclude
         .iter()
         .map(|pattern| glob::Pattern::new(pattern).map_err(anyhow::Error::from))
         .collect::<anyhow::Result<_>>()?;
+
+    // The glob crate's `**` doesn't match the zero-extra-segment case, so a
+    // pattern like `dir/**` matches everything *inside* `dir` but not `dir`
+    // itself — without this, `dir` would still get `read_dir`'d (and its
+    // direct children individually filtered) before recursion stopped one
+    // level down, instead of never being opened at all. Compile the
+    // directory-equivalent form (the `/**` suffix stripped) once, alongside
+    // the original patterns, so `dir` itself is recognized as excluded too.
+    for pattern in exclude {
+        if let Some(dir_form) = pattern.strip_suffix("/**") {
+            excludes.push(glob::Pattern::new(dir_form)?);
+        }
+    }
 
     let mut index = NoteIndex::default();
     let mut all_affected = HashSet::new();
@@ -527,10 +540,21 @@ fn walk_files(root: &Path, excludes: &[glob::Pattern]) -> Vec<PathBuf> {
     results
 }
 
+// Test-only counter of `walk_dir` invocations (i.e. of `read_dir` calls),
+// used to verify an excluded directory is genuinely never opened rather than
+// opened and then filtered. Thread-local so tests running concurrently on
+// separate threads don't interfere with each other's counts.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static DIR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn walk_dir(dir: &Path, root: &Path, excludes: &[glob::Pattern], out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
+    #[cfg(test)]
+    DIR_READS.with(|c| c.set(c.get() + 1));
     for entry in entries.flatten() {
         let Ok(ft) = entry.file_type() else { continue };
         let entry_path = entry.path();
