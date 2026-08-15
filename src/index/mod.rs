@@ -473,12 +473,28 @@ impl NoteIndex {
 /// Build an initial index by crawling `roots`. Note files (matching
 /// `extensions`) are fully parsed; all other files are registered in
 /// `all_files` only so attachment links resolve immediately.
-pub fn build(roots: &[PathBuf], extensions: &[&str]) -> (NoteIndex, IndexDelta) {
+///
+/// `exclude` is a list of glob patterns (matched against each entry's path
+/// relative to the root it was found under) — matching directories are not
+/// recursed into and matching files are skipped entirely, so excluded files
+/// show up neither as notes nor as attachments. Compiling `exclude` happens
+/// once up front; an invalid pattern is returned as `Err` rather than
+/// panicking or silently ignoring it.
+pub fn build(
+    roots: &[PathBuf],
+    extensions: &[&str],
+    exclude: &[String],
+) -> anyhow::Result<(NoteIndex, IndexDelta)> {
+    let excludes: Vec<glob::Pattern> = exclude
+        .iter()
+        .map(|pattern| glob::Pattern::new(pattern).map_err(anyhow::Error::from))
+        .collect::<anyhow::Result<_>>()?;
+
     let mut index = NoteIndex::default();
     let mut all_affected = HashSet::new();
 
     for root in roots {
-        for path in walk_files(root) {
+        for path in walk_files(root, &excludes) {
             let is_note = path
                 .extension()
                 .and_then(|e| e.to_str())
@@ -497,33 +513,37 @@ pub fn build(roots: &[PathBuf], extensions: &[&str]) -> (NoteIndex, IndexDelta) 
         }
     }
 
-    (
+    Ok((
         index,
         IndexDelta {
             affected_paths: all_affected,
         },
-    )
+    ))
 }
 
-fn walk_files(root: &Path) -> Vec<PathBuf> {
+fn walk_files(root: &Path, excludes: &[glob::Pattern]) -> Vec<PathBuf> {
     let mut results = Vec::new();
-    walk_dir(root, &mut results);
+    walk_dir(root, root, excludes, &mut results);
     results
 }
 
-fn walk_dir(dir: &Path, out: &mut Vec<PathBuf>) {
+fn walk_dir(dir: &Path, root: &Path, excludes: &[glob::Pattern], out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let Ok(ft) = entry.file_type() else { continue };
+        let entry_path = entry.path();
+        let relative = entry_path.strip_prefix(root).unwrap_or(&entry_path);
+        let excluded = excludes.iter().any(|pattern| pattern.matches_path(relative));
+
         if ft.is_dir() {
             let name = entry.file_name();
-            if !should_skip_dir(name.to_string_lossy().as_ref()) {
-                walk_dir(&entry.path(), out);
+            if !excluded && !should_skip_dir(name.to_string_lossy().as_ref()) {
+                walk_dir(&entry_path, root, excludes, out);
             }
-        } else if ft.is_file() {
-            out.push(normalize_path(&entry.path()));
+        } else if ft.is_file() && !excluded {
+            out.push(normalize_path(&entry_path));
         }
         // symlinks: ft.is_symlink() → skip to prevent infinite loops
     }

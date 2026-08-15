@@ -60,7 +60,7 @@ pub fn run(path: &Path, dry_run: bool) -> anyhow::Result<()> {
 pub(crate) fn targets_for(path_abs: &Path) -> anyhow::Result<(NoteIndex, Config, Vec<PathBuf>)> {
     let config = config::for_path(path_abs, None, &[])?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
-    let (idx, _) = index::build(&config.index_roots, &extensions);
+    let (idx, _) = index::build(&config.index_roots, &extensions, &[])?;
     let targets: Vec<PathBuf> = if path_abs.is_file() {
         vec![path_abs.to_path_buf()]
     } else {

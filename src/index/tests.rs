@@ -424,7 +424,7 @@ fn note_report_none_for_unindexed_path() {
 #[test]
 fn walk_files_strips_leading_curdir_from_root() {
     let root = Path::new("./tests/fixtures/lint_clean");
-    let files = walk_files(root);
+    let files = walk_files(root, &[]);
     assert!(
         !files.is_empty(),
         "expected walk_files to find fixture files"
@@ -441,10 +441,98 @@ fn walk_files_strips_leading_curdir_from_root() {
 #[test]
 fn build_with_leading_curdir_root_resolves_relative_links() {
     let roots = vec![PathBuf::from("./tests/fixtures/lint_clean")];
-    let (idx, _) = build(&roots, &["md"]);
+    let (idx, _) = build(&roots, &["md"], &[]).unwrap();
     let note_path = PathBuf::from("tests/fixtures/lint_clean/note.md");
     assert!(
         matches!(idx.resolve(&note_path, "target.md"), ResolvedLink::Found(_)),
         "expected note.md's link to target.md to resolve as Found"
     );
+}
+
+// ── exclude ──────────────────────────────────────────────────────────────────
+
+fn write_file(path: &Path, content: &str) {
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, content).unwrap();
+}
+
+#[test]
+fn build_excludes_directory_by_exact_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    write_file(&root.join("tests/fixtures/note.md"), "# excluded\n");
+    write_file(&root.join("other.md"), "# kept\n");
+
+    let exclude = vec!["tests/fixtures".to_string()];
+    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+
+    assert!(idx.get_note(&root.join("tests/fixtures/note.md")).is_none());
+    assert!(idx.get_note(&root.join("other.md")).is_some());
+}
+
+#[test]
+fn build_excludes_directory_by_glob() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    write_file(&root.join("tests/fixtures/note.md"), "# excluded\n");
+    write_file(&root.join("other.md"), "# kept\n");
+
+    let exclude = vec!["tests/fixtures/**".to_string()];
+    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+
+    assert!(idx.get_note(&root.join("tests/fixtures/note.md")).is_none());
+    assert!(idx.get_note(&root.join("other.md")).is_some());
+}
+
+#[test]
+fn build_excludes_file_by_glob() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    write_file(&root.join("a.draft.md"), "# draft\n");
+    write_file(&root.join("a.md"), "# kept\n");
+
+    let exclude = vec!["**/*.draft.md".to_string()];
+    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+
+    assert!(idx.get_note(&root.join("a.draft.md")).is_none());
+    assert!(idx.get_note(&root.join("a.md")).is_some());
+}
+
+#[test]
+fn build_excluded_file_not_registered_as_attachment() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    write_file(&root.join("tests/fixtures/image.png"), "not really png");
+    write_file(&root.join("kept.png"), "not really png");
+
+    let exclude = vec!["tests/fixtures".to_string()];
+    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+
+    let attachments: Vec<_> = idx.all_attachment_paths().collect();
+    assert!(!attachments.contains(&root.join("tests/fixtures/image.png").as_path()));
+    assert!(attachments.contains(&root.join("kept.png").as_path()));
+}
+
+#[test]
+fn build_no_excludes_is_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    write_file(&root.join("tests/fixtures/note.md"), "# note\n");
+    write_file(&root.join("other.md"), "# other\n");
+
+    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &[]).unwrap();
+
+    assert!(idx.get_note(&root.join("tests/fixtures/note.md")).is_some());
+    assert!(idx.get_note(&root.join("other.md")).is_some());
+}
+
+#[test]
+fn build_malformed_pattern_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+
+    let exclude = vec!["[".to_string()];
+    let result = build(&[root], &["md"], &exclude);
+
+    assert!(result.is_err());
 }

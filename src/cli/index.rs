@@ -20,7 +20,7 @@ pub fn run(path: &Path, json: bool) -> anyhow::Result<()> {
         config::for_path(path, None, &[])?
     };
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
-    let (idx, _) = index::build(&config.index_roots, &extensions);
+    let (idx, _) = index::build(&config.index_roots, &extensions, &[])?;
 
     if path.is_file() {
         let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
