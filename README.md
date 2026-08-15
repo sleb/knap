@@ -375,6 +375,7 @@ file):
 ```toml
 extensions = ["md"]
 new_note_dir = "inbox"
+exclude = ["tests/fixtures/**"]
 
 [frontmatter_schema]
 require_frontmatter = false

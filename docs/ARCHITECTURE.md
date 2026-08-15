@@ -86,6 +86,7 @@ Config {
   extensions: string[]         // default: ["md"]
   new_note_dir: Option<string> // inbox folder for Quick Fix "Create note"; relative to index_roots[0]
   frontmatter_schema: FrontmatterSchema // key/value constraints; default: empty (no validation)
+  exclude: string[]            // glob patterns left out of indexing entirely; default: [] (no exclusions)
 }
 ```
 
@@ -103,7 +104,7 @@ differently depending on whether an editor is involved:
 
 ```rust
 fn for_lsp(init_params: &InitializeParams) -> Result<Config>   // knap lsp
-fn for_path(root: &Path, extensions_override: Option<Vec<String>>) -> Result<Config> // knap lint, knap index, knap rename-*
+fn for_path(root: &Path, extensions_override: Option<Vec<String>>, exclude_additions: &[String]) -> Result<Config> // knap lint, knap index, knap rename-*
 ```
 
 - `for_lsp` — `index_roots` from `workspaceFolders` in the `initialize`
@@ -265,19 +266,19 @@ non-zero with usage text (clap's built-in behavior for a required
 subcommand). In particular, **`knap` no longer starts the LSP server on its
 own — use `knap lsp`.**
 
-| Subcommand       | Usage                                                                                          | Available from                                                                        |
-| ---------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `lsp`            | `knap lsp`                                                                                     | v0.11 (previously the bare-args default, since v0.1)                                  |
-| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--fix]` | v0.11, `--fail-on`/`--since`/`--suggest`/`--fix` added v0.13                          |
-| `index`          | `knap index <path> [--json]`                                                                   | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13 |
-| `parse`          | `knap parse <file>`                                                                            | v0.1                                                                                  |
-| `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                            | v0.12, `move-file` alias added v0.14                                                  |
-| `rename-heading` | `knap rename-heading <file> <old> <new>`                                                       | v0.12                                                                                 |
-| `rename-tag`     | `knap rename-tag <old> <new>`                                                                  | v0.12                                                                                 |
-| `fix`            | `knap fix [path] [--dry-run]`                                                                  | v0.13                                                                                 |
-| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                | v0.14, `repoint-link`/`repoint-anchor` ops added v0.15                                |
-| `check`          | `knap check`                                                                                   | v0.2                                                                                  |
-| `version`        | `knap version`                                                                                 | v0.10.1                                                                               |
+| Subcommand       | Usage                                                                                                                | Available from                                                                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `lsp`            | `knap lsp`                                                                                                           | v0.11 (previously the bare-args default, since v0.1)                                                           |
+| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--fix] [--exclude <glob>]...` | v0.11, `--fail-on`/`--since`/`--suggest`/`--fix` added v0.13, `--exclude` added v0.16                          |
+| `index`          | `knap index <path> [--json] [--exclude <glob>]...`                                                                   | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13; `--exclude` added v0.16 |
+| `parse`          | `knap parse <file>`                                                                                                  | v0.1                                                                                                           |
+| `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                                                  | v0.12, `move-file` alias added v0.14                                                                           |
+| `rename-heading` | `knap rename-heading <file> <old> <new>`                                                                             | v0.12                                                                                                          |
+| `rename-tag`     | `knap rename-tag <old> <new>`                                                                                        | v0.12                                                                                                          |
+| `fix`            | `knap fix [path] [--dry-run]`                                                                                        | v0.13                                                                                                          |
+| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                                      | v0.14, `repoint-link`/`repoint-anchor` ops added v0.15                                                         |
+| `check`          | `knap check`                                                                                                         | v0.2                                                                                                           |
+| `version`        | `knap version`                                                                                                       | v0.10.1                                                                                                        |
 
 The CLI shares the same library crate as the server. `lsp` boots the same
 stdio server the LSP Client talks to. `lint` and `index` both resolve config
