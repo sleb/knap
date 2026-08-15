@@ -54,14 +54,15 @@ pub fn run(
 ) -> anyhow::Result<()> {
     let config = config::for_path(path, None, &[])?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
-    let (mut idx, _) = index::build(&config.index_roots, &extensions, &[])?;
+    let (mut idx, _) = index::build(&config.index_roots, &extensions, &config.exclude)?;
 
     let mut fixes_applied = None;
     if fix {
         let abs_path = absolute(path)?;
         let fix_config = config::for_path(&abs_path, None, &[])?;
         let fix_extensions: Vec<&str> = fix_config.extensions.iter().map(String::as_str).collect();
-        let (fix_idx, _) = index::build(&fix_config.index_roots, &fix_extensions, &[])?;
+        let (fix_idx, _) =
+            index::build(&fix_config.index_roots, &fix_extensions, &fix_config.exclude)?;
         let fix_targets: Vec<PathBuf> = if abs_path.is_file() {
             vec![abs_path]
         } else {
@@ -72,7 +73,7 @@ pub fn run(
         super::fix::apply(&planned)?;
         // Files on disk changed underneath `idx` — rebuild so the
         // diagnostics computed below reflect the post-fix state.
-        idx = index::build(&config.index_roots, &extensions, &[])?.0;
+        idx = index::build(&config.index_roots, &extensions, &config.exclude)?.0;
     }
 
     let mut targets: Vec<PathBuf> = if path.is_file() {

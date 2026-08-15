@@ -118,7 +118,7 @@ pub fn run(connection: Connection) -> Result<()> {
     register_file_watcher(&connection, &config, &mut next_request_id)?;
 
     let exts: Vec<&str> = config.extensions.iter().map(|s| s.as_str()).collect();
-    let (mut index, initial_delta) = index::build(&config.index_roots, &exts, &[])?;
+    let (mut index, initial_delta) = index::build(&config.index_roots, &exts, &config.exclude)?;
     info!("index ready: {} notes", index.all_notes().count());
     handlers::publish_diagnostics(
         &initial_delta.affected_paths,

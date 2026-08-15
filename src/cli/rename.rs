@@ -85,7 +85,7 @@ pub(crate) fn rename_file_at(root: &Path, old: &Path, new: &Path) -> anyhow::Res
     // incoming link living there) from the index.
     let config = config::for_path(root, None, &[])?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
-    let (idx, _) = index::build(&config.index_roots, &extensions, &[])?;
+    let (idx, _) = index::build(&config.index_roots, &extensions, &config.exclude)?;
 
     let params = RenameFilesParams {
         files: vec![FileRename {
@@ -126,7 +126,7 @@ pub(crate) fn rename_heading_at(
     // anywhere else in the vault.
     let config = config::for_path(root, None, &[])?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
-    let (idx, _) = index::build(&config.index_roots, &extensions, &[])?;
+    let (idx, _) = index::build(&config.index_roots, &extensions, &config.exclude)?;
 
     let disk_note;
     let note: &crate::parser::Note = match idx.get_note(&file_abs) {
@@ -160,7 +160,7 @@ pub(crate) fn rename_tag_at(root: &Path, old: &str, new: &str) -> anyhow::Result
     // indexing).
     let config = config::for_path(root, None, &[])?;
     let extensions: Vec<&str> = config.extensions.iter().map(String::as_str).collect();
-    let (idx, _) = index::build(&config.index_roots, &extensions, &[])?;
+    let (idx, _) = index::build(&config.index_roots, &extensions, &config.exclude)?;
 
     anyhow::ensure!(
         idx.notes_by_tag(old).next().is_some(),
