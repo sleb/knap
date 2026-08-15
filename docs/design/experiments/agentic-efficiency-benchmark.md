@@ -97,13 +97,48 @@ gets for free.
 
 ## Conditions
 
-|                               | Baseline                                               | knap-assisted                                                             |
-| ----------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------- |
-| Tools available               | `Read`, `Edit`, `Write`, `Bash` (`grep`, `sed`, `git`) | same, plus `knap` binary on `PATH` and `skill/knap/SKILL.md` installed    |
-| Prompt                        | task list only                                         | task list only — no mention of knap; the agent discovers it via the skill |
-| Verification method available | manual (`grep -rn`, reading files)                     | `knap lint --json`, `knap index <file> --json`                            |
+|                               | Baseline                                               | knap-assisted                                                                          |
+| ----------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Tools available               | `Read`, `Edit`, `Write`, `Bash` (`grep`, `sed`, `git`) | same, plus `knap` binary on `PATH`, `skill/knap/SKILL.md`, and a `CLAUDE.md` installed |
+| Prompt                        | task list only                                         | task list only — knap is never mentioned in the prompt itself                          |
+| Verification method available | manual (`grep -rn`, reading files)                     | `knap lint --json`, `knap index <file> --json`                                         |
 
 Everything else — model, system prompt, starting repo state — held constant.
+
+**Skill discoverability, as of Trial 5, is deliberately not a variable under
+test.** Trial 4's dry run (Haiku 4.5) surfaced this the hard way: an
+uninstructed subagent read 20 lines of `SKILL.md` near the very end of the
+session and never once invoked `knap`, so that run measured nothing about
+whether the tool helps — it measured whether a small model in an isolated
+subagent notices an installed skill unprompted, a separate question from
+this experiment's hypothesis. `knap-assisted/`'s `CLAUDE.md` (installed by
+`scripts/bench-setup-trial.sh`, see [Procedure](#procedure)) names `knap`
+and its skill explicitly and states using it is a project convention, so
+every trial from here on measures "does knap help once an agent actually
+uses it," not discoverability. Skill discoverability itself is still a real,
+open question (listed in
+[Threats to validity](#threats-to-validity-call-these-out-alongside-results-dont-bury-them))
+— it just needs its own dedicated trial (CLAUDE.md withheld on purpose) if
+it's ever the thing being measured, not an uncontrolled variable in trials
+asking a different question.
+
+**The `CLAUDE.md` alone didn't fully close the gap, for a harness-specific
+reason worth recording**: a first knap-assisted run with `CLAUDE.md`
+installed still never invoked `knap` — the transcript shows it found both
+`CLAUDE.md` and `SKILL.md` via `find` while exploring, but never opened
+either with `Read`. The isolated Agent-tool subagents this protocol uses (a
+stand-in for independent `claude -p` processes, which this sandbox blocks —
+see Trial 4's setup) don't actually `cd` their own session root into the
+target repo; they're told the target path in the prompt and `cd` there
+per-`Bash`-call, so Claude Code's normal auto-load-`CLAUDE.md`-at-session-root
+behavior never fires the way it would for a real top-level session opened in
+that directory. `task.txt` (rendered by `scripts/bench-setup-trial.sh`) now
+carries an explicit pre-step — "check whether that directory has a
+CLAUDE.md... read it if so" — that's a no-op in `baseline/` (no `CLAUDE.md`
+there) and simply reproduces, by hand, the auto-load a real session gets for
+free in `knap-assisted/`. This is a workaround for the subagent-dispatch
+mechanism this protocol is forced to use in this sandbox, not a change to
+what's being measured.
 
 ## Metrics
 
@@ -130,6 +165,20 @@ resolves to the _right_ target. Trial 4 found a case where it missed a
 not just be spot-checked from transcripts.**
 
 ## Procedure
+
+**Setup is scripted**: `scripts/bench-setup-trial.sh --out DIR [--seed N]
+[--notes N] [--broken-links N] [--broken-anchors N]` builds `knap`, verifies
+(without modifying) that `knap` on `PATH` reports the same version as that
+build — a benchmark trial is only meaningful if the agent finds the intended
+build's behavior, and a stale shadowing install fails the script loud rather
+than silently benchmarking the wrong `knap` — generates the seeded vault,
+turns it into `baseline/` and `knap-assisted/` git repos at an identical
+`bench-vault-seed` tag, installs `skill/knap/SKILL.md` and a `CLAUDE.md`
+(see [Conditions](#conditions) above) into `knap-assisted/` only, and renders
+the 7-step [task script](#task-script-typical-agentic-editing-session) with
+that seed's concrete resolved names (hub note, split target, heading, tag,
+step-6 file list) substituted in, so the prompt never needs to be
+hand-assembled per seed.
 
 1. `git reset --hard bench-vault-seed` before every run (both conditions).
 2. Start a **fresh** agent session per run — no conversation carried over
@@ -828,6 +877,105 @@ review in that trial hadn't happened to catch `workflow-554.md` by eye.
 [Procedure](#procedure) above** — every future trial (including the
 official Trial 4 run) should run the ground-truth check unconditionally,
 not opportunistically.
+
+### Trial 5 — 2026-08-15, N=1 per condition, Haiku 4.5, 200-note vault, after the text-aware ranking fix (dry run, not the official run)
+
+A dry run to check whether the knap-side ranking fix built in response to
+Trial 4 (link/anchor text folded into `rank_link_candidates`/
+`rank_anchor_candidates`, plus the `text_mismatch` flag — Opportunities 1
+and 2 from Trial 4's [knap-side opportunities](#3-knap-side-opportunities--give-the-ranking-richer-context-not-just-the-skill-better-wording))
+actually closes the wrong-repoint gap Trial 4 found. Also the first trial
+run with `scripts/bench-setup-trial.sh` (see [Procedure](#procedure)) and
+the first with a `CLAUDE.md` in `knap-assisted/` (see
+[Conditions](#conditions)).
+
+Setup: identical seed/parameters to Trials 3–4 (`--seed 1 --notes 200
+--broken-links 12 --broken-anchors 8`), confirmed byte-identical against
+those trials' recorded hub/split/tag values before running. `knap` on
+`PATH` was verified by the setup script to report the same version as a
+fresh build of this branch (0.15.0, carrying the ranking fix) before
+anything else happened. Both conditions ran as isolated Agent-tool
+subagents pinned to `claude-haiku-4-5`, identical task text (rendered by
+the setup script), no mention of knap in the prompt itself.
+
+**Two false starts, both about discoverability, not the ranking fix,
+worth recording so they aren't repeated:**
+
+1. First attempt, no `CLAUDE.md` yet (the original Trial 1–4 protocol):
+   the knap-assisted subagent never invoked `knap` at all — same failure
+   Trial 4 hit, this time on Sonnet-class general-purpose subagent
+   dispatch rather than a nudge-free Haiku run. Efficiency actually came
+   out _worse_ than baseline (66,123 vs. 61,289 tokens; 119 vs. 103 tool
+   calls; 376.0s vs. 324.5s) — hand-editing with extra ad-hoc verification
+   scripts the agent wrote itself, not knap overhead. This is what
+   motivated adding a `CLAUDE.md` (see [Conditions](#conditions)).
+2. Second attempt, with `CLAUDE.md` installed: still never invoked `knap`.
+   The transcript shows the subagent found both `CLAUDE.md` and
+   `SKILL.md` via `find` while exploring but never opened either with
+   `Read` — the harness-mechanism gap described in
+   [Conditions](#conditions) (these subagents don't `cd` their session
+   root into the target repo, so Claude Code's normal auto-load never
+   fires). Fixed by adding an explicit "check for and read CLAUDE.md
+   first" pre-step to the rendered task prompt itself (now permanent in
+   `scripts/bench-setup-trial.sh`'s template) — a no-op in `baseline/`,
+   which has no `CLAUDE.md`.
+
+**Third attempt — the one below — is the first trial where the
+knap-assisted agent actually exercised the tool**, confirmed from its
+transcript: 22 `knap lint`, 12 `knap apply`, 10 `knap index`, 8 `knap fix`,
+and 3 each of `rename-file`/`rename-heading`/`rename-tag` calls.
+
+| Metric                                  | Baseline  | knap-assisted | Δ                     |
+| --------------------------------------- | --------- | ------------- | --------------------- |
+| Wall time (harness `duration_ms`)       | 286.4s    | 145.0s        | knap **49.4% faster** |
+| Tokens (harness `subagent_tokens`)      | 65,500    | 48,504        | knap **25.9% fewer**  |
+| Tool calls (harness `tool_uses`)        | 99        | 34            | knap **65.7% fewer**  |
+| Broken links/anchors left (`knap lint`) | 0         | 0             | tie                   |
+| Seeded-fix accuracy (vs. ground truth)  | **20/20** | **20/20**     | tie                   |
+| Tasks fully completed (of 7)            | 7/7       | 7/7           | tie                   |
+
+**Efficiency is directionally consistent with Trial 3's official-run
+result and, on tool calls, larger** — 65.7% fewer vs. Trial 3's 46.3%,
+though N=1 makes that gap not meaningful on its own. What matters more:
+**correctness is a clean tie at 20/20 for the first time with a real
+knap-driven run**, where Trial 4's real knap-driven run (also Haiku,
+same seed) got 16/20. The four specific defects Trial 4 got wrong
+(`reference/deployment.md`, `reference/billing.md`, `projects/gateway.md`,
+`projects/retrospective.md` — all "plausible-but-wrong link target,
+visible link-text mismatch" cases) all landed correctly this time,
+consistent with the ranking fix's own before/after check performed ahead
+of dispatch: `reference/deployment.md`'s broken link, which Trial 4
+repointed to `topics/index-274.md`, now ranks `projects/workflow.md` (the
+correct target) first (`distance: 8` vs. `13`, `text_distance: 0` for all
+name-alike candidates — the path signal, not text, decides this one, and
+now decides it correctly instead of picking the nearer-but-wrong file).
+
+Two scoring notes, for anyone re-running this analysis:
+
+- Exact-string comparison against `BENCH_MANIFEST.json`'s
+  `original_target` is too strict on its own — `knap apply`/`repoint-*`
+  computes the shortest correct relative path from the _linking_ file,
+  which can legitimately differ in form (`sync-835.md` vs.
+  `../reference/sync-835.md`) from whatever the original seed happened to
+  use while still resolving to the identical file. The scoring script used
+  here resolves both the recorded and actual link (relative to the
+  containing file, anchor compared separately) before comparing, not a
+  raw string match — three of this trial's candidate "misses" were only
+  this, not real wrong-target repoints.
+- A baseline run in this same trial independently mis-repointed one of its
+  20 (`projects/migration.md`, hand-`grep`-driven, landed on
+  `reference/playbook.md` instead of `notes/playbook.md` — two
+  same-named files in different directories). Worth noting only because it
+  underscores that hand-editing isn't immune to this failure mode either;
+  it doesn't change this trial's tied 20/20-vs-20/20 headline result,
+  which used the corrected (third-attempt) baseline run.
+
+**Not yet the official N≥3 run** — this is one seed, one model, one run
+per condition, same caveats as every prior dry run in this doc. But
+directionally, it's the result Trial 4's opportunities section predicted:
+folding link text into the ranking (Opportunity 1) targeted the exact
+failure Trial 4 found, and this run is the first evidence it worked against
+that same failure, under the same model, same seed, same task.
 
 ## Threats to validity (call these out alongside results, don't bury them)
 
