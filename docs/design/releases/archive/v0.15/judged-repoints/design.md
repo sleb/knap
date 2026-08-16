@@ -19,14 +19,14 @@ the agent never re-locates the edit — it copies two fields off the
 diagnostic it already has and adds the target it picked.
 
 This closes the gap the [agentic efficiency
-benchmark](../../../experiments/agentic-efficiency-benchmark.md)'s Trial 3
+benchmark](../../../../experiments/agentic-efficiency-benchmark.md)'s Trial 3
 surfaced: `lint --fix`'s auto-apply step ranks repoint candidates by raw edit
 distance with no semantic signal, and reports what it applied as a fully
 resolved diagnostic rather than something to double-check — it picked a
 plausible-but-wrong link target in 1 of 4 knap-assisted runs, and fell back
 to creating a spurious stub in roughly half the runs, both only caught by an
 agent reading the diff afterward. [Opportunity for improvement
-1](../../../experiments/agentic-efficiency-benchmark.md#1-drop---fix-from-the-skills-default-loop--the-false-positive-risk-outweighs-the-tool-call-savings)
+1](../../../../experiments/agentic-efficiency-benchmark.md#1-drop---fix-from-the-skills-default-loop--the-false-positive-risk-outweighs-the-tool-call-savings)
 proposes dropping `--fix` from the skill's default hand-edit loop and
 requiring a hand decision from `data.suggestions` for every `broken-link`/
 `broken-anchor` diagnostic — the same posture the skill already takes for the
@@ -144,7 +144,7 @@ as-is.
 
 ### `skill/knap/SKILL.md`: drop `--fix` from the default hand-edit loop
 
-Per [Opportunity 1](../../../experiments/agentic-efficiency-benchmark.md#1-drop---fix-from-the-skills-default-loop--the-false-positive-risk-outweighs-the-tool-call-savings),
+Per [Opportunity 1](../../../../experiments/agentic-efficiency-benchmark.md#1-drop---fix-from-the-skills-default-loop--the-false-positive-risk-outweighs-the-tool-call-savings),
 step 2 of the "Hand-edits" loop changes from:
 
 ```

@@ -446,7 +446,7 @@ by a candidate that's merely closer by raw path/slug edit distance to the
 broken target string, when the link's own visible text points somewhere else
 entirely.
 
-The [agentic efficiency benchmark](experiments/agentic-efficiency-benchmark.md)'s
+The [agentic efficiency benchmark](design/experiments/agentic-efficiency-benchmark.md)'s
 Trial 4 found the ranking picking a plausible-but-wrong link target 4 of 12
 times against a weaker model — every case had a visible link-text mismatch
 (`[Sync 835]` repointed to `sync-800.md` instead of `sync-835.md`) that the

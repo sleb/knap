@@ -15,7 +15,7 @@ An agent (or `knap fix`'s own auto-apply) picking a repoint target for a
 merely closer by raw edit distance to the _broken target/slug string_, when
 the link's own visible text names a different candidate entirely.
 
-The [agentic efficiency benchmark](../../../experiments/agentic-efficiency-benchmark.md)'s
+The [agentic efficiency benchmark](../../../../experiments/agentic-efficiency-benchmark.md)'s
 Trial 4 found this exact failure: `rank_link_candidates`/`rank_anchor_candidates`
 (`src/handlers.rs:1443-1511`) score every candidate purely by edit distance
 between the broken string and that candidate's own path/slug — they never
