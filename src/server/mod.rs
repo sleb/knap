@@ -354,6 +354,9 @@ fn on_did_open(
     let Some(path) = uri_to_path(&params.text_document.uri) else {
         return;
     };
+    if !config.should_index(&path) {
+        return;
+    }
     let note = parser::parse(&path, &params.text_document.text);
     let delta = index.index(note);
     handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
@@ -386,18 +389,12 @@ fn on_did_change(
     let Some(path) = uri_to_path(&params.text_document.uri) else {
         return;
     };
+    if !config.should_index(&path) {
+        return;
+    }
     let note = parser::parse(&path, &content);
     let delta = index.index(note);
     handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
-}
-
-fn should_skip_path(path: &std::path::Path) -> bool {
-    path.components().any(|c| {
-        let std::path::Component::Normal(name) = c else {
-            return false;
-        };
-        crate::index::should_skip_dir(&name.to_string_lossy())
-    })
 }
 
 fn on_did_change_watched_files(
@@ -406,7 +403,6 @@ fn on_did_change_watched_files(
     sender: &Sender<Message>,
     config: &Config,
 ) {
-    let extensions = &config.extensions;
     let params: DidChangeWatchedFilesParams = match serde_json::from_value(notif.params) {
         Ok(p) => p,
         Err(e) => {
@@ -418,14 +414,10 @@ fn on_did_change_watched_files(
         let Some(path) = uri_to_path(&event.uri) else {
             continue;
         };
-        if should_skip_path(&path) {
+        if !config.should_index(&path) {
             continue;
         }
-        let is_note = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|ext| extensions.iter().any(|e| e == ext))
-            .unwrap_or(false);
+        let is_note = config.is_note(&path);
 
         if is_note {
             if event.typ == FileChangeType::CREATED || event.typ == FileChangeType::CHANGED {

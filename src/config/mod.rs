@@ -24,6 +24,15 @@ pub(crate) struct FrontmatterSchema {
 #[derive(Default)]
 pub(crate) struct Config {
     pub(crate) index_roots: Vec<PathBuf>,
+    /// Note-file extensions (e.g. `["md"]`). Raw, unparsed form — kept for
+    /// existing tests that inspect it directly; `path_filter` is the
+    /// compiled authority derived from this field (and `exclude`), consulted
+    /// by `Config::is_note`/`should_index` instead of this list directly.
+    ///
+    /// `allow(dead_code)`: only read by `config/tests.rs`'s merge-precedence
+    /// assertions now that `index::build` and the three LSP handlers consult
+    /// `path_filter` instead.
+    #[allow(dead_code)]
     pub(crate) extensions: Vec<String>,
     pub(crate) new_note_dir: Option<String>,
     pub(crate) frontmatter_schema: FrontmatterSchema,
@@ -52,10 +61,6 @@ impl Config {
     /// for `path` and delegates to `path_filter.should_index` relative to
     /// that root. A path outside every index root is never excluded — it's
     /// simply not this config's concern.
-    ///
-    /// `allow(dead_code)`: no caller yet — wired into the three LSP handlers
-    /// in Step 5 of the v0.16 path-filter-authority plan. Remove once it is.
-    #[allow(dead_code)]
     pub(crate) fn should_index(&self, path: &Path) -> bool {
         let root = self
             .index_roots
@@ -69,10 +74,6 @@ impl Config {
     }
 
     /// Should `path` be parsed as a note (vs. registered as an attachment)?
-    ///
-    /// `allow(dead_code)`: no caller yet — wired into the three LSP handlers
-    /// in Step 5 of the v0.16 path-filter-authority plan. Remove once it is.
-    #[allow(dead_code)]
     pub(crate) fn is_note(&self, path: &Path) -> bool {
         self.path_filter.is_note(path)
     }
