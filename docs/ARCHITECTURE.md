@@ -344,7 +344,7 @@ any operation fails, `run` returns before the sync ever runs and the scratch
 tempdir is discarded — the real workspace was never touched. `repoint-link`/
 `repoint-anchor` apply an agent-picked candidate (e.g. one surfaced by
 `lint --suggest`) at a diagnostic's own `range`, rather than re-deriving a
-target. `--dry-run` runs
+target — the caller has already chosen. `--dry-run` runs
 the same scratch-copy pipeline but calls `diff_and_sync` in count-only mode,
 so the reported plan is exactly what a real run would touch without writing
 anything. `--json` serializes an `ApplyReport { dry_run, operations,
