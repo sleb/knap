@@ -11,15 +11,15 @@ untested code for the next step to build on.
 
 ## Status
 
-| Step                                             | Status | Notes |
-| ------------------------------------------------ | ------ | ----- |
-| 1 — Regression test proving the bug              | Done   |       |
-| 2 — `PathFilter` type                            | Done   |       |
-| 3 — Wire `PathFilter` through `Config`           | Done   |       |
-| 4 — Wire `PathFilter` through `index::build`     | Todo   |       |
-| 5 — Wire `PathFilter` through the three handlers | Todo   |       |
-| 6 — `apply.rs` and doc cleanup                   | Todo   |       |
-| 7 — Integration tests                            | Todo   |       |
+| Step                                             | Status | Notes                                                                                                                                                              |
+| ------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 — Regression test proving the bug              | Done   |                                                                                                                                                                    |
+| 2 — `PathFilter` type                            | Done   |                                                                                                                                                                    |
+| 3 — Wire `PathFilter` through `Config`           | Done   |                                                                                                                                                                    |
+| 4 — Wire `PathFilter` through `index::build`     | Done   | `apply.rs`'s two call sites kept a temporary `index::should_skip_dir` shim (hardcoded-name-only) since they have no `PathFilter` in scope yet — Step 6 removes it. |
+| 5 — Wire `PathFilter` through the three handlers | Todo   |                                                                                                                                                                    |
+| 6 — `apply.rs` and doc cleanup                   | Todo   |                                                                                                                                                                    |
+| 7 — Integration tests                            | Todo   |                                                                                                                                                                    |
 
 ---
 

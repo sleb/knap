@@ -1,10 +1,16 @@
 use std::path::{Path, PathBuf};
 
+use crate::config::PathFilter;
 use crate::index::{NoteIndex, ResolvedLink, build, walk_files};
 use crate::test_helpers::note;
 
 fn pb(s: &str) -> PathBuf {
     PathBuf::from(s)
+}
+
+fn filter(extensions: &[&str], exclude: &[String]) -> PathFilter {
+    let extensions: Vec<String> = extensions.iter().map(|s| s.to_string()).collect();
+    PathFilter::compile(exclude, &extensions).unwrap()
 }
 
 // ── resolve ──────────────────────────────────────────────────────────────────
@@ -424,7 +430,7 @@ fn note_report_none_for_unindexed_path() {
 #[test]
 fn walk_files_strips_leading_curdir_from_root() {
     let root = Path::new("./tests/fixtures/lint_clean");
-    let files = walk_files(root, &[]);
+    let files = walk_files(root, &filter(&["md"], &[]));
     assert!(
         !files.is_empty(),
         "expected walk_files to find fixture files"
@@ -441,7 +447,7 @@ fn walk_files_strips_leading_curdir_from_root() {
 #[test]
 fn build_with_leading_curdir_root_resolves_relative_links() {
     let roots = vec![PathBuf::from("./tests/fixtures/lint_clean")];
-    let (idx, _) = build(&roots, &["md"], &[]).unwrap();
+    let (idx, _) = build(&roots, &filter(&["md"], &[])).unwrap();
     let note_path = PathBuf::from("tests/fixtures/lint_clean/note.md");
     assert!(
         matches!(idx.resolve(&note_path, "target.md"), ResolvedLink::Found(_)),
@@ -464,7 +470,7 @@ fn build_excludes_directory_by_exact_path() {
     write_file(&root.join("other.md"), "# kept\n");
 
     let exclude = vec!["tests/fixtures".to_string()];
-    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+    let (idx, _) = build(std::slice::from_ref(&root), &filter(&["md"], &exclude)).unwrap();
 
     assert!(idx.get_note(&root.join("tests/fixtures/note.md")).is_none());
     assert!(idx.get_note(&root.join("other.md")).is_some());
@@ -478,7 +484,7 @@ fn build_excludes_directory_by_glob() {
     write_file(&root.join("other.md"), "# kept\n");
 
     let exclude = vec!["tests/fixtures/**".to_string()];
-    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+    let (idx, _) = build(std::slice::from_ref(&root), &filter(&["md"], &exclude)).unwrap();
 
     assert!(idx.get_note(&root.join("tests/fixtures/note.md")).is_none());
     assert!(idx.get_note(&root.join("other.md")).is_some());
@@ -497,7 +503,7 @@ fn build_excludes_directory_by_glob_without_opening_it() {
 
     super::DIR_READS.with(|c| c.set(0));
     let exclude = vec!["tests/fixtures/**".to_string()];
-    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+    let (idx, _) = build(std::slice::from_ref(&root), &filter(&["md"], &exclude)).unwrap();
     let reads = super::DIR_READS.with(|c| c.get());
 
     assert!(idx.get_note(&root.join("tests/fixtures/note.md")).is_none());
@@ -519,7 +525,7 @@ fn build_excludes_file_by_glob() {
     write_file(&root.join("a.md"), "# kept\n");
 
     let exclude = vec!["**/*.draft.md".to_string()];
-    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+    let (idx, _) = build(std::slice::from_ref(&root), &filter(&["md"], &exclude)).unwrap();
 
     // Both the root-level and nested draft files must be excluded — proving
     // `**` actually crosses directory boundaries, not just that the pattern
@@ -541,7 +547,7 @@ fn build_bare_star_pattern_does_not_cross_directories() {
     write_file(&root.join("sub/nested.md"), "# nested\n");
 
     let exclude = vec!["*.md".to_string()];
-    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+    let (idx, _) = build(std::slice::from_ref(&root), &filter(&["md"], &exclude)).unwrap();
 
     assert!(idx.get_note(&root.join("top.md")).is_none());
     assert!(idx.get_note(&root.join("sub/nested.md")).is_some());
@@ -555,7 +561,7 @@ fn build_excluded_file_not_registered_as_attachment() {
     write_file(&root.join("kept.png"), "not really png");
 
     let exclude = vec!["tests/fixtures".to_string()];
-    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+    let (idx, _) = build(std::slice::from_ref(&root), &filter(&["md"], &exclude)).unwrap();
 
     let attachments: Vec<_> = idx.all_attachment_paths().collect();
     assert!(!attachments.contains(&root.join("tests/fixtures/image.png").as_path()));
@@ -569,7 +575,7 @@ fn build_no_excludes_is_unchanged() {
     write_file(&root.join("tests/fixtures/note.md"), "# note\n");
     write_file(&root.join("other.md"), "# other\n");
 
-    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &[]).unwrap();
+    let (idx, _) = build(std::slice::from_ref(&root), &filter(&["md"], &[])).unwrap();
 
     assert!(idx.get_note(&root.join("tests/fixtures/note.md")).is_some());
     assert!(idx.get_note(&root.join("other.md")).is_some());
@@ -577,11 +583,14 @@ fn build_no_excludes_is_unchanged() {
 
 #[test]
 fn build_malformed_pattern_errors() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().to_path_buf();
-
+    // `build` no longer compiles `exclude` itself — that's `PathFilter::compile`'s
+    // job now (see `config::tests::path_filter_compile_rejects_malformed_pattern`
+    // for the unit-level coverage) — but a malformed pattern must still
+    // surface as an error before any crawling happens, not be silently
+    // ignored.
     let exclude = vec!["[".to_string()];
-    let result = build(&[root], &["md"], &exclude);
+    let extensions = vec!["md".to_string()];
+    let result = crate::config::PathFilter::compile(&exclude, &extensions);
 
     assert!(result.is_err());
 }

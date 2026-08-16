@@ -35,14 +35,14 @@ pub(crate) struct Config {
     /// list. Populated by unioning `knap.toml`'s `exclude` field with the
     /// CLI's `--exclude` flag (`lint`/`index`) or the LSP's
     /// `initializationOptions.exclude` field, whichever applies.
+    ///
+    /// `allow(dead_code)`: only read by `config/tests.rs`'s merge-precedence
+    /// assertions now that `index::build` and callers consult `path_filter`
+    /// instead.
+    #[allow(dead_code)]
     pub(crate) exclude: Vec<String>,
     /// The compiled `PathFilter` authority — see its doc comment. Built once
     /// by `finalize` from `exclude` and `extensions`.
-    ///
-    /// `allow(dead_code)`: no caller yet — `index::build` and the three LSP
-    /// handlers start consulting this in Steps 4 and 5 of the
-    /// v0.16 path-filter-authority plan. Remove once they do.
-    #[allow(dead_code)]
     pub(crate) path_filter: PathFilter,
 }
 

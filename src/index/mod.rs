@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
+use crate::config::PathFilter;
 use crate::parser::{self, MarkdownLink, Note};
 
 #[cfg(test)]
@@ -470,51 +471,24 @@ impl NoteIndex {
     }
 }
 
-/// Build an initial index by crawling `roots`. Note files (matching
-/// `extensions`) are fully parsed; all other files are registered in
+/// Build an initial index by crawling `roots`. Note files (per `filter`'s
+/// extensions) are fully parsed; all other files are registered in
 /// `all_files` only so attachment links resolve immediately.
 ///
-/// `exclude` is a list of glob patterns (matched against each entry's path
-/// relative to the root it was found under) — matching directories are not
-/// recursed into and matching files are skipped entirely, so excluded files
-/// show up neither as notes nor as attachments. Compiling `exclude` happens
-/// once up front; an invalid pattern is returned as `Err` rather than
-/// panicking or silently ignoring it.
-pub fn build(
+/// `filter` is the compiled exclude/extension authority (see
+/// [`PathFilter`]) — matching directories are not recursed into and matching
+/// files are skipped entirely, so excluded files show up neither as notes
+/// nor as attachments.
+pub(crate) fn build(
     roots: &[PathBuf],
-    extensions: &[&str],
-    exclude: &[String],
+    filter: &PathFilter,
 ) -> anyhow::Result<(NoteIndex, IndexDelta)> {
-    let mut excludes: Vec<glob::Pattern> = exclude
-        .iter()
-        .map(|pattern| glob::Pattern::new(pattern).map_err(anyhow::Error::from))
-        .collect::<anyhow::Result<_>>()?;
-
-    // The glob crate's `**` doesn't match the zero-extra-segment case, so a
-    // pattern like `dir/**` matches everything *inside* `dir` but not `dir`
-    // itself — without this, `dir` would still get `read_dir`'d (and its
-    // direct children individually filtered) before recursion stopped one
-    // level down, instead of never being opened at all. Compile the
-    // directory-equivalent form (the `/**` suffix stripped) once, alongside
-    // the original patterns, so `dir` itself is recognized as excluded too.
-    for pattern in exclude {
-        if let Some(dir_form) = pattern.strip_suffix("/**") {
-            excludes.push(glob::Pattern::new(dir_form)?);
-        }
-    }
-
     let mut index = NoteIndex::default();
     let mut all_affected = HashSet::new();
 
     for root in roots {
-        for path in walk_files(root, &excludes) {
-            let is_note = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|ext| extensions.contains(&ext))
-                .unwrap_or(false);
-
-            if is_note {
+        for path in walk_files(root, filter) {
+            if filter.is_note(&path) {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     let delta = index.index(parser::parse(&path, &content));
                     all_affected.extend(delta.affected_paths);
@@ -534,10 +508,23 @@ pub fn build(
     ))
 }
 
-fn walk_files(root: &Path, excludes: &[glob::Pattern]) -> Vec<PathBuf> {
+fn walk_files(root: &Path, filter: &PathFilter) -> Vec<PathBuf> {
     let mut results = Vec::new();
-    walk_dir(root, root, excludes, &mut results);
+    walk_dir(root, root, filter, &mut results);
     results
+}
+
+/// Returns `true` for directory names that should not be crawled.
+/// Skips hidden directories (`.git`, `.obsidian`, …) and well-known
+/// build/dependency directories that are never part of a note vault.
+///
+/// Superseded by `PathFilter::should_skip_dir` for the crawl itself (see
+/// `walk_dir` above); kept as a standalone hardcoded-name check for
+/// `apply.rs`'s two scratch-copy walkers, which don't have a `PathFilter` in
+/// scope yet. Step 6 of the v0.16 path-filter-authority plan switches those
+/// call sites to `Config`/`PathFilter` and removes this function.
+pub(crate) fn should_skip_dir(name: &str) -> bool {
+    name.starts_with('.') || matches!(name, "node_modules" | "target")
 }
 
 // Test-only counter of `walk_dir` invocations (i.e. of `read_dir` calls),
@@ -549,45 +536,26 @@ thread_local! {
     pub(crate) static DIR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-fn walk_dir(dir: &Path, root: &Path, excludes: &[glob::Pattern], out: &mut Vec<PathBuf>) {
+fn walk_dir(dir: &Path, root: &Path, filter: &PathFilter, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
     #[cfg(test)]
     DIR_READS.with(|c| c.set(c.get() + 1));
-    // `require_literal_separator: true` keeps `*` from crossing `/` (so a bare
-    // `*.md` only matches top-level files, matching gitignore/VS Code
-    // semantics), while `**` is still allowed to cross separators per the
-    // glob crate's docs.
-    let match_options = glob::MatchOptions {
-        require_literal_separator: true,
-        ..Default::default()
-    };
     for entry in entries.flatten() {
         let Ok(ft) = entry.file_type() else { continue };
         let entry_path = entry.path();
-        let relative = entry_path.strip_prefix(root).unwrap_or(&entry_path);
-        let excluded = excludes
-            .iter()
-            .any(|pattern| pattern.matches_path_with(relative, match_options));
 
         if ft.is_dir() {
             let name = entry.file_name();
-            if !excluded && !should_skip_dir(name.to_string_lossy().as_ref()) {
-                walk_dir(&entry_path, root, excludes, out);
+            if !filter.should_skip_dir(root, &entry_path, &name.to_string_lossy()) {
+                walk_dir(&entry_path, root, filter, out);
             }
-        } else if ft.is_file() && !excluded {
+        } else if ft.is_file() && filter.should_index(root, &entry_path) {
             out.push(normalize_path(&entry_path));
         }
         // symlinks: ft.is_symlink() → skip to prevent infinite loops
     }
-}
-
-/// Returns `true` for directory names that should not be crawled.
-/// Skips hidden directories (`.git`, `.obsidian`, …) and well-known
-/// build/dependency directories that are never part of a note vault.
-pub(crate) fn should_skip_dir(name: &str) -> bool {
-    name.starts_with('.') || matches!(name, "node_modules" | "target")
 }
 
 #[cfg(test)]
