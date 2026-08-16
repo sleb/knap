@@ -260,13 +260,16 @@ fn index_json_omits_excluded_notes() {
 /// file's URI — not on the initial crawl, and not over the course of the
 /// session as other (non-excluded) notes are opened and edited.
 ///
-/// Per docs/design/releases/v0.16/exclude-paths/design.md ("Handler
-/// Changes: None"), exclusion is enforced entirely at `index::build`'s
-/// crawl — no handler special-cases excluded paths. So this test never
-/// sends `didOpen`/`didChange` for the excluded file itself (a real editor
-/// wouldn't either, since it's hidden from completions/workspace symbols/Go
-/// to Definition); it verifies the excluded file stays invisible across an
-/// ordinary editing session of the *rest* of the vault.
+/// As of docs/design/releases/v0.16/path-filter-authority/design.md,
+/// `on_did_open`/`on_did_change`/`on_did_change_watched_files` each guard on
+/// `config.should_index` too, so an excluded path is now also rejected if a
+/// client somehow sends a notification for it directly (see
+/// `lsp_did_change_watched_files_on_excluded_path_is_ignored` below for that
+/// guard's coverage). This test still never sends `didOpen`/`didChange` for
+/// the excluded file itself — a real editor wouldn't, since it's hidden from
+/// completions/workspace symbols/Go to Definition — and instead verifies the
+/// excluded file stays invisible across an ordinary editing session of the
+/// *rest* of the vault.
 #[test]
 fn lsp_initialize_applies_knap_toml_exclude() {
     let dir = tempfile::tempdir().expect("failed to create temp dir");

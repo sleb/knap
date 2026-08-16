@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use lsp_types::Range;
 
 use crate::cli::{fix, rename};
-use crate::{edit, handlers, index};
+use crate::config::PathFilter;
+use crate::{config, edit, handlers, index};
 
 /// A single batch entry `knap apply` reads from stdin, one variant per
 /// existing mutating subcommand (`rename-file`/`rename-heading`/
@@ -72,49 +73,62 @@ impl ChangeOp {
 }
 
 /// Recursively copies every file under `src` into `dst` (which must already
-/// exist), skipping directories `index::should_skip_dir` would skip during
-/// indexing. The batch never needs to see `.git`/`node_modules`/`target`,
-/// and skipping them keeps the scratch copy fast even in a vault that's also
-/// a large git worktree.
-fn copy_tree(src: &Path, dst: &Path) -> anyhow::Result<()> {
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() {
-            let name = entry.file_name();
-            if index::should_skip_dir(&name.to_string_lossy()) {
-                continue;
-            }
-            let dst_dir = dst.join(&name);
-            fs::create_dir(&dst_dir)?;
-            copy_tree(&entry.path(), &dst_dir)?;
-        } else if entry.file_type()?.is_file() {
-            fs::copy(entry.path(), dst.join(entry.file_name()))?;
-        }
-    }
-    Ok(())
-}
-
-/// Every file under `root`, as a path relative to `root`, skipping
-/// directories `index::should_skip_dir` would skip.
-fn relative_files(root: &Path) -> anyhow::Result<HashSet<PathBuf>> {
-    fn walk(dir: &Path, root: &Path, out: &mut HashSet<PathBuf>) -> anyhow::Result<()> {
-        for entry in fs::read_dir(dir)? {
+/// exist), skipping anything `filter` excludes — the same `PathFilter` the
+/// crawl and every live-index handler consult, so the scratch copy the batch
+/// operates on has the same shape as the index (`.git`/`node_modules`/
+/// `target` pruned, plus whatever `knap.toml`'s `exclude` adds).
+fn copy_tree(src: &Path, dst: &Path, filter: &PathFilter) -> anyhow::Result<()> {
+    fn walk(src: &Path, dst: &Path, root: &Path, filter: &PathFilter) -> anyhow::Result<()> {
+        for entry in fs::read_dir(src)? {
             let entry = entry?;
+            let entry_path = entry.path();
             if entry.file_type()?.is_dir() {
                 let name = entry.file_name();
-                if index::should_skip_dir(&name.to_string_lossy()) {
+                if filter.should_skip_dir(root, &entry_path, &name.to_string_lossy()) {
                     continue;
                 }
-                walk(&entry.path(), root, out)?;
-            } else if entry.file_type()?.is_file() {
-                out.insert(entry.path().strip_prefix(root)?.to_path_buf());
+                let dst_dir = dst.join(&name);
+                fs::create_dir(&dst_dir)?;
+                walk(&entry_path, &dst_dir, root, filter)?;
+            } else if entry.file_type()?.is_file() && filter.should_index(root, &entry_path) {
+                fs::copy(&entry_path, dst.join(entry.file_name()))?;
+            }
+        }
+        Ok(())
+    }
+
+    walk(src, dst, src, filter)
+}
+
+/// Every file under `root` that `filter` admits, as a path relative to
+/// `root` — the same `PathFilter` `copy_tree` uses, so a file excluded from
+/// the scratch copy is also excluded here rather than looking "deleted" to
+/// `diff_and_sync`.
+fn relative_files(root: &Path, filter: &PathFilter) -> anyhow::Result<HashSet<PathBuf>> {
+    fn walk(
+        dir: &Path,
+        root: &Path,
+        filter: &PathFilter,
+        out: &mut HashSet<PathBuf>,
+    ) -> anyhow::Result<()> {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let entry_path = entry.path();
+            if entry.file_type()?.is_dir() {
+                let name = entry.file_name();
+                if filter.should_skip_dir(root, &entry_path, &name.to_string_lossy()) {
+                    continue;
+                }
+                walk(&entry_path, root, filter, out)?;
+            } else if entry.file_type()?.is_file() && filter.should_index(root, &entry_path) {
+                out.insert(entry_path.strip_prefix(root)?.to_path_buf());
             }
         }
         Ok(())
     }
 
     let mut out = HashSet::new();
-    walk(root, root, &mut out)?;
+    walk(root, root, filter, &mut out)?;
     Ok(out)
 }
 
@@ -126,9 +140,14 @@ fn relative_files(root: &Path) -> anyhow::Result<HashSet<PathBuf>> {
 /// `--dry-run` accurate instead of a guess. When `commit` is `true`, also
 /// performs the sync: copies every created/changed file from `src` to `dst`,
 /// then removes every file `dst` has that `src` no longer does.
-fn diff_and_sync(src: &Path, dst: &Path, commit: bool) -> anyhow::Result<usize> {
-    let src_files = relative_files(src)?;
-    let dst_files = relative_files(dst)?;
+fn diff_and_sync(
+    src: &Path,
+    dst: &Path,
+    commit: bool,
+    filter: &PathFilter,
+) -> anyhow::Result<usize> {
+    let src_files = relative_files(src, filter)?;
+    let dst_files = relative_files(dst, filter)?;
 
     let mut changed = 0;
     for rel in &src_files {
@@ -308,8 +327,9 @@ pub fn run(dry_run: bool, json: bool) -> anyhow::Result<()> {
         .context("invalid batch: expected a JSON array of change operations")?;
 
     let root = index::normalize_path(&std::env::current_dir()?);
+    let config = config::for_path(&root, None, &[]).context("loading knap.toml")?;
     let scratch = tempfile::tempdir()?;
-    copy_tree(&root, scratch.path())?;
+    copy_tree(&root, scratch.path(), &config.path_filter)?;
 
     let mut operations = Vec::with_capacity(ops.len());
     for op in &ops {
@@ -317,7 +337,7 @@ pub fn run(dry_run: bool, json: bool) -> anyhow::Result<()> {
         operations.push(applied);
     }
 
-    let files_touched = diff_and_sync(scratch.path(), &root, !dry_run)?;
+    let files_touched = diff_and_sync(scratch.path(), &root, !dry_run, &config.path_filter)?;
     let report = ApplyReport {
         dry_run,
         operations,
@@ -467,7 +487,7 @@ mod tests {
         fs::create_dir(src.path().join(".git")).unwrap();
         fs::write(src.path().join(".git/HEAD"), "ref: refs/heads/main").unwrap();
 
-        copy_tree(src.path(), dst.path()).unwrap();
+        copy_tree(src.path(), dst.path(), &PathFilter::default()).unwrap();
 
         assert_eq!(
             fs::read_to_string(dst.path().join("a.md")).unwrap(),
@@ -486,7 +506,7 @@ mod tests {
         let dst = tempfile::tempdir().unwrap();
         fs::write(src.path().join("new.md"), "new content").unwrap();
 
-        let count = diff_and_sync(src.path(), dst.path(), true).unwrap();
+        let count = diff_and_sync(src.path(), dst.path(), true, &PathFilter::default()).unwrap();
 
         assert_eq!(count, 1);
         assert_eq!(
@@ -504,7 +524,7 @@ mod tests {
         let dst = tempfile::tempdir().unwrap();
         fs::write(src.path().join("stub.md"), "").unwrap();
 
-        let count = diff_and_sync(src.path(), dst.path(), true).unwrap();
+        let count = diff_and_sync(src.path(), dst.path(), true, &PathFilter::default()).unwrap();
 
         assert_eq!(count, 1);
         assert!(dst.path().join("stub.md").exists());
@@ -517,7 +537,7 @@ mod tests {
         fs::write(src.path().join("a.md"), "new").unwrap();
         fs::write(dst.path().join("a.md"), "old").unwrap();
 
-        let count = diff_and_sync(src.path(), dst.path(), true).unwrap();
+        let count = diff_and_sync(src.path(), dst.path(), true, &PathFilter::default()).unwrap();
 
         assert_eq!(count, 1);
         assert_eq!(fs::read_to_string(dst.path().join("a.md")).unwrap(), "new");
@@ -529,7 +549,7 @@ mod tests {
         let dst = tempfile::tempdir().unwrap();
         fs::write(dst.path().join("stale.md"), "leftover").unwrap();
 
-        let count = diff_and_sync(src.path(), dst.path(), true).unwrap();
+        let count = diff_and_sync(src.path(), dst.path(), true, &PathFilter::default()).unwrap();
 
         assert_eq!(count, 1);
         assert!(!dst.path().join("stale.md").exists());
@@ -542,7 +562,7 @@ mod tests {
         fs::write(src.path().join("new.md"), "new content").unwrap();
         fs::write(dst.path().join("stale.md"), "leftover").unwrap();
 
-        let count = diff_and_sync(src.path(), dst.path(), false).unwrap();
+        let count = diff_and_sync(src.path(), dst.path(), false, &PathFilter::default()).unwrap();
 
         assert_eq!(count, 2);
         assert!(!dst.path().join("new.md").exists());

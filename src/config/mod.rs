@@ -150,12 +150,9 @@ impl PathFilter {
 
     /// Crawl-only: should this directory be pruned (never `read_dir`'d)? Used
     /// by `index::walk_dir` on directory entries, where `dir_path` is the
-    /// entry's full path and `dir_name` its file name.
-    ///
-    /// `allow(dead_code)`: no caller yet — `index::walk_dir` starts calling
-    /// this in Step 4 of the v0.16 path-filter-authority plan. Remove once
-    /// it does.
-    #[allow(dead_code)]
+    /// entry's full path and `dir_name` its file name — and by `apply.rs`'s
+    /// scratch-copy walkers, which prune the same way so the batch's staging
+    /// copy matches the shape of the index.
     pub(crate) fn should_skip_dir(&self, root: &Path, dir_path: &Path, dir_name: &str) -> bool {
         Self::is_skip_dir_name(dir_name)
             || self.matches_exclude(dir_path.strip_prefix(root).unwrap_or(dir_path))

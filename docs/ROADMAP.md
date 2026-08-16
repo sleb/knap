@@ -482,11 +482,15 @@ a `--exclude` flag on `knap lint`/`knap index` for one-off exclusions.
 Excluded paths are left out of indexing entirely, not just diagnostics — no
 completions, no navigation, no backlinks either.
 
-| Story | Feature                                                                      |
-| ----- | ---------------------------------------------------------------------------- |
-| US-55 | `knap.toml` `exclude` glob patterns; `knap lint`/`knap index --exclude` flag |
+| Story   | Feature                                                                                                                                                                               |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| US-55   | `knap.toml` `exclude` glob patterns; `knap lint`/`knap index --exclude` flag                                                                                                          |
+| Bug #68 | `PathFilter`, a single exclude/index authority consulted by the crawl and the three live-index LSP handlers, so a path excluded on startup stays excluded for the rest of the session |
 
-See `docs/design/releases/v0.16/exclude-paths/design.md` for the full design.
+See `docs/design/releases/v0.16/exclude-paths/design.md` for the original
+`exclude` design, and
+`docs/design/releases/v0.16/path-filter-authority/design.md` for the
+follow-up fix.
 
 ---
 

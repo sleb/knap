@@ -514,19 +514,6 @@ fn walk_files(root: &Path, filter: &PathFilter) -> Vec<PathBuf> {
     results
 }
 
-/// Returns `true` for directory names that should not be crawled.
-/// Skips hidden directories (`.git`, `.obsidian`, …) and well-known
-/// build/dependency directories that are never part of a note vault.
-///
-/// Superseded by `PathFilter::should_skip_dir` for the crawl itself (see
-/// `walk_dir` above); kept as a standalone hardcoded-name check for
-/// `apply.rs`'s two scratch-copy walkers, which don't have a `PathFilter` in
-/// scope yet. Step 6 of the v0.16 path-filter-authority plan switches those
-/// call sites to `Config`/`PathFilter` and removes this function.
-pub(crate) fn should_skip_dir(name: &str) -> bool {
-    name.starts_with('.') || matches!(name, "node_modules" | "target")
-}
-
 // Test-only counter of `walk_dir` invocations (i.e. of `read_dir` calls),
 // used to verify an excluded directory is genuinely never opened rather than
 // opened and then filtered. Thread-local so tests running concurrently on

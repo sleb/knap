@@ -215,13 +215,15 @@ These handlers feed the Note Index. After each index update they trigger diagnos
 ### `textDocument/didOpen`
 
 ```
-params → parse document content → index.index(note) → publish_diagnostics(affected)
+params → path from URI → config.should_index(path)? no → return
+       → parse document content → index.index(note) → publish_diagnostics(affected)
 ```
 
 ### `textDocument/didChange`
 
 ```
-params → parse full content from params.content_changes[0].text
+params → path from URI → config.should_index(path)? no → return
+       → parse full content from params.content_changes[0].text
        → index.index(note) → publish_diagnostics(affected)
 ```
 
@@ -235,7 +237,19 @@ No index update. The on-disk version was already indexed; closing a file doesn't
 
 ```
 for each FileEvent in params.changes:
-    Created | Changed → read file from disk → parse → index.index(note)
-    Deleted           → index.remove(path)
+    config.should_index(path)? no → skip this event
+    config.is_note(path)?
+        note:
+            Created | Changed → read file from disk → parse → index.index(note)
+            Deleted            → index.remove(path)
+        attachment:
+            Created → index.add_attachment(path)
+            Deleted → index.remove_attachment(path)
+            Changed → no-op
 → publish_diagnostics(all affected files)
 ```
+
+`config.should_index`/`config.is_note` are the same `PathFilter`-backed checks
+`index::build`'s crawl uses, so a path excluded from the initial index (via
+the hardcoded `.git`/`node_modules`/`target` prune or `knap.toml`'s `exclude`)
+stays excluded across the whole live session, not just on startup.
