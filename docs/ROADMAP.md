@@ -28,6 +28,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.13](#v013--agent-ergonomics-released-2026-08-08)                              | Agent Ergonomics                             | Released 2026-08-08 |
 | [v0.14](#v014--batch-apply-released-2026-08-08)                                   | Batch Apply                                  | Released 2026-08-08 |
 | [v0.15](#v015--judged-repoints--text-aware-repoint-ranking-released-2026-08-15)   | Judged Repoints & Text-Aware Repoint Ranking | Released 2026-08-15 |
+| [v0.16](#v016--exclude-paths)                                                     | Exclude Paths                                | In Progress         |
 
 ---
 
@@ -462,6 +463,30 @@ instead of a silently confident top pick.
 
 See `docs/design/releases/archive/v0.15/text-aware-ranking/design.md` for the
 full design.
+
+---
+
+## v0.16 — Exclude Paths
+
+**Goal:** Keep files that are deliberately part of the repo but not part of
+the vault — most notably `tests/fixtures/**`, whose intentionally broken
+links exist to exercise diagnostics — from ever muddying the diagnostics
+page or any other index-driven feature.
+
+Everything so far treats every `.md` file under `index_roots` as a note.
+That's right for a real vault but wrong for a workspace like knap's own,
+where test fixtures with intentionally broken links live next to real docs.
+This release adds an `exclude` glob-pattern list, read from `knap.toml` so
+`knap lsp`, `knap lint`, and `knap index` all agree on what's excluded, plus
+a `--exclude` flag on `knap lint`/`knap index` for one-off exclusions.
+Excluded paths are left out of indexing entirely, not just diagnostics — no
+completions, no navigation, no backlinks either.
+
+| Story | Feature                                                                      |
+| ----- | ---------------------------------------------------------------------------- |
+| US-55 | `knap.toml` `exclude` glob patterns; `knap lint`/`knap index --exclude` flag |
+
+See `docs/design/releases/v0.16/exclude-paths/design.md` for the full design.
 
 ---
 

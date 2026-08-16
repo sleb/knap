@@ -255,6 +255,15 @@ headless commands see the same configuration an editor session would. (This is
 also what makes the Agent persona's commands, below, behave predictably —
 `knap.toml` is the one config surface both personas share.)
 
+**US-55** — As a workspace owner, I can list `exclude` glob patterns in my
+`knap.toml` (e.g. `tests/fixtures/**`) so files and directories I don't want
+treated as part of my note vault — like test fixtures with intentionally
+broken links — are left out of indexing entirely: no diagnostics, no
+completions, no navigation, in the editor or headless. I can also pass
+`--exclude <pattern>` (repeatable) to `knap lint`/`knap index` for one-off
+exclusions on top of whatever `knap.toml` already lists, without editing the
+config file.
+
 ---
 
 ### Frontmatter
