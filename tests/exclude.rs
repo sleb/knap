@@ -383,3 +383,147 @@ fn lsp_did_change_watched_files_on_excluded_path_is_ignored() {
 
     do_shutdown(&client, 4);
 }
+
+/// A client that sends `didOpen` directly for a path under `exclude` (e.g. a
+/// user manually opening an excluded file) must not have it indexed —
+/// `on_did_open`'s `config.should_index` guard rejects it before it ever
+/// reaches `index.index`.
+#[test]
+fn lsp_did_open_on_excluded_file_is_not_indexed() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    std::fs::write(dir.path().join("knap.toml"), "exclude = [\"fixtures/**\"]\n")
+        .expect("write knap.toml");
+    std::fs::write(dir.path().join("note.md"), "# Note\n").expect("write note.md");
+    std::fs::create_dir(dir.path().join("fixtures")).expect("create fixtures dir");
+    std::fs::write(
+        dir.path().join("fixtures").join("broken.md"),
+        "[broken link](missing.md)\n",
+    )
+    .expect("write fixtures/broken.md");
+
+    let workspace_uri = url::Url::from_file_path(dir.path())
+        .expect("valid file URL")
+        .to_string();
+    let broken_uri = format!("{workspace_uri}/fixtures/broken.md");
+
+    let client = spawn_server();
+    do_initialize_with_workspace(&client, &workspace_uri);
+
+    // Drain the initial crawl's diagnostics before the assertion below.
+    sync_and_collect_diagnostics(&client, 2);
+
+    // Open the excluded file directly — it must not be indexed, so its own
+    // broken link never produces a diagnostic for it.
+    did_open(&client, &broken_uri, "[broken link](missing.md)\n");
+    let diags = sync_and_collect_diagnostics(&client, 3);
+    assert!(
+        diags.iter().all(|d| !d.uri.as_str().ends_with("broken.md")),
+        "excluded file should never receive diagnostics after a direct \
+         didOpen for it: {diags:?}"
+    );
+
+    do_shutdown(&client, 4);
+}
+
+/// A client that sends `didChange` directly for a path under `exclude` must
+/// not have it indexed — `on_did_change`'s `config.should_index` guard
+/// rejects it before it ever reaches `index.index`.
+#[test]
+fn lsp_did_change_on_excluded_file_is_not_indexed() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    std::fs::write(dir.path().join("knap.toml"), "exclude = [\"fixtures/**\"]\n")
+        .expect("write knap.toml");
+    std::fs::write(dir.path().join("note.md"), "# Note\n").expect("write note.md");
+    std::fs::create_dir(dir.path().join("fixtures")).expect("create fixtures dir");
+    std::fs::write(
+        dir.path().join("fixtures").join("broken.md"),
+        "[broken link](missing.md)\n",
+    )
+    .expect("write fixtures/broken.md");
+
+    let workspace_uri = url::Url::from_file_path(dir.path())
+        .expect("valid file URL")
+        .to_string();
+    let broken_uri = format!("{workspace_uri}/fixtures/broken.md");
+
+    let client = spawn_server();
+    do_initialize_with_workspace(&client, &workspace_uri);
+
+    // Drain the initial crawl's diagnostics before the assertion below.
+    sync_and_collect_diagnostics(&client, 2);
+
+    // Send didChange directly for the excluded file without a prior
+    // didOpen — the guard must reject it regardless.
+    did_change(&client, &broken_uri, "[broken link](missing.md)\n");
+    let diags = sync_and_collect_diagnostics(&client, 3);
+    assert!(
+        diags.iter().all(|d| !d.uri.as_str().ends_with("broken.md")),
+        "excluded file should never receive diagnostics after a direct \
+         didChange for it: {diags:?}"
+    );
+
+    do_shutdown(&client, 4);
+}
+
+/// A `didChangeWatchedFiles` event for a path that is *not* excluded — a
+/// sibling of an excluded directory — must still be indexed normally. This
+/// is the converse of `lsp_did_change_watched_files_on_excluded_path_is_ignored`:
+/// proves the `should_index` guard doesn't over-exclude paths that merely
+/// share a parent with an excluded one.
+#[test]
+fn lsp_did_change_watched_files_admits_non_excluded_sibling() {
+    let dir = tempfile::Builder::new()
+        .prefix("knap-exclude-test-")
+        .tempdir()
+        .expect("failed to create temp dir");
+    let dir = dir.path();
+    std::fs::write(dir.join("knap.toml"), "exclude = [\"fixtures/**\"]\n")
+        .expect("write knap.toml");
+    std::fs::write(dir.join("note.md"), "# Note\n").expect("write note.md");
+    std::fs::create_dir(dir.join("fixtures")).expect("create fixtures dir");
+    std::fs::write(
+        dir.join("fixtures").join("broken.md"),
+        "[broken link](missing.md)\n",
+    )
+    .expect("write fixtures/broken.md");
+    // A new, non-excluded sibling file created after the initial crawl.
+    std::fs::write(
+        dir.join("new-note.md"),
+        "[broken link](also-missing.md)\n",
+    )
+    .expect("write new-note.md");
+
+    let workspace_uri = url::Url::from_file_path(dir)
+        .expect("valid file URL")
+        .to_string();
+    let new_note_uri = format!("{workspace_uri}/new-note.md");
+
+    let client = spawn_server();
+    do_initialize_with_workspace(&client, &workspace_uri);
+
+    // Initial crawl: new-note.md was written before initialize, so it's
+    // already indexed with its broken link flagged. Drain those diagnostics.
+    sync_and_collect_diagnostics(&client, 2);
+
+    // Simulate the watcher reporting new-note.md as Changed (e.g. an
+    // external editor saving it) — a non-excluded path must still be
+    // indexed and diagnosed normally.
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "workspace/didChangeWatchedFiles".to_string(),
+            params: json!({ "changes": [{ "uri": new_note_uri, "type": 2 }] }),
+        }))
+        .unwrap();
+
+    let diags = sync_and_collect_diagnostics(&client, 3);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.uri.as_str().ends_with("new-note.md") && !d.diagnostics.is_empty()),
+        "non-excluded sibling should still be indexed and diagnosed after \
+         a didChangeWatchedFiles event: {diags:?}"
+    );
+
+    do_shutdown(&client, 4);
+}
