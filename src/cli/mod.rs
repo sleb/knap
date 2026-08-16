@@ -4,7 +4,6 @@ use clap::{Parser, Subcommand};
 
 mod apply;
 mod check;
-mod fix;
 mod index;
 mod lint;
 mod lsp;
@@ -68,13 +67,6 @@ enum Commands {
         /// closest match first. Bare `--suggest` defaults to 3; omit to skip.
         #[arg(long, num_args = 0..=1, default_missing_value = "3", value_name = "N")]
         suggest: Option<usize>,
-        /// Apply every safe fix (same as `knap fix`) before reporting, so
-        /// the diagnostics shown are what's left after fixing rather than
-        /// what was true when the command started. Collapses the usual
-        /// lint → fix → lint-again sequence into one call. Mutates files on
-        /// disk — this is the one case where `lint` isn't read-only.
-        #[arg(long)]
-        fix: bool,
         /// Glob pattern to exclude from linting, in addition to any
         /// `exclude` entries in `knap.toml`. Repeatable.
         #[arg(long)]
@@ -127,18 +119,8 @@ enum Commands {
     Check,
     /// Print the version.
     Version,
-    /// Apply safe quick fixes (create missing files, resolve unambiguous
-    /// broken anchors) across a directory or a single file.
-    Fix {
-        /// File or directory to fix. Defaults to the current directory.
-        #[arg(default_value = ".")]
-        path: PathBuf,
-        /// Print the planned fixes without changing anything on disk.
-        #[arg(long)]
-        dry_run: bool,
-    },
     /// Apply a batch of change operations (rename-file/rename-heading/
-    /// rename-tag/fix) read as a JSON array from stdin, all-or-nothing.
+    /// rename-tag) read as a JSON array from stdin, all-or-nothing.
     Apply {
         /// Print the plan without changing anything in the real workspace.
         #[arg(long)]
@@ -160,7 +142,6 @@ pub fn run() -> anyhow::Result<()> {
             fail_on,
             since,
             suggest,
-            fix,
             exclude,
         } => lint::run(
             &path,
@@ -168,7 +149,6 @@ pub fn run() -> anyhow::Result<()> {
             fail_on,
             since.as_deref(),
             suggest.unwrap_or(0),
-            fix,
             &exclude,
         ),
         Commands::Index {
@@ -185,7 +165,6 @@ pub fn run() -> anyhow::Result<()> {
             version::run();
             Ok(())
         }
-        Commands::Fix { path, dry_run } => fix::run(&path, dry_run),
         Commands::Apply { dry_run, json } => apply::run(dry_run, json),
     }
 }

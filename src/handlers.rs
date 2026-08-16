@@ -1494,27 +1494,6 @@ fn combined_distance(
     }
 }
 
-/// The candidate the ranking is confident enough in to auto-apply, or
-/// `None` when it isn't: no candidates, two or more tie on `combined`, or
-/// the combined winner disagrees with what the link's own text names
-/// (`text_mismatch`) — a confident-looking combined score can still be
-/// wrong when the two signals actually point at different candidates and
-/// the blend just happened to average out in one direction. Shared by
-/// `suggest_link_fix`/`suggest_anchor_fix`; `compute_diagnostics_with_suggestions`
-/// computes `text_mismatch` itself since it wants to report it, not act on
-/// it.
-fn unambiguous_winner<T: PartialEq>(ranked: &[RankedCandidate<T>]) -> Option<&T> {
-    let winner = match ranked {
-        [only] => only,
-        [best, next, ..] if best.combined < next.combined => best,
-        _ => return None,
-    };
-    if text_mismatch(ranked) {
-        return None;
-    }
-    Some(&winner.candidate)
-}
-
 /// True when the top-`combined`-ranked candidate isn't also the top
 /// candidate by text distance alone — i.e. the link's own visible text
 /// points somewhere the blended ranking didn't land. `false` (never a
@@ -1535,9 +1514,8 @@ fn text_mismatch<T: PartialEq>(ranked: &[RankedCandidate<T>]) -> bool {
 
 /// Every heading in `target_note`, ranked by GFM-slug edit distance to
 /// `broken_slug`, closest first. Ties keep original heading order (a stable
-/// sort on distance alone). Shared by `suggest_anchor_fix` (which only wants
-/// the unambiguous winner) and `knap lint --suggest` (which wants the whole
-/// ranked list to show the agent).
+/// sort on distance alone). Used by `knap lint --suggest`, which wants the
+/// whole ranked list to show the agent.
 fn rank_anchor_candidates<'a>(
     broken_slug: &str,
     link_text: &str,
@@ -1577,24 +1555,10 @@ fn rank_anchor_candidates<'a>(
     ranked
 }
 
-/// The single best-guess replacement heading for `broken_slug` in
-/// `target_note`, or `None` when there's no safe unambiguous choice: the
-/// target has no headings, or two or more headings tie for the closest GFM
-/// slug (by edit distance). Used only by `knap fix` — the interactive code
-/// action keeps listing every heading, since a human can pick.
-pub(crate) fn suggest_anchor_fix<'a>(
-    broken_slug: &str,
-    link_text: &str,
-    target_note: &'a parser::Note,
-) -> Option<&'a parser::Heading> {
-    unambiguous_winner(&rank_anchor_candidates(broken_slug, link_text, target_note)).copied()
-}
-
 /// Every note in `index`, ranked by edit distance between `broken_target`
 /// (a link's raw, unescaped target string) and that note's path relative to
 /// `source`'s directory, closest first. Mirrors `rank_anchor_candidates` for
-/// links: `knap fix` uses the unambiguous winner, `knap lint --suggest`
-/// shows the whole ranked list.
+/// links, used by `knap lint --suggest` to show the whole ranked list.
 fn rank_link_candidates(
     broken_target: &str,
     link_text: &str,
@@ -1637,20 +1601,6 @@ fn rank_link_candidates(
             .then_with(|| a.candidate.cmp(&b.candidate))
     });
     ranked
-}
-
-/// The single best-guess existing note to repoint a broken link at, or
-/// `None` when there's no safe unambiguous choice: the vault has no notes,
-/// or two or more paths tie for closest (by edit distance against the
-/// broken target string). Used only by `knap fix` — ambiguous cases are left
-/// for `knap lint --suggest` to surface instead of guessing.
-pub(crate) fn suggest_link_fix(
-    broken_target: &str,
-    link_text: &str,
-    source: &Path,
-    index: &NoteIndex,
-) -> Option<String> {
-    unambiguous_winner(&rank_link_candidates(broken_target, link_text, source, index)).cloned()
 }
 
 /// One ranked candidate fix, as attached to a diagnostic's `data` field for
@@ -4107,37 +4057,6 @@ mod tests {
     }
 
     #[test]
-    fn unambiguous_winner_none_on_tied_combined_score() {
-        let ranked = vec![
-            ranked_candidate("a", 1, None, 0.5),
-            ranked_candidate("b", 1, None, 0.5),
-        ];
-        assert!(unambiguous_winner(&ranked).is_none());
-    }
-
-    #[test]
-    fn unambiguous_winner_none_when_text_mismatch_even_with_strict_winner() {
-        // "a" strictly wins on `combined` (0.3 < 0.5), but "b" is the closer
-        // match by text_distance alone (1 < 4) — the two signals disagree.
-        let ranked = vec![
-            ranked_candidate("a", 1, Some(4), 0.3),
-            ranked_candidate("b", 5, Some(1), 0.5),
-        ];
-        assert!(unambiguous_winner(&ranked).is_none());
-    }
-
-    #[test]
-    fn unambiguous_winner_some_when_signals_agree() {
-        // "a" is both the strict `combined` winner and the closest match by
-        // text_distance alone — the signals agree.
-        let ranked = vec![
-            ranked_candidate("a", 1, Some(0), 0.2),
-            ranked_candidate("b", 5, Some(4), 0.6),
-        ];
-        assert_eq!(unambiguous_winner(&ranked), Some(&"a".to_string()));
-    }
-
-    #[test]
     fn text_mismatch_false_when_no_candidate_has_a_text_signal() {
         let ranked = vec![
             ranked_candidate("a", 1, None, 0.1),
@@ -4245,123 +4164,6 @@ mod tests {
         let target = note("/vault/b.md", "## Installation\n## Configuration\n");
         let ranked = rank_anchor_candidates("instalaton", "Configuration", &target);
         assert_eq!(ranked[0].candidate.text, "Configuration");
-    }
-
-    #[test]
-    fn suggest_anchor_fix_picks_unique_closest() {
-        let target = note("/vault/b.md", "## Introduction\n## Installation Guide\n");
-        let heading =
-            suggest_anchor_fix("introducton", "", &target).expect("expected a suggestion");
-        assert_eq!(heading.text, "Introduction");
-    }
-
-    #[test]
-    fn suggest_anchor_fix_none_on_tied_distance() {
-        let target = note("/vault/b.md", "## Cat\n## Bat\n");
-        assert!(suggest_anchor_fix("hat", "", &target).is_none());
-    }
-
-    #[test]
-    fn suggest_anchor_fix_none_when_no_headings() {
-        let target = note("/vault/b.md", "no headings here\n");
-        assert!(suggest_anchor_fix("anything", "", &target).is_none());
-    }
-
-    #[test]
-    fn suggest_anchor_fix_declines_when_text_mismatch() {
-        // Broken slug "gettingstarted" is the closer raw slug-distance match
-        // to heading "Getting Started" (path_distance=1) than to "Quick
-        // Start" (path_distance=9) — "Getting Started" is the decoy: it wins
-        // on `combined` (0.300 vs. 0.321, a strict unambiguous win). But the
-        // link's own text "Quick Start" matches the other heading exactly
-        // (text_distance=0 vs. 8 for the decoy). Pre-step-3
-        // (path-distance-only) logic would confidently pick the decoy; the
-        // text-mismatch gate should now decline instead.
-        let target = note("/vault/b.md", "## Getting Started\n## Quick Start\n");
-        assert!(suggest_anchor_fix("gettingstarted", "Quick Start", &target).is_none());
-    }
-
-    // ── suggest_link_fix / rank_link_candidates ─────────────────────────────
-
-    #[test]
-    fn suggest_link_fix_picks_unique_closest() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/reference/config.md", ""));
-        idx.seed(note("/vault/reference/cache.md", ""));
-        idx.seed(note("/vault/a.md", "[text](reference/config-removed.md)"));
-        let target = suggest_link_fix(
-            "reference/config-removed.md",
-            "",
-            Path::new("/vault/a.md"),
-            &idx,
-        )
-        .expect("expected a suggestion");
-        assert_eq!(target, "reference/config.md");
-    }
-
-    #[test]
-    fn suggest_link_fix_none_on_tied_distance() {
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/cat.md", ""));
-        idx.seed(note("/vault/bat.md", ""));
-        idx.seed(note("/vault/a.md", "[text](hat.md)"));
-        assert!(suggest_link_fix("hat.md", "", Path::new("/vault/a.md"), &idx).is_none());
-    }
-
-    #[test]
-    fn suggest_link_fix_excludes_the_linking_note_itself() {
-        // A single-note vault: the only candidate is the linking note itself,
-        // which is never a valid repoint target for its own broken link.
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/note.md", "[text](missing.md)"));
-        assert!(
-            suggest_link_fix("missing.md", "", Path::new("/vault/note.md"), &idx).is_none()
-        );
-    }
-
-    #[test]
-    fn suggest_link_fix_declines_the_trial_4_sync_835_case() {
-        // Regression test for the release's motivating bug. "sync-800.md" is
-        // a strong raw path-distance match to the broken target
-        // "sync-830.md" (path_distance=1), but it's a decoy: its file stem
-        // ("sync-800") doesn't match the link's own text "Sync 835"
-        // (text_distance=2). The correct note, "archive/sync-835.md", is a
-        // worse raw path match (path_distance=9) but its file stem matches
-        // the link text exactly (text_distance=0). On `combined` the decoy
-        // still wins (0.170 vs. 0.237) — pre-step-3 (path-distance-only)
-        // logic, and even the blended-but-ungated combined score, would
-        // confidently repoint to the decoy. The text-mismatch gate (decoy is
-        // the top-`combined` candidate but not the top-text-distance one)
-        // should now decline instead.
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/sync-800.md", ""));
-        idx.seed(note("/vault/archive/sync-835.md", ""));
-        idx.seed(note("/vault/a.md", "[Sync 835](sync-830.md)"));
-        assert!(suggest_link_fix(
-            "sync-830.md",
-            "Sync 835",
-            Path::new("/vault/a.md"),
-            &idx
-        )
-        .is_none());
-    }
-
-    #[test]
-    fn suggest_link_fix_still_repoints_when_signals_agree() {
-        // Unchanged pre-release case: an unambiguous path winner whose file
-        // stem also matches the link text closely.
-        let mut idx = NoteIndex::default();
-        idx.seed(note("/vault/reference/config.md", ""));
-        idx.seed(note("/vault/reference/cache.md", ""));
-        idx.seed(note("/vault/a.md", "[Config](reference/config-removed.md)"));
-        let target = suggest_link_fix(
-            "reference/config-removed.md",
-            "Config",
-            Path::new("/vault/a.md"),
-            &idx,
-        )
-        .expect("expected a suggestion");
-        assert_eq!(target, "reference/config.md");
     }
 
     // ── compute_diagnostics_with_suggestions ────────────────────────────────

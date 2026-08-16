@@ -116,6 +116,34 @@ fn no_args_exits_nonzero_and_prints_usage() {
 }
 
 #[test]
+fn fix_subcommand_no_longer_exists() {
+    let output = knap()
+        .args(["fix", "."])
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unrecognized subcommand") && stderr.contains("fix"),
+        "stderr was: {stderr}"
+    );
+}
+
+#[test]
+fn lint_fix_flag_no_longer_exists() {
+    let output = knap()
+        .args(["lint", ".", "--fix"])
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unexpected argument") && stderr.contains("--fix"),
+        "stderr was: {stderr}"
+    );
+}
+
+#[test]
 fn parse_subcommand_still_works() {
     let output = knap()
         .args(["parse", "tests/fixtures/parse_basic/note.md"])
@@ -229,70 +257,6 @@ fn lint_without_suggest_omits_data() {
 }
 
 #[test]
-fn lint_fix_applies_unambiguous_fixes_and_reports_post_fix_state() {
-    let dir = copy_fixture("fix_repoint_broken_link");
-
-    let output = knap()
-        .args(["lint", ".", "--json", "--fix"])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        output.status.success(),
-        "stdout: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
-
-    // The fix (repoint to config.md) actually happened...
-    let note = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-    assert!(note.contains("(config.md)"), "note was: {note}");
-    // ...and the report reflects that post-fix state: no diagnostics left,
-    // and fixes_applied lists what was done, in one call.
-    assert_eq!(value["problem_count"], 0);
-    assert_eq!(value["diagnostics"].as_array().unwrap().len(), 0);
-    let applied = value["fixes_applied"]
-        .as_array()
-        .expect("fixes_applied present");
-    assert_eq!(applied.len(), 1);
-    assert!(applied[0].as_str().unwrap().contains("config.md"));
-}
-
-#[test]
-fn lint_fix_leaves_ambiguous_diagnostics_with_suggestions() {
-    // Unlike an ambiguous broken *link* (which `fix` resolves by falling
-    // back to creating a stub, so it's no longer broken afterward), an
-    // ambiguous broken *anchor* has no such fallback — it's left genuinely
-    // unresolved, so it's the case that actually survives `--fix` to show
-    // `--suggest`'s candidates for.
-    let dir = copy_fixture("fix_ambiguous_anchor");
-
-    let output = knap()
-        .args(["lint", ".", "--json", "--fix", "--suggest"])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(!output.status.success(), "should still be flagged");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
-
-    // fixes_applied is present (the --fix pass ran) but empty — nothing was
-    // unambiguous enough to auto-apply.
-    assert_eq!(value["fixes_applied"].as_array().unwrap().len(), 0);
-    let diag = &value["diagnostics"][0]["diagnostics"][0];
-    assert_eq!(diag["code"], "broken-anchor");
-    let suggestions = diag["data"]["suggestions"]
-        .as_array()
-        .expect("suggestions present");
-    assert_eq!(
-        suggestions.len(),
-        2,
-        "both headings should tie: {suggestions:?}"
-    );
-}
-
-#[test]
 fn lint_suggest_reports_text_mismatch_for_decoy_and_correct_candidate() {
     // Trial 4 regression shape: "sync-800.md" is a strong raw path-distance
     // decoy for broken target "sync-830.md", but the link's own text
@@ -322,98 +286,6 @@ fn lint_suggest_reports_text_mismatch_for_decoy_and_correct_candidate() {
             "expected text_distance on every suggestion: {suggestion:?}"
         );
     }
-}
-
-#[test]
-fn fix_declines_repoint_when_text_mismatch_leaves_stub_fallback() {
-    let dir = copy_fixture("fix_text_mismatch_link");
-    let before = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-
-    let output = knap()
-        .args(["fix", "."])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    // Text-mismatch gate declines the repoint (the decoy "sync-800.md"
-    // wins on raw path distance but disagrees with the link's own text),
-    // so fix falls back to stub creation rather than guessing.
-    let after = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-    assert_eq!(
-        before, after,
-        "text-mismatched link target should be left alone"
-    );
-    assert!(
-        !after.contains("sync-800.md"),
-        "must not repoint to the decoy: {after}"
-    );
-    assert!(dir.path().join("sync-830.md").exists());
-}
-
-#[test]
-fn lint_fix_reports_stub_fallback_not_wrong_repoint_for_mismatch_case() {
-    let dir = copy_fixture("fix_text_mismatch_link");
-
-    let output = knap()
-        .args(["lint", ".", "--fix", "--suggest", "--json"])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
-
-    let fixes_applied = value["fixes_applied"]
-        .as_array()
-        .expect("fixes_applied present");
-    assert_eq!(
-        fixes_applied.len(),
-        1,
-        "expected exactly one fix (stub creation): {fixes_applied:?}"
-    );
-    let fix_description = fixes_applied[0].as_str().unwrap();
-    assert!(
-        !fix_description.contains("sync-800.md"),
-        "must not repoint to the decoy: {fix_description}"
-    );
-
-    let after = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-    assert!(
-        !after.contains("sync-800.md"),
-        "must not repoint to the decoy: {after}"
-    );
-    assert!(dir.path().join("sync-830.md").exists());
-
-    // Stub creation resolves the broken-link target, so the diagnostic
-    // should no longer be reported after --fix.
-    assert!(
-        output.status.success(),
-        "expected no remaining diagnostics after stub fallback: {stdout}"
-    );
-    assert_eq!(value["diagnostics"].as_array().map(|a| a.len()), Some(0));
-}
-
-#[test]
-fn lint_without_fix_does_not_touch_disk() {
-    let dir = copy_fixture("fix_repoint_broken_link");
-    let before = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-
-    let output = knap()
-        .args(["lint", ".", "--json"])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(!output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
-    assert!(value.get("fixes_applied").is_none());
-
-    let after = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-    assert_eq!(before, after, "lint without --fix must never write to disk");
 }
 
 #[test]
@@ -966,176 +838,6 @@ fn lint_since_outside_git_repo_errors() {
     assert!(stderr.contains("git"), "stderr was: {stderr}");
 }
 
-#[test]
-fn fix_creates_missing_file() {
-    let dir = copy_fixture("fix_broken_link");
-
-    let output = knap()
-        .args(["fix", "."])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(dir.path().join("missing.md").exists());
-
-    let lint = knap()
-        .args(["lint", "."])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        lint.status.success(),
-        "stdout: {}",
-        String::from_utf8_lossy(&lint.stdout)
-    );
-}
-
-#[test]
-fn fix_repoints_unambiguous_broken_link() {
-    let dir = copy_fixture("fix_repoint_broken_link");
-
-    let output = knap()
-        .args(["fix", "."])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let note = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-    assert!(
-        note.contains("(config.md)"),
-        "expected link repointed at config.md, got: {note}"
-    );
-    assert!(!dir.path().join("config-removed.md").exists());
-
-    let lint = knap()
-        .args(["lint", "."])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        lint.status.success(),
-        "stdout: {}",
-        String::from_utf8_lossy(&lint.stdout)
-    );
-}
-
-#[test]
-fn fix_creates_stub_when_broken_link_is_ambiguous() {
-    let dir = copy_fixture("fix_ambiguous_broken_link");
-    let before = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-
-    let output = knap()
-        .args(["fix", "."])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    // Ambiguous (cat.md and bat.md tie), so fix falls back to stub creation
-    // rather than guessing — same as if there were no candidates at all.
-    let after = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-    assert_eq!(before, after, "ambiguous link target should be left alone");
-    assert!(dir.path().join("hat.md").exists());
-}
-
-#[test]
-fn fix_replaces_unambiguous_broken_anchor() {
-    let dir = copy_fixture("fix_unambiguous_anchor");
-
-    let output = knap()
-        .args(["fix", "."])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let note = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-    assert!(
-        note.contains("target.md#target"),
-        "anchor not rewritten: {note}"
-    );
-
-    let lint = knap()
-        .args(["lint", "."])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        lint.status.success(),
-        "stdout: {}",
-        String::from_utf8_lossy(&lint.stdout)
-    );
-}
-
-#[test]
-fn fix_skips_ambiguous_anchor() {
-    let dir = copy_fixture("fix_ambiguous_anchor");
-    let before = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-
-    let output = knap()
-        .args(["fix", "."])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let after = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-    assert_eq!(before, after, "ambiguous anchor should be left alone");
-
-    let lint = knap()
-        .args(["lint", "."])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        !lint.status.success(),
-        "ambiguous anchor should still be flagged"
-    );
-}
-
-#[test]
-fn fix_dry_run_makes_no_changes() {
-    let dir = copy_fixture("fix_broken_link");
-
-    let output = knap()
-        .args(["fix", ".", "--dry-run"])
-        .current_dir(dir.path())
-        .output()
-        .expect("failed to run knap");
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("would"), "stdout was: {stdout}");
-
-    assert!(!dir.path().join("missing.md").exists());
-    let note = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-    assert_eq!(note, "# Note\n\nA [broken link](missing.md) to nowhere.\n");
-}
-
 // ── apply ────────────────────────────────────────────────────────────────
 
 #[test]
@@ -1163,35 +865,6 @@ fn apply_runs_rename_file_then_rename_heading_in_sequence() {
     assert!(
         linker.contains("(note.md#new-section)"),
         "linker was: {linker}"
-    );
-}
-
-#[test]
-fn apply_mixed_batch_rename_tag_and_fix() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("note.md"),
-        "---\ntags: draft\n---\n\n# Note\n\nA [broken link](missing.md) to nowhere.\n",
-    )
-    .unwrap();
-
-    let batch = r#"[
-        {"op":"rename-tag","old":"draft","new":"published"},
-        {"op":"fix"}
-    ]"#;
-
-    let output = knap_with_stdin(&["apply"], dir.path(), batch);
-    assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let note = std::fs::read_to_string(dir.path().join("note.md")).unwrap();
-    assert!(note.contains("tags: published"), "note was: {note}");
-    assert!(
-        dir.path().join("missing.md").exists(),
-        "fix should have created the missing stub"
     );
 }
 

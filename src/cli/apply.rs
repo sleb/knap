@@ -8,15 +8,15 @@ use serde::{Deserialize, Serialize};
 
 use lsp_types::Range;
 
-use crate::cli::{fix, rename};
+use crate::cli::rename;
 use crate::config::PathFilter;
 use crate::{config, edit, handlers, index};
 
 /// A single batch entry `knap apply` reads from stdin, one variant per
 /// existing mutating subcommand (`rename-file`/`rename-heading`/
-/// `rename-tag`/`fix`), with the same field names as that subcommand's
-/// arguments. Deserialized standalone here; execution (`apply_one`/`run`)
-/// lands in a later step.
+/// `rename-tag`), with the same field names as that subcommand's arguments.
+/// Deserialized standalone here; execution (`apply_one`/`run`) lands in a
+/// later step.
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(tag = "op", rename_all = "kebab-case")]
 enum ChangeOp {
@@ -33,10 +33,6 @@ enum ChangeOp {
         old: String,
         new: String,
     },
-    Fix {
-        #[serde(default = "default_fix_path")]
-        path: PathBuf,
-    },
     RepointLink {
         file: PathBuf,
         range: Range,
@@ -49,15 +45,6 @@ enum ChangeOp {
     },
 }
 
-/// The `#[serde(default = ...)]` target for `Fix.path`: `knap fix`'s own
-/// default of "the current directory" (see `src/cli/fix.rs`), spelled out as
-/// `"."` since `ChangeOp` has no access to the process's actual cwd — it's
-/// resolved against the batch's scratch root, not the process, once
-/// `apply_one` runs it.
-fn default_fix_path() -> PathBuf {
-    PathBuf::from(".")
-}
-
 impl ChangeOp {
     /// The `op` tag's wire value, for per-operation error context.
     fn kind(&self) -> &'static str {
@@ -65,7 +52,6 @@ impl ChangeOp {
             ChangeOp::RenameFile { .. } => "rename-file",
             ChangeOp::RenameHeading { .. } => "rename-heading",
             ChangeOp::RenameTag { .. } => "rename-tag",
-            ChangeOp::Fix { .. } => "fix",
             ChangeOp::RepointLink { .. } => "repoint-link",
             ChangeOp::RepointAnchor { .. } => "repoint-anchor",
         }
@@ -154,9 +140,9 @@ fn diff_and_sync(
         let (from, to) = (src.join(rel), dst.join(rel));
         // `to` missing entirely must count as "differs" regardless of
         // `from`'s content — comparing against `unwrap_or_default()` would
-        // treat a brand-new *empty* file (e.g. `fix`'s stub creation) as
-        // identical to a `to` that doesn't exist at all, since both read as
-        // `[]`, and silently drop it from the sync.
+        // treat a brand-new *empty* file as identical to a `to` that doesn't
+        // exist at all, since both read as `[]`, and silently drop it from
+        // the sync.
         let differs = match fs::read(&to) {
             Ok(existing) => existing != fs::read(&from)?,
             Err(_) => true,
@@ -240,25 +226,6 @@ fn apply_one(root: &Path, op: &ChangeOp) -> anyhow::Result<AppliedOp> {
             Ok(AppliedOp {
                 op: op.kind(),
                 summary: format!("#{old} → #{new}"),
-                files_touched,
-            })
-        }
-        ChangeOp::Fix { path } => {
-            ensure_scoped(root, path)?;
-            let path_abs = index::normalize_path(&root.join(path));
-            let (idx, config, targets) = fix::targets_for(&path_abs)?;
-            let fixes = fix::plan_fixes(&idx, &config, &targets);
-            if fixes.is_empty() {
-                return Ok(AppliedOp {
-                    op: op.kind(),
-                    summary: "no safe fixes found".to_string(),
-                    files_touched: 0,
-                });
-            }
-            let files_touched = fix::apply(&fixes)?;
-            Ok(AppliedOp {
-                op: op.kind(),
-                summary: format!("applied {} fix(es) in {files_touched} file(s)", fixes.len()),
                 files_touched,
             })
         }
@@ -409,13 +376,11 @@ mod tests {
     }
 
     #[test]
-    fn change_op_deserializes_fix_default_path() {
-        let op: ChangeOp = serde_json::from_str(r#"{"op":"fix"}"#).unwrap();
-        assert_eq!(
-            op,
-            ChangeOp::Fix {
-                path: PathBuf::from(".")
-            }
+    fn change_op_fix_variant_no_longer_deserializes() {
+        let result = serde_json::from_str::<ChangeOp>(r#"{"op":"fix"}"#);
+        assert!(
+            result.is_err(),
+            "\"fix\" should no longer be a valid apply op, got: {result:?}"
         );
     }
 
@@ -517,9 +482,8 @@ mod tests {
 
     #[test]
     fn diff_and_sync_counts_and_copies_new_empty_file() {
-        // Regression test: a brand-new *empty* file (e.g. `fix`'s stub
-        // creation) must not be mistaken for "unchanged" just because an
-        // absent `dst` file also reads as empty.
+        // Regression test: a brand-new *empty* file must not be mistaken for
+        // "unchanged" just because an absent `dst` file also reads as empty.
         let src = tempfile::tempdir().unwrap();
         let dst = tempfile::tempdir().unwrap();
         fs::write(src.path().join("stub.md"), "").unwrap();
@@ -605,23 +569,6 @@ mod tests {
         assert_eq!(applied.files_touched, 1);
         assert!(root.join("new.md").exists());
         assert!(!root.join("old.md").exists());
-    }
-
-    #[test]
-    fn apply_one_fix_reports_no_safe_fixes_found_when_clean() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        fs::write(root.join("a.md"), "# A\n\nNothing broken here.\n").unwrap();
-
-        let op = ChangeOp::Fix {
-            path: PathBuf::from("."),
-        };
-
-        let applied = apply_one(root, &op).unwrap();
-
-        assert_eq!(applied.op, "fix");
-        assert_eq!(applied.summary, "no safe fixes found");
-        assert_eq!(applied.files_touched, 0);
     }
 
     #[test]
