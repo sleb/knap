@@ -14,7 +14,7 @@ untested code for the next step to build on.
 | Step                                             | Status | Notes |
 | ------------------------------------------------ | ------ | ----- |
 | 1 — Regression test proving the bug              | Done   |       |
-| 2 — `PathFilter` type                            | Todo   |       |
+| 2 — `PathFilter` type                            | Done   |       |
 | 3 — Wire `PathFilter` through `Config`           | Todo   |       |
 | 4 — Wire `PathFilter` through `index::build`     | Todo   |       |
 | 5 — Wire `PathFilter` through the three handlers | Todo   |       |

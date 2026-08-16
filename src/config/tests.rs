@@ -250,3 +250,84 @@ fn for_lsp_exclude_default_empty() {
     let config = for_lsp(&params).unwrap();
     assert_eq!(config.exclude, Vec::<String>::new());
 }
+
+mod path_filter {
+    use std::path::Path;
+
+    use super::super::PathFilter;
+
+    #[test]
+    fn path_filter_should_index_true_for_plain_file() {
+        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        let root = Path::new("/vault");
+        assert!(filter.should_index(root, &root.join("notes/todo.md")));
+    }
+
+    #[test]
+    fn path_filter_should_index_false_for_excluded_glob_match() {
+        let filter =
+            PathFilter::compile(&["fixtures/**".to_string()], &["md".to_string()]).unwrap();
+        let root = Path::new("/vault");
+        assert!(!filter.should_index(root, &root.join("fixtures/broken.md")));
+    }
+
+    #[test]
+    fn path_filter_should_index_false_under_hardcoded_skip_dir() {
+        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        let root = Path::new("/vault");
+        assert!(!filter.should_index(root, &root.join(".git/HEAD")));
+        assert!(!filter.should_index(root, &root.join("node_modules/pkg/index.md")));
+        assert!(!filter.should_index(root, &root.join("target/debug/note.md")));
+    }
+
+    #[test]
+    fn path_filter_should_index_true_for_leaf_dotfile() {
+        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        let root = Path::new("/vault");
+        assert!(filter.should_index(root, &root.join(".hidden.md")));
+    }
+
+    #[test]
+    fn path_filter_should_skip_dir_true_for_hardcoded_name() {
+        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        let root = Path::new("/vault");
+        assert!(filter.should_skip_dir(root, &root.join(".git"), ".git"));
+        assert!(filter.should_skip_dir(root, &root.join("node_modules"), "node_modules"));
+        assert!(filter.should_skip_dir(root, &root.join("target"), "target"));
+    }
+
+    #[test]
+    fn path_filter_should_skip_dir_true_for_exclude_match() {
+        let filter =
+            PathFilter::compile(&["fixtures/**".to_string()], &["md".to_string()]).unwrap();
+        let root = Path::new("/vault");
+        assert!(filter.should_skip_dir(root, &root.join("fixtures"), "fixtures"));
+    }
+
+    #[test]
+    fn path_filter_is_note_true_for_configured_extension() {
+        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        assert!(filter.is_note(Path::new("/vault/notes/todo.md")));
+    }
+
+    #[test]
+    fn path_filter_is_note_false_for_other_extension() {
+        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        assert!(!filter.is_note(Path::new("/vault/assets/image.png")));
+    }
+
+    #[test]
+    fn path_filter_compile_dir_form_from_glob_star_star_suffix() {
+        let filter =
+            PathFilter::compile(&["fixtures/**".to_string()], &["md".to_string()]).unwrap();
+        let root = Path::new("/vault");
+        // `fixtures` itself (not just its contents) must be recognized as
+        // excluded, so the crawl never `read_dir`s it.
+        assert!(filter.should_skip_dir(root, &root.join("fixtures"), "fixtures"));
+    }
+
+    #[test]
+    fn path_filter_compile_rejects_malformed_pattern() {
+        assert!(PathFilter::compile(&["[".to_string()], &["md".to_string()]).is_err());
+    }
+}

@@ -3,7 +3,7 @@
 // See docs/design/releases/v0.11/design.md ("Config Changes").
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
 use log::warn;
@@ -33,6 +33,125 @@ pub(crate) struct Config {
     /// field with the CLI's `--exclude` flag (`lint`/`index`) or the LSP's
     /// `initializationOptions.exclude` field, whichever applies.
     pub(crate) exclude: Vec<String>,
+}
+
+/// The single authority for "does this path belong in the index." Compiled
+/// once per `Config` build, from the same two config values every current
+/// mechanism (the crawl's hardcoded skip-dir check, `index::build`'s
+/// `exclude` glob matching, and the watched-files handler's ad hoc extension
+/// filter) was previously deriving its own partial answer from.
+///
+/// `allow(dead_code)`: not wired into `Config` yet — that's Step 3 of the
+/// v0.16 path-filter-authority plan. Remove once `Config` gains a
+/// `path_filter` field.
+#[derive(Default)]
+#[allow(dead_code)]
+pub(crate) struct PathFilter {
+    /// Compiled `exclude` patterns, plus the `/**`-stripped directory-equivalent
+    /// form for each (see `compile`'s doc comment) — moved here verbatim from
+    /// `index::build`.
+    excludes: Vec<glob::Pattern>,
+    /// Note file extensions (e.g. `["md"]`), for the note-vs-attachment split.
+    extensions: Vec<String>,
+}
+
+#[allow(dead_code)] // not wired into `Config` yet — Step 3
+impl PathFilter {
+    /// Compiles `exclude`'s glob patterns once, validated eagerly (`Err` on a
+    /// malformed pattern, never silently ignored). For each pattern ending in
+    /// `/**`, also compiles the suffix-stripped directory-equivalent form, so
+    /// `dir` itself is recognized as excluded (matching `dir/**`'s intent)
+    /// without ever being `read_dir`'d — logic moved verbatim from
+    /// `index::build`.
+    pub(crate) fn compile(exclude: &[String], extensions: &[String]) -> anyhow::Result<Self> {
+        let mut excludes: Vec<glob::Pattern> = exclude
+            .iter()
+            .map(|pattern| glob::Pattern::new(pattern).map_err(anyhow::Error::from))
+            .collect::<anyhow::Result<_>>()?;
+
+        // The glob crate's `**` doesn't match the zero-extra-segment case, so
+        // a pattern like `dir/**` matches everything *inside* `dir` but not
+        // `dir` itself — without this, `dir` would still get `read_dir`'d
+        // (and its direct children individually filtered) before recursion
+        // stopped one level down, instead of never being opened at all.
+        // Compile the directory-equivalent form (the `/**` suffix stripped)
+        // once, alongside the original patterns, so `dir` itself is
+        // recognized as excluded too.
+        for pattern in exclude {
+            if let Some(dir_form) = pattern.strip_suffix("/**") {
+                excludes.push(glob::Pattern::new(dir_form)?);
+            }
+        }
+
+        Ok(PathFilter {
+            excludes,
+            extensions: extensions.to_vec(),
+        })
+    }
+
+    /// Hardcoded skip-dir names — `.`-prefixed, `node_modules`, `target` —
+    /// pruned from every crawl regardless of `exclude`. Moved verbatim from
+    /// `index::should_skip_dir`.
+    fn is_skip_dir_name(name: &str) -> bool {
+        name.starts_with('.') || matches!(name, "node_modules" | "target")
+    }
+
+    // `require_literal_separator: true` keeps `*` from crossing `/` (so a
+    // bare `*.md` only matches top-level files, matching gitignore/VS Code
+    // semantics), while `**` is still allowed to cross separators per the
+    // glob crate's docs.
+    fn matches_exclude(&self, relative: &Path) -> bool {
+        let match_options = glob::MatchOptions {
+            require_literal_separator: true,
+            ..Default::default()
+        };
+        self.excludes
+            .iter()
+            .any(|pattern| pattern.matches_path_with(relative, match_options))
+    }
+
+    /// Crawl-only: should this directory be pruned (never `read_dir`'d)? Used
+    /// by `index::walk_dir` on directory entries, where `dir_path` is the
+    /// entry's full path and `dir_name` its file name.
+    pub(crate) fn should_skip_dir(&self, root: &Path, dir_path: &Path, dir_name: &str) -> bool {
+        Self::is_skip_dir_name(dir_name)
+            || self.matches_exclude(dir_path.strip_prefix(root).unwrap_or(dir_path))
+    }
+
+    /// The authoritative check: does `path` (under `root`) belong in the
+    /// index? True unless some ancestor directory component is a hardcoded
+    /// skip-dir, or the path itself matches an `exclude` pattern. Used by the
+    /// crawl's file-handling branch *and* every live-index handler — the same
+    /// question, asked the same way, everywhere a path is considered for
+    /// indexing.
+    pub(crate) fn should_index(&self, root: &Path, path: &Path) -> bool {
+        let relative = path.strip_prefix(root).unwrap_or(path);
+
+        // Only ancestor directory components are checked against the
+        // hardcoded skip-dir names — never the leaf itself. This matches the
+        // crawl's existing behaviour: `should_skip_dir` is only ever applied
+        // to directory entries, never file entries, so a dotfile like
+        // `.hidden.md` sitting directly under an included root has always
+        // been indexed.
+        let under_skip_dir = relative
+            .parent()
+            .into_iter()
+            .flat_map(Path::components)
+            .any(|c| match c {
+                Component::Normal(name) => Self::is_skip_dir_name(&name.to_string_lossy()),
+                _ => false,
+            });
+
+        !under_skip_dir && !self.matches_exclude(relative)
+    }
+
+    /// Should `path` be parsed as a note (vs. registered as an attachment)?
+    pub(crate) fn is_note(&self, path: &Path) -> bool {
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| self.extensions.iter().any(|e| e == ext))
+            .unwrap_or(false)
+    }
 }
 
 // Shared by both wire formats below: the `values`/`required` field names
