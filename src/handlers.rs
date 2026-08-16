@@ -3761,6 +3761,7 @@ mod tests {
             new_note_dir: new_note_dir.map(|s| s.to_string()),
             frontmatter_schema: Default::default(),
             exclude: Default::default(),
+            path_filter: Default::default(),
         }
     }
 

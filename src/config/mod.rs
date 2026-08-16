@@ -28,11 +28,54 @@ pub(crate) struct Config {
     pub(crate) new_note_dir: Option<String>,
     pub(crate) frontmatter_schema: FrontmatterSchema,
     /// Glob patterns to exclude from indexing, matched against each entry's
-    /// path relative to its index root. Consumed by `index::build` (see
-    /// `src/index/mod.rs`). Populated by unioning `knap.toml`'s `exclude`
-    /// field with the CLI's `--exclude` flag (`lint`/`index`) or the LSP's
+    /// path relative to its index root. Raw, unparsed form — kept for
+    /// existing tests/consumers that inspect it directly. `path_filter` is
+    /// the compiled authority derived from this field (and `extensions`);
+    /// consult that instead of re-deriving indexing decisions from this
+    /// list. Populated by unioning `knap.toml`'s `exclude` field with the
+    /// CLI's `--exclude` flag (`lint`/`index`) or the LSP's
     /// `initializationOptions.exclude` field, whichever applies.
     pub(crate) exclude: Vec<String>,
+    /// The compiled `PathFilter` authority — see its doc comment. Built once
+    /// by `finalize` from `exclude` and `extensions`.
+    ///
+    /// `allow(dead_code)`: no caller yet — `index::build` and the three LSP
+    /// handlers start consulting this in Steps 4 and 5 of the
+    /// v0.16 path-filter-authority plan. Remove once they do.
+    #[allow(dead_code)]
+    pub(crate) path_filter: PathFilter,
+}
+
+impl Config {
+    /// The authoritative "does this path belong in the index" check for
+    /// multi-root configs: finds the longest-matching `index_roots` prefix
+    /// for `path` and delegates to `path_filter.should_index` relative to
+    /// that root. A path outside every index root is never excluded — it's
+    /// simply not this config's concern.
+    ///
+    /// `allow(dead_code)`: no caller yet — wired into the three LSP handlers
+    /// in Step 5 of the v0.16 path-filter-authority plan. Remove once it is.
+    #[allow(dead_code)]
+    pub(crate) fn should_index(&self, path: &Path) -> bool {
+        let root = self
+            .index_roots
+            .iter()
+            .filter(|root| path.starts_with(root))
+            .max_by_key(|root| root.as_os_str().len());
+        match root {
+            Some(root) => self.path_filter.should_index(root, path),
+            None => true,
+        }
+    }
+
+    /// Should `path` be parsed as a note (vs. registered as an attachment)?
+    ///
+    /// `allow(dead_code)`: no caller yet — wired into the three LSP handlers
+    /// in Step 5 of the v0.16 path-filter-authority plan. Remove once it is.
+    #[allow(dead_code)]
+    pub(crate) fn is_note(&self, path: &Path) -> bool {
+        self.path_filter.is_note(path)
+    }
 }
 
 /// The single authority for "does this path belong in the index." Compiled
@@ -40,12 +83,7 @@ pub(crate) struct Config {
 /// mechanism (the crawl's hardcoded skip-dir check, `index::build`'s
 /// `exclude` glob matching, and the watched-files handler's ad hoc extension
 /// filter) was previously deriving its own partial answer from.
-///
-/// `allow(dead_code)`: not wired into `Config` yet — that's Step 3 of the
-/// v0.16 path-filter-authority plan. Remove once `Config` gains a
-/// `path_filter` field.
 #[derive(Default)]
-#[allow(dead_code)]
 pub(crate) struct PathFilter {
     /// Compiled `exclude` patterns, plus the `/**`-stripped directory-equivalent
     /// form for each (see `compile`'s doc comment) — moved here verbatim from
@@ -55,7 +93,6 @@ pub(crate) struct PathFilter {
     extensions: Vec<String>,
 }
 
-#[allow(dead_code)] // not wired into `Config` yet — Step 3
 impl PathFilter {
     /// Compiles `exclude`'s glob patterns once, validated eagerly (`Err` on a
     /// malformed pattern, never silently ignored). For each pattern ending in
@@ -113,6 +150,11 @@ impl PathFilter {
     /// Crawl-only: should this directory be pruned (never `read_dir`'d)? Used
     /// by `index::walk_dir` on directory entries, where `dir_path` is the
     /// entry's full path and `dir_name` its file name.
+    ///
+    /// `allow(dead_code)`: no caller yet — `index::walk_dir` starts calling
+    /// this in Step 4 of the v0.16 path-filter-authority plan. Remove once
+    /// it does.
+    #[allow(dead_code)]
     pub(crate) fn should_skip_dir(&self, root: &Path, dir_path: &Path, dir_name: &str) -> bool {
         Self::is_skip_dir_name(dir_name)
             || self.matches_exclude(dir_path.strip_prefix(root).unwrap_or(dir_path))
@@ -283,7 +325,7 @@ fn build_frontmatter_schema(
     }
 }
 
-fn finalize(raw: RawConfig, index_roots: Vec<PathBuf>) -> Config {
+fn finalize(raw: RawConfig, index_roots: Vec<PathBuf>) -> Result<Config> {
     let frontmatter_schema = match raw.frontmatter_schema {
         Some((fields, require_frontmatter, warn_unknown_keys)) => {
             build_frontmatter_schema(fields, require_frontmatter, warn_unknown_keys)
@@ -291,13 +333,18 @@ fn finalize(raw: RawConfig, index_roots: Vec<PathBuf>) -> Config {
         None => FrontmatterSchema::default(),
     };
 
-    Config {
+    let extensions = raw.extensions.unwrap_or_else(|| vec!["md".to_string()]);
+    let exclude = raw.exclude.unwrap_or_default();
+    let path_filter = PathFilter::compile(&exclude, &extensions)?;
+
+    Ok(Config {
         index_roots,
-        extensions: raw.extensions.unwrap_or_else(|| vec!["md".to_string()]),
+        extensions,
         new_note_dir: raw.new_note_dir,
         frontmatter_schema,
-        exclude: raw.exclude.unwrap_or_default(),
-    }
+        exclude,
+        path_filter,
+    })
 }
 
 /// Looks for `knap.toml` directly in `start` — no ancestor-directory search.
@@ -355,7 +402,7 @@ pub(crate) fn for_lsp(params: &InitializeParams) -> Result<Config> {
         .unwrap_or_default();
 
     let raw = merge(RawConfig::from(init_opts), knap_toml_raw);
-    Ok(finalize(raw, index_roots))
+    finalize(raw, index_roots)
 }
 
 /// Loader for `knap lint`/`knap index`: `knap.toml` only, no editor
@@ -388,7 +435,7 @@ pub(crate) fn for_path(
             .extend(exclude_additions.iter().cloned());
     }
 
-    Ok(finalize(raw, vec![root]))
+    finalize(raw, vec![root])
 }
 
 #[cfg(test)]

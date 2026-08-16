@@ -331,3 +331,18 @@ mod path_filter {
         assert!(PathFilter::compile(&["[".to_string()], &["md".to_string()]).is_err());
     }
 }
+
+#[test]
+fn path_filter_should_index_true_for_path_outside_all_roots() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = for_path(dir.path(), None, &[]).unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    assert!(config.should_index(&outside.path().join("note.md")));
+}
+
+#[test]
+fn config_finalize_propagates_path_filter_compile_error() {
+    let dir = tempfile::tempdir().unwrap();
+    write_knap_toml(dir.path(), r#"exclude = ["["]"#);
+    assert!(for_path(dir.path(), None, &[]).is_err());
+}
