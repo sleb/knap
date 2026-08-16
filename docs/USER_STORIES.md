@@ -10,6 +10,14 @@ diagnostics to any LSP-compatible editor — using standard Markdown syntax.
 > See [ARCHITECTURE.md](ARCHITECTURE.md) for the design tenets behind this
 > decision.
 
+> **Scope note (v0.17):** knap dropped `knap fix`, `knap lint --fix`, and
+> `knap apply`'s `fix` op — a blind bulk auto-apply across a whole vault with
+> no per-edit review. Story US-D14 was removed as a result; US-D17, US-D18,
+> and US-D20 were trimmed to drop references to it. `knap lint --suggest`
+> and `knap apply`'s `repoint-link`/`repoint-anchor` ops (pick a candidate,
+> then apply it) remain the recommended flow. See
+> `docs/design/releases/v0.17/drop-fix/design.md`.
+
 Stories are grouped by persona, not just feature:
 
 - **Writer (Human)** — a person maintaining a personal knowledge base,
@@ -282,10 +290,10 @@ consistent.
 
 A coding agent (Claude Code or similar) — or a CI script — editing a vault's
 Markdown files with no editor session in the loop. Delivered entirely through
-the CLI: `knap lint`, `knap index`, `knap rename-*`, `knap fix`, plus a
+the CLI: `knap lint`, `knap index`, `knap rename-*`, `knap apply`, plus a
 shipped skill (`skill/knap/SKILL.md`) that teaches the loop these commands
 are built around — edit → `knap lint --json` → branch on each diagnostic's
-`code` → `knap fix`/`rename-*` → `knap lint` again to confirm clean. Nothing
+`code` → `rename-*`/`apply` → `knap lint` again to confirm clean. Nothing
 below is agent-exclusive machinery — a human can run any of these commands by
 hand from a terminal too — but the design center is that loop, not a person
 at a keyboard.
@@ -349,44 +357,28 @@ can normalize taxonomy without an editor session.
 
 ### Fixing
 
-**US-D14** — As an agent, I can run `knap fix [path] [--dry-run]` to apply the
-same safe fixes an editor's code actions offer — creating a missing linked
-file, and replacing a broken anchor with the target file's best-matching
-heading when the match is unambiguous — so I can clear straightforward lint
-findings without hand-writing the edit myself. `--dry-run` previews the plan
-without touching disk. When a broken link has one unambiguous best-matching
-existing note (by the same edit-distance ranking `--suggest` exposes, below),
-`knap fix` repoints the link there instead of creating a stub file.
-
 **US-D17** — As an agent, I can pass `--suggest [N]` to `knap lint` to get up
 to `N` ranked candidate fixes (closest match first) attached to each
 `broken-link`/`broken-anchor` diagnostic's `data` field in `--json` output,
-so I can see the same candidates `knap fix` uses to decide — including for
-the ambiguous cases it declines to touch — without a separate `knap fix
---dry-run` call. I can also pass `--fix` to have `knap lint` apply every
-safe fix first (same as running `knap fix`) and report only what's left,
-collapsing the usual lint → fix → lint-again sequence into one call;
-`fixes_applied` in `--json` output lists what was applied. `--fix` is the
-one case where `knap lint` mutates files on disk.
+so I can see every ranked candidate, including for the ambiguous cases,
+in the same call I'm already making to verify an edit.
 
-**US-D20** — As an agent, `knap fix`'s auto-apply and `knap lint --suggest`'s
-ranked candidates both weigh a `broken-link`/`broken-anchor`'s own visible
+**US-D20** — As an agent, `knap lint --suggest`'s ranked candidates both
+weigh a `broken-link`/`broken-anchor`'s own visible
 link text against each candidate's name, not just the broken target/slug
 string's path distance, so a same-shape decoy that's closer by raw edit
 distance (`sync-800.md`) doesn't outrank the candidate the link text actually
 names (`sync-835.md`, for link text "Sync 835"). Every diagnostic's `data`
 also carries a `text_mismatch` flag when the two signals disagree on which
 candidate is best, so I get an explicit warning instead of a silently
-plausible top pick — and `knap fix`/`knap lint --fix` decline to auto-apply
-when that flag is set, even if the combined ranking otherwise found a single
-unambiguous winner.
+plausible top pick.
 
 ---
 
 ### Batch Apply
 
 **US-D18** — As an agent, I can run `knap apply --json` and pipe a JSON array
-of change operations (`rename-file`, `rename-heading`, `rename-tag`, `fix`)
+of change operations (`rename-file`, `rename-heading`, `rename-tag`)
 on stdin, so after running `knap lint --suggest --json` and picking the right
 fix for each finding myself, I can apply the whole batch in one call instead
 of one subprocess per change. Changes are applied in the order given; the
@@ -396,7 +388,7 @@ without touching disk.
 
 **US-D19** — As an agent, I can include `repoint-link { file, range, target }`
 and `repoint-anchor { file, range, anchor }` operations in the same `knap
-apply --json` batch as any `rename-*`/`fix` operations, so a judgement call I
+apply --json` batch as any `rename-*` operations, so a judgement call I
 made from `knap lint --suggest`'s ranked candidates for a `broken-link`/
 `broken-anchor` diagnostic can be applied atomically alongside everything
 else in one call — instead of falling back to a hand edit outside the batch.

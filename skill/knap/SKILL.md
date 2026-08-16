@@ -1,7 +1,7 @@
 ---
 name: knap
 description: >
-  Use knap's headless CLI (lint, fix, index, rename-*, apply) to safely edit
+  Use knap's headless CLI (lint, index, rename-*, apply) to safely edit
   Markdown docs in a workspace. Trigger whenever a task edits, creates, or
   restructures docs in a directory with a knap.toml or an existing
   doc/link structure — verify every edit with `knap lint --suggest` and
@@ -41,7 +41,7 @@ that can actually leave something broken. Match the check to the edit:
   manually fixed target) — these are where mistakes actually happen, so
   lint right after each one:
   1. Make the edit.
-  2. `knap lint --suggest --json` (read-only — no `--fix`). Add
+  2. `knap lint --suggest --json` (read-only). Add
      `--since <git-ref>` to narrow the report to files changed since a
      commit.
   3. For each diagnostic in the report, branch on its `code`:
@@ -80,10 +80,10 @@ that can actually leave something broken. Match the check to the edit:
      a mismatch worth noticing even though `sync-800.md` may be closer by path
      distance to the broken target string. **Never mechanically apply
      `suggestions[0]` to every diagnostic in a loop or script** — that
-     reintroduces exactly the false-positive risk `--fix` was dropped from
-     this loop to avoid, minus even `--fix`'s tie-safety (`--fix` declines
-     to auto-apply when the top two candidates are within a tie; a script
-     that always takes `suggestions[0]` doesn't). If no candidate's name
+     reintroduces exactly the false-positive risk a blind bulk auto-apply
+     carries, with none of the unambiguous-only discipline the ranking is
+     built for — a script that always takes `suggestions[0]` has no
+     tie-safety at all. If no candidate's name
      plausibly matches the link text, say so and go find the right target
      by hand (`grep`, `knap index`) rather than picking the least-wrong
      option.
@@ -193,13 +193,12 @@ Here, the path/slug signal picks `sync-800.md` (closest by `distance`), but the 
 
 `data.suggestions` lists every candidate `--suggest` found, ranked by their
 blended `combined` score (path distance + text distance), closest first, capped
-at N. This is the same ranking `knap fix` uses to decide, not just the
-leftovers. Each suggestion carries both `distance` (path edit distance) and
+at N. This is the ranking `--suggest` exposes in full, not just a filtered
+leftover list. Each suggestion carries both `distance` (path edit distance) and
 `text_distance` (visible link text vs. candidate name). Two candidates this
-close together by combined score means `knap fix` would leave this one alone;
-if `suggestions[0]` were strictly closer than `suggestions[1]`, `fix` would
-already have applied it. A diagnostic with no `data` field at all had zero
-candidates in the workspace — `knap fix`'s create-a-stub case.
+close together by combined score count as a tie — treat it as ambiguous and
+don't repoint on ranking alone. A diagnostic with no `data` field at all had
+zero candidates in the workspace.
 
 ## Example: `lint --suggest` → pick → `apply` round trip
 
@@ -269,7 +268,7 @@ full-workspace `{ "notes": [...], "tags": {...} }` envelope.)
 
 ## Full reference
 
-This skill covers the edit-verify loop `knap lint`/`knap fix`/`knap
-rename-*`/`knap apply` were built for. For every flag, exit code, and config
+This skill covers the edit-verify loop `knap lint`/`knap rename-*`/`knap
+apply` were built for. For every flag, exit code, and config
 option, see the workspace's `knap`-installing project's `README.md`, or run
 `knap <command> --help`.

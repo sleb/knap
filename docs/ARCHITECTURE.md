@@ -281,7 +281,7 @@ exclusively — they do not touch the filesystem directly.
 ### CLI
 
 `src/cli/` — one module per subcommand (`mod.rs`, `lsp.rs`, `lint.rs`,
-`index.rs`, `parse.rs`, `check.rs`, `version.rs`, `rename.rs`, `fix.rs`),
+`index.rs`, `parse.rs`, `check.rs`, `version.rs`, `rename.rs`),
 wired up with `clap`.
 `main.rs` is just logging setup plus `knap::cli::run()`. There is no
 argument-free fallback: a subcommand is required, and bare `knap` exits
@@ -289,19 +289,18 @@ non-zero with usage text (clap's built-in behavior for a required
 subcommand). In particular, **`knap` no longer starts the LSP server on its
 own — use `knap lsp`.**
 
-| Subcommand       | Usage                                                                                                                | Available from                                                                                                 |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `lsp`            | `knap lsp`                                                                                                           | v0.11 (previously the bare-args default, since v0.1)                                                           |
-| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--fix] [--exclude <glob>]...` | v0.11, `--fail-on`/`--since`/`--suggest`/`--fix` added v0.13, `--exclude` added v0.16                          |
-| `index`          | `knap index <path> [--json] [--exclude <glob>]...`                                                                   | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13; `--exclude` added v0.16 |
-| `parse`          | `knap parse <file>`                                                                                                  | v0.1                                                                                                           |
-| `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                                                  | v0.12, `move-file` alias added v0.14                                                                           |
-| `rename-heading` | `knap rename-heading <file> <old> <new>`                                                                             | v0.12                                                                                                          |
-| `rename-tag`     | `knap rename-tag <old> <new>`                                                                                        | v0.12                                                                                                          |
-| `fix`            | `knap fix [path] [--dry-run]`                                                                                        | v0.13                                                                                                          |
-| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                                      | v0.14, `repoint-link`/`repoint-anchor` ops added v0.15                                                         |
-| `check`          | `knap check`                                                                                                         | v0.2                                                                                                           |
-| `version`        | `knap version`                                                                                                       | v0.10.1                                                                                                        |
+| Subcommand       | Usage                                                                                                        | Available from                                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| `lsp`            | `knap lsp`                                                                                                   | v0.11 (previously the bare-args default, since v0.1)                                                           |
+| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--exclude <glob>]...` | v0.11, `--fail-on`/`--since`/`--suggest` added v0.13, `--exclude` added v0.16                                  |
+| `index`          | `knap index <path> [--json] [--exclude <glob>]...`                                                           | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13; `--exclude` added v0.16 |
+| `parse`          | `knap parse <file>`                                                                                          | v0.1                                                                                                           |
+| `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                                          | v0.12, `move-file` alias added v0.14                                                                           |
+| `rename-heading` | `knap rename-heading <file> <old> <new>`                                                                     | v0.12                                                                                                          |
+| `rename-tag`     | `knap rename-tag <old> <new>`                                                                                | v0.12                                                                                                          |
+| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                              | v0.14, `repoint-link`/`repoint-anchor` ops added v0.15                                                         |
+| `check`          | `knap check`                                                                                                 | v0.2                                                                                                           |
+| `version`        | `knap version`                                                                                               | v0.10.1                                                                                                        |
 
 The CLI shares the same library crate as the server. `lsp` boots the same
 stdio server the LSP Client talks to. `lint` and `index` both resolve config
@@ -320,26 +319,7 @@ current directory, not the target file, since a file argument would
 otherwise narrow the index to just that file's own directory — reuse the
 same `handlers::` computation the LSP `rename`/`willRenameFiles` handlers
 use, and hand the resulting `WorkspaceEdit` to the Edit Applicator
-(`edit::apply`) to write it to disk. `fix` resolves config the same way
-`lint` does (a file target is used as-is, a directory target scopes to it),
-walks every target note's links, and for each broken link or broken anchor
-calls the same `handlers::compute_create_missing_file_fix`/
-`handlers::compute_anchor_fix` functions the LSP "Create note"/"Change
-anchor to..." code actions call — `knap fix` reuses those computations the
-same way `rename-*` reuses the rename `compute_*` functions, picking the
-anchor to fix via `handlers::suggest_anchor_fix` (skipping anything
-ambiguous) since it has no cursor to let a human choose; for a broken link it
-tries `handlers::suggest_link_fix`/`handlers::compute_link_fix` first
-(repoint to the one unambiguous closest-matching existing note), falling
-back to `compute_create_missing_file_fix` when no candidate is unambiguous.
-Since v0.16, "unambiguous" blends two distance signals — the broken
-target/slug against each candidate's path/heading, and the link's own
-visible text against each candidate's name — and declines (falls back the
-same as a tie) whenever the two signals disagree (`text_mismatch`), not just
-on an outright tie; see `docs/design/components/handlers.md` for the ranking
-details. The fix-selection loop itself lives in `cli::fix::plan_fixes`/`apply`
-(`pub(crate)`), shared with `lint --fix` (below) so both apply the identical
-unambiguous-only contract. No editor is needed for any of them.
+(`edit::apply`) to write it to disk.
 
 `lint --suggest [N]` switches diagnostic computation from
 `handlers::compute_diagnostics` to `handlers::compute_diagnostics_with_suggestions`,
@@ -347,20 +327,15 @@ which attaches up to `N` ranked candidates (same ranking `fix` uses to pick
 its one unambiguous answer, exposed in full, each with its own
 `text_distance`) to each `broken-link`/`broken-anchor` diagnostic's `data`
 field, plus a `text_mismatch: true` flag when the two signals disagree.
-`lint --fix` runs `cli::fix::plan_fixes`/`apply` over the whole target root
-before computing the report, then rebuilds the index so the diagnostics
-shown reflect the post-fix state — the one case where `lint` mutates files
-on disk; `--json` output gains a `fixes_applied` field listing what was
-applied.
 
 `apply` (`src/cli/apply.rs`) reads a JSON array of `ChangeOp`s
-(`rename-file`/`rename-heading`/`rename-tag`/`fix`/`repoint-link`/
+(`rename-file`/`rename-heading`/`rename-tag`/`repoint-link`/
 `repoint-anchor`, one variant per existing mutating subcommand or LSP-only
 edit computation, with the same field names as that subcommand's arguments)
 from stdin and applies them in order, all-or-nothing. It copies the current
 directory into a scratch tempdir, dispatches each `ChangeOp` via `apply_one`
 to the matching `rename_file_at`/`rename_heading_at`/`rename_tag_at`/
-`targets_for`+`plan_fixes`/`apply`/`handlers::compute_link_fix`/
+`handlers::compute_link_fix`/
 `handlers::compute_anchor_fix` call scoped to that scratch root (not the
 process's actual cwd — the same root-parameterization `rename-*` already
 needed for testability), then, only once every operation has succeeded,
@@ -369,7 +344,7 @@ any operation fails, `run` returns before the sync ever runs and the scratch
 tempdir is discarded — the real workspace was never touched. `repoint-link`/
 `repoint-anchor` apply an agent-picked candidate (e.g. one surfaced by
 `lint --suggest`) at a diagnostic's own `range`, rather than re-deriving a
-target the way `fix` does — the caller has already chosen. `--dry-run` runs
+target. `--dry-run` runs
 the same scratch-copy pipeline but calls `diff_and_sync` in count-only mode,
 so the reported plan is exactly what a real run would touch without writing
 anything. `--json` serializes an `ApplyReport { dry_run, operations,
@@ -406,7 +381,7 @@ semantics, just run by knap itself instead of an editor, for commands where
 no editor is in the loop.
 
 Used only by headless CLI commands that mutate the workspace (`rename-file`,
-`rename-heading`, `rename-tag` — v0.12; `fix` — v0.13). Never called by
+`rename-heading`, `rename-tag` — v0.12). Never called by
 `handlers.rs`, and never called by `knap lsp` — when a real editor is
 connected, the editor applies its own edits, and this module doesn't run.
 
