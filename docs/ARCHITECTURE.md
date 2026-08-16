@@ -55,7 +55,7 @@ the files stay clean.
 ┌──────────────────────────────────────────────────────┐
 │                         CLI                          │
 │    lsp · lint · index · parse · check · version ·    │
-│  rename-file · rename-heading · rename-tag · fix ·   │
+│      rename-file · rename-heading · rename-tag ·     │
 │                       apply                          │
 └──────────────────────────────────────────────────────┘
                   │ WorkspaceEdit
@@ -323,10 +323,9 @@ use, and hand the resulting `WorkspaceEdit` to the Edit Applicator
 
 `lint --suggest [N]` switches diagnostic computation from
 `handlers::compute_diagnostics` to `handlers::compute_diagnostics_with_suggestions`,
-which attaches up to `N` ranked candidates (same ranking `fix` uses to pick
-its one unambiguous answer, exposed in full, each with its own
-`text_distance`) to each `broken-link`/`broken-anchor` diagnostic's `data`
-field, plus a `text_mismatch: true` flag when the two signals disagree.
+which attaches up to `N` ranked candidates (the full ranked list, each with
+its own `text_distance`) to each `broken-link`/`broken-anchor` diagnostic's
+`data` field, plus a `text_mismatch: true` flag when the two signals disagree.
 
 `apply` (`src/cli/apply.rs`) reads a JSON array of `ChangeOp`s
 (`rename-file`/`rename-heading`/`rename-tag`/`repoint-link`/

@@ -298,7 +298,7 @@ Usage: `knap apply [--dry-run] [--json]`
 This is the other half of the synergy: an agent editing a vault a human also
 writes in shouldn't have to re-derive knap's conventions from `--help` text,
 and shouldn't leave broken links behind for the human to find later.
-`skill/knap/SKILL.md` documents the `lint` → `fix`/`rename-*` → `lint`
+`skill/knap/SKILL.md` documents the `lint` → `rename-*`/`apply` → `lint`
 edit-verify loop for a coding agent working in a vault that has `knap`
 installed — the six diagnostic `code`s, `--fail-on`/`--since`, and
 `knap index <file> --json` for a fast, scoped read of just the note it

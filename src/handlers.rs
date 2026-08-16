@@ -1344,8 +1344,8 @@ pub(crate) fn handle_rename(params: RenameParams, index: &NoteIndex) -> Option<W
 /// `Op(ResourceOp::Create)` for the new note, plus — when the link's raw
 /// target needed `<...>` escaping — a `TextEdit` rewriting it in place.
 /// Extracted from `handle_code_actions`'s `ResolvedLink::Broken` arm so
-/// `knap fix` computes the exact same edit the interactive "Create note"
-/// quick fix does, instead of a second implementation that can drift.
+/// every caller that needs this edit computes the exact same
+/// `WorkspaceEdit`, instead of a second implementation that can drift.
 pub(crate) fn compute_create_missing_file_fix(
     link: &parser::MarkdownLink,
     source: &Path,
@@ -1385,8 +1385,8 @@ pub(crate) fn compute_create_missing_file_fix(
 /// Build the `WorkspaceEdit` that retargets a broken anchor link's
 /// `anchor_range` to `new_anchor` (a GFM slug). Extracted from
 /// `handle_code_actions`'s per-heading "Change anchor to..." arm so both the
-/// interactive code action (one call per candidate heading) and `knap fix`
-/// (one call, for the single best-guess heading) build the identical edit.
+/// interactive code action and `knap apply`'s `repoint-anchor` op
+/// (`src/cli/apply.rs`) build the identical edit.
 pub(crate) fn compute_anchor_fix(
     source: &Path,
     anchor_range: Range,
@@ -1621,12 +1621,11 @@ struct FixSuggestion {
 /// Same diagnostics as `compute_diagnostics`, but each `broken-link`/
 /// `broken-anchor` diagnostic also carries up to `top_n` ranked candidate
 /// fixes in its `data` field, so an agent already running `knap lint --json`
-/// to verify an edit gets the closest-match candidates in the same call —
-/// no separate `knap fix --dry-run` round-trip needed to see them. Used only
-/// by the `lint` CLI's `--suggest` flag; the LSP server keeps calling the
-/// plain `compute_diagnostics`, since editors don't consume `data` here and
-/// ranking every broken link/anchor against the whole vault on every
-/// keystroke-triggered publish would be wasted work.
+/// to verify an edit gets the closest-match candidates in the same call.
+/// Used only by the `lint` CLI's `--suggest` flag; the LSP server keeps
+/// calling the plain `compute_diagnostics`, since editors don't consume
+/// `data` here and ranking every broken link/anchor against the whole
+/// vault on every keystroke-triggered publish would be wasted work.
 pub(crate) fn compute_diagnostics_with_suggestions(
     path: &Path,
     index: &NoteIndex,
