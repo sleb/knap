@@ -111,11 +111,15 @@ fn for_path(root: &Path, extensions_override: Option<Vec<String>>, exclude_addit
   request (not user-configurable — whatever the editor has open). Looks for
   `knap.toml` in `index_roots[0]`, then layers `initializationOptions` over
   it field-by-field: the editor value wins where present, `knap.toml` fills
-  in what's left, and the built-in defaults are the final fallback. A
-  malformed `knap.toml` fails `initialize` outright; a malformed
-  `initializationOptions` payload keeps the existing lenient behavior —
-  `warn!` and default that field — since it's an editor-side concern the
-  user doesn't directly author, unlike a `knap.toml` they wrote themselves.
+  in what's left, and the built-in defaults are the final fallback. `exclude`
+  is the one exception to this layering — `initializationOptions.exclude`
+  (camelCase wire field) and `knap.toml`'s `exclude` are unioned instead of
+  one overriding the other, since both express "leave this out," not
+  conflicting values. A malformed `knap.toml` fails `initialize` outright; a
+  malformed `initializationOptions` payload keeps the existing lenient
+  behavior — `warn!` and default that field — since it's an editor-side
+  concern the user doesn't directly author, unlike a `knap.toml` they wrote
+  themselves.
 - `for_path` — used by `lint`/`index`, and by the `rename-*` subcommands
   (always given `cwd`, never the target file — see the CLI section below),
   no editor involved. If the given path is a file, its parent directory is

@@ -27,10 +27,11 @@ pub(crate) struct Config {
     pub(crate) extensions: Vec<String>,
     pub(crate) new_note_dir: Option<String>,
     pub(crate) frontmatter_schema: FrontmatterSchema,
-    /// Glob patterns to exclude from indexing. Threaded through config
-    /// loading only for now — `index::build` doesn't honor it yet (see
-    /// v0.16 plan Step 2).
-    #[allow(dead_code)]
+    /// Glob patterns to exclude from indexing, matched against each entry's
+    /// path relative to its index root. Consumed by `index::build` (see
+    /// `src/index/mod.rs`). Populated by unioning `knap.toml`'s `exclude`
+    /// field with the CLI's `--exclude` flag (`lint`/`index`) or the LSP's
+    /// `initializationOptions.exclude` field, whichever applies.
     pub(crate) exclude: Vec<String>,
 }
 
@@ -241,8 +242,8 @@ pub(crate) fn for_lsp(params: &InitializeParams) -> Result<Config> {
 /// Loader for `knap lint`/`knap index`: `knap.toml` only, no editor
 /// involved. If `path` is a file, its parent directory is the root.
 /// `extensions_override` is unused today — reserved for a future `--ext`
-/// flag. `exclude_additions` (a future `--exclude` flag's values) are
-/// appended to `knap.toml`'s `exclude` list.
+/// flag. `exclude_additions` (the `lint`/`index` `--exclude` flag's values)
+/// are appended to `knap.toml`'s `exclude` list.
 pub(crate) fn for_path(
     path: &Path,
     extensions_override: Option<Vec<String>>,

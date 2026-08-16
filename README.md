@@ -151,8 +151,11 @@ stable `code` (`broken-link`, `broken-anchor`, `missing-frontmatter`,
 on `code`, not on the message text, when scripting against `--json` output.
 Exit code is `0` if no problems were found, `1` otherwise.
 
-Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--fix]`
+Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--fix] [--exclude <glob>]...`
 
+- `--exclude <glob>` — glob pattern (relative to `path`) to leave out of
+  linting entirely; repeatable. Adds to, rather than replaces, any
+  `exclude` patterns already set in `knap.toml`.
 - `--fail-on <severity>` — minimum severity that causes a non-zero exit
   (`error`, `warning` (default), `info`, or `hint`). `blocking_count` in
   `--json` output counts diagnostics at or above this threshold; exit code
@@ -210,7 +213,11 @@ Builds and prints the note index for a directory: notes, headings, links
 structured snapshot — handy for an agent to get a fast structural view of a
 workspace without grepping.
 
-Usage: `knap index <path> [--json]`
+Usage: `knap index <path> [--json] [--exclude <glob>]...`
+
+- `--exclude <glob>` — glob pattern (relative to `path`) to leave out of the
+  index entirely; repeatable. Adds to, rather than replaces, any `exclude`
+  patterns already set in `knap.toml`.
 
 When `<path>` is a single file, `knap index` scopes to that one note's
 neighborhood instead: `--json` emits a single note object (`headings`,
@@ -375,6 +382,10 @@ file):
 ```toml
 extensions = ["md"]
 new_note_dir = "inbox"
+# Glob patterns matched against each entry's path relative to the index
+# root; matching directories are never crawled and matching files are
+# skipped entirely. Don't exclude the root itself (e.g. `"."` or `"**"`) —
+# that produces an empty index rather than an error.
 exclude = ["tests/fixtures/**"]
 
 [frontmatter_schema]
@@ -390,7 +401,9 @@ values = ["draft", "published"]
 
 When running under `knap lsp`, `initializationOptions` from the editor
 layers over `knap.toml` field-by-field — the editor value wins where
-present, `knap.toml` fills in the rest.
+present, `knap.toml` fills in the rest. `exclude` is the exception: instead
+of one source winning, the editor's `initializationOptions.exclude` and
+`knap.toml`'s `exclude` are unioned, so patterns from both apply.
 
 ## Status
 

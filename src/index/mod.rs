@@ -555,11 +555,21 @@ fn walk_dir(dir: &Path, root: &Path, excludes: &[glob::Pattern], out: &mut Vec<P
     };
     #[cfg(test)]
     DIR_READS.with(|c| c.set(c.get() + 1));
+    // `require_literal_separator: true` keeps `*` from crossing `/` (so a bare
+    // `*.md` only matches top-level files, matching gitignore/VS Code
+    // semantics), while `**` is still allowed to cross separators per the
+    // glob crate's docs.
+    let match_options = glob::MatchOptions {
+        require_literal_separator: true,
+        ..Default::default()
+    };
     for entry in entries.flatten() {
         let Ok(ft) = entry.file_type() else { continue };
         let entry_path = entry.path();
         let relative = entry_path.strip_prefix(root).unwrap_or(&entry_path);
-        let excluded = excludes.iter().any(|pattern| pattern.matches_path(relative));
+        let excluded = excludes
+            .iter()
+            .any(|pattern| pattern.matches_path_with(relative, match_options));
 
         if ft.is_dir() {
             let name = entry.file_name();

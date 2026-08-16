@@ -515,13 +515,36 @@ fn build_excludes_file_by_glob() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     write_file(&root.join("a.draft.md"), "# draft\n");
+    write_file(&root.join("sub/b.draft.md"), "# nested draft\n");
     write_file(&root.join("a.md"), "# kept\n");
 
     let exclude = vec!["**/*.draft.md".to_string()];
     let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
 
+    // Both the root-level and nested draft files must be excluded — proving
+    // `**` actually crosses directory boundaries, not just that the pattern
+    // matches at a single depth.
     assert!(idx.get_note(&root.join("a.draft.md")).is_none());
+    assert!(idx.get_note(&root.join("sub/b.draft.md")).is_none());
     assert!(idx.get_note(&root.join("a.md")).is_some());
+}
+
+#[test]
+fn build_bare_star_pattern_does_not_cross_directories() {
+    // A bare `*` must not cross `/` (gitignore/VS Code semantics) — a
+    // pattern like `*.md` at the root should only exclude top-level files,
+    // not files nested in subdirectories. See v0.16 final review Important
+    // #1.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    write_file(&root.join("top.md"), "# top\n");
+    write_file(&root.join("sub/nested.md"), "# nested\n");
+
+    let exclude = vec!["*.md".to_string()];
+    let (idx, _) = build(std::slice::from_ref(&root), &["md"], &exclude).unwrap();
+
+    assert!(idx.get_note(&root.join("top.md")).is_none());
+    assert!(idx.get_note(&root.join("sub/nested.md")).is_some());
 }
 
 #[test]
