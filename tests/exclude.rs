@@ -314,3 +314,69 @@ fn lsp_initialize_applies_knap_toml_exclude() {
 
     do_shutdown(&client, 5);
 }
+
+/// Reproduction for issue #68 step (b): a `didChangeWatchedFiles` event for
+/// a path under `knap.toml`'s `exclude` (simulating `git checkout`, a
+/// formatter, or `sed -i` touching a watched file outside the editor) must
+/// not re-admit that path into the live index. Today it does, because
+/// `on_did_change_watched_files` only prunes hardcoded skip-dir names
+/// (`.git`, `node_modules`, `target`) via `should_skip_path` — it never
+/// consults `config.exclude` at all.
+#[test]
+fn lsp_did_change_watched_files_on_excluded_path_is_ignored() {
+    // `tempfile::tempdir()` itself produces a dot-prefixed directory name
+    // (e.g. `.tmpXXXXXX`) on some platforms, and that directory is an
+    // ancestor component of every path underneath it — which would trip
+    // the hardcoded dotfile skip-dir check for a reason unrelated to what
+    // this test verifies. Use an explicit non-dot prefix so the full path
+    // has no dot-prefixed component anywhere.
+    let dir = tempfile::Builder::new()
+        .prefix("knap-exclude-test-")
+        .tempdir()
+        .expect("failed to create temp dir");
+    let dir = dir.path();
+    std::fs::write(dir.join("knap.toml"), "exclude = [\"fixtures/**\"]\n")
+        .expect("write knap.toml");
+    std::fs::write(dir.join("note.md"), "# Note\n").expect("write note.md");
+    std::fs::create_dir(dir.join("fixtures")).expect("create fixtures dir");
+    std::fs::write(
+        dir.join("fixtures").join("broken.md"),
+        "[broken link](missing.md)\n",
+    )
+    .expect("write fixtures/broken.md");
+
+    let workspace_uri = url::Url::from_file_path(dir)
+        .expect("valid file URL")
+        .to_string();
+    let broken_uri = format!("{workspace_uri}/fixtures/broken.md");
+
+    let client = spawn_server();
+    do_initialize_with_workspace(&client, &workspace_uri);
+
+    // Initial crawl: fixtures/broken.md is excluded, so it's never indexed.
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    assert!(
+        diags.iter().all(|d| !d.uri.as_str().ends_with("broken.md")),
+        "excluded file should never receive diagnostics after initial crawl: {diags:?}"
+    );
+
+    // Simulate something outside the editor (git checkout, a formatter,
+    // sed -i) touching the excluded file — the watcher reports it as
+    // Created.
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "workspace/didChangeWatchedFiles".to_string(),
+            params: json!({ "changes": [{ "uri": broken_uri, "type": 1 }] }),
+        }))
+        .unwrap();
+
+    let diags = sync_and_collect_diagnostics(&client, 3);
+    assert!(
+        diags.iter().all(|d| !d.uri.as_str().ends_with("broken.md")),
+        "excluded file should never receive diagnostics after a \
+         didChangeWatchedFiles event for it: {diags:?}"
+    );
+
+    do_shutdown(&client, 4);
+}
