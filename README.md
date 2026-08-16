@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.15.0-blue)
+![Version](https://img.shields.io/badge/version-0.16.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Tooling that keeps linked Markdown notes correct — for the human writing them
@@ -407,14 +407,14 @@ of one source winning, the editor's `initializationOptions.exclude` and
 
 ## Status
 
-v0.15.0 — Judged Repoints & Text-Aware Repoint Ranking: `knap apply` gains
-`repoint-link`/`repoint-anchor` operations, applying an agent-picked
-candidate from `lint --suggest` directly at a diagnostic's range inside an
-all-or-nothing batch; and repoint ranking now blends the broken
-link/anchor's path or slug distance with how close the link's own visible
-text is to each candidate, declining to auto-apply (`knap fix`/
-`lint --fix`) and flagging `text_mismatch: true` (`lint --suggest`) when the
-two signals disagree. See the [roadmap](docs/ROADMAP.md) for planned
+v0.16.0 — Exclude Paths: `knap.toml` gains an `exclude` glob-pattern list
+(plus a `--exclude` flag on `knap lint`/`knap index`) so paths that are part
+of the repo but not the vault — most notably test fixtures with
+intentionally broken links — are left out of indexing entirely, not just
+diagnostics. A single `PathFilter` authority is now consulted by the
+initial crawl and all three live-index LSP handlers (`didOpen`/`didChange`/
+`didChangeWatchedFiles`), so a path excluded on startup stays excluded for
+the whole session (#68). See the [roadmap](docs/ROADMAP.md) for planned
 releases.
 
 ## Documentation

@@ -38,12 +38,19 @@ Resolved once from `initialize`. Configuration is fixed for the session —
 struct Config {
     /// Workspace folders from the initialize request.
     index_roots: Vec<PathBuf>,
-    /// File extensions treated as notes. Default: ["md"]
+    /// File extensions treated as notes. Default: ["md"]. Raw form, kept
+    /// for tests — path_filter is the actual authority.
     extensions: Vec<String>,
     /// Inbox folder for Quick Fix "Create note"; relative to index_roots[0].
     new_note_dir: Option<String>,
     /// Frontmatter key/value constraints. Default: empty (no validation).
     frontmatter_schema: FrontmatterSchema,
+    /// Glob patterns left out of indexing entirely. Default: []. Raw form,
+    /// kept for tests — path_filter is the actual authority.
+    exclude: Vec<String>,
+    /// Compiled exclude/index authority, built once by `finalize` from
+    /// `exclude` and `extensions`. See `should_index`/`is_note` below.
+    path_filter: PathFilter,
 }
 ```
 

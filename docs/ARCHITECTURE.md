@@ -83,11 +83,28 @@ defaults.
 ```
 Config {
   index_roots: PathBuf[]       // workspace folders (lsp) or the target path's directory (lint/index)
-  extensions: string[]         // default: ["md"]
+  extensions: string[]         // raw form, default: ["md"]; kept for tests, PathFilter is the authority
   new_note_dir: Option<string> // inbox folder for Quick Fix "Create note"; relative to index_roots[0]
   frontmatter_schema: FrontmatterSchema // key/value constraints; default: empty (no validation)
-  exclude: string[]            // glob patterns left out of indexing entirely; default: [] (no exclusions)
+  exclude: string[]            // raw glob patterns, default: []; kept for tests, PathFilter is the authority
+  path_filter: PathFilter      // compiled exclude/index authority, built once by finalize from exclude+extensions
 }
+```
+
+`path_filter` is the single authority for "does this path belong in the
+index" — `PathFilter::compile(exclude, extensions)` compiles `exclude`'s
+glob strings once at config-resolution time (surfacing a malformed pattern
+as an error immediately, rather than at first use) and resolves the
+hardcoded `.git`/`node_modules`/`target` skip-list. `Config` exposes two
+methods that delegate to it and are the only calls the rest of the codebase
+makes — `index::build`'s crawl and the three live-index LSP handlers
+(`didOpen`, `didChange`, `didChangeWatchedFiles`) all consult the same
+authority, so a path excluded at startup stays excluded for the life of the
+session:
+
+```rust
+fn should_index(&self, path: &Path) -> bool // longest-prefix index_roots match, then path_filter.should_index
+fn is_note(&self, path: &Path) -> bool      // delegates to path_filter.is_note (extension check)
 ```
 
 There are two sources, and two loader entry points that combine them
@@ -252,6 +269,8 @@ all_notes() → Note[]
 links_to(path: string) → LocatedLink[]  // standard links from other notes pointing here
 all_tags() → string[]
 notes_by_tag(tag: string) → Note[]
+note_report(path: string) → NoteSummary | null
+all_attachment_paths() → Path[]
 ```
 
 The index is the single source of truth. Request Handlers read from it

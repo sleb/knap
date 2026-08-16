@@ -13,11 +13,11 @@ down untested code for the next step to build on.
 
 | Step                                    | Status | Notes |
 | --------------------------------------- | ------ | ----- |
-| 1 — `exclude` in `Config`               | Todo   |       |
-| 2 — `index::build` honors `exclude`     | Todo   |       |
-| 3 — Wire `exclude` through every caller | Todo   |       |
-| 4 — `--exclude` CLI flag                | Todo   |       |
-| 5 — Integration tests                   | Todo   |       |
+| 1 — `exclude` in `Config`               | Done   |       |
+| 2 — `index::build` honors `exclude`     | Done   |       |
+| 3 — Wire `exclude` through every caller | Done   |       |
+| 4 — `--exclude` CLI flag                | Done   |       |
+| 5 — Integration tests                   | Done   |       |
 
 ---
 

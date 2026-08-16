@@ -389,21 +389,22 @@ pub struct IndexDelta {
 
 ## Initial crawl
 
-Called from the Protocol Handler after `initialized`. Note files (matching `extensions`) are fully parsed; all other files are registered in `all_files` only so attachment links resolve immediately.
+Called from the Protocol Handler after `initialized`. Note files (matching
+`extensions`) are fully parsed; all other files are registered in
+`all_files` only so attachment links resolve immediately. `filter` — a
+compiled `PathFilter` (see `docs/design/components/protocol-handler.md`) —
+is the single exclude/index authority consulted here and by the three
+live-index LSP handlers, so a path excluded at startup stays excluded for
+the rest of the session.
 
 ```rust
-pub fn build(roots: &[PathBuf], extensions: &[&str]) -> (NoteIndex, IndexDelta) {
+pub(crate) fn build(roots: &[PathBuf], filter: &PathFilter) -> anyhow::Result<(NoteIndex, IndexDelta)> {
     let mut index = NoteIndex::default();
     let mut all_affected = HashSet::new();
 
     for root in roots {
-        for path in walk_files(root) {
-            let is_note = path.extension()
-                .and_then(|e| e.to_str())
-                .map(|ext| extensions.contains(&ext))
-                .unwrap_or(false);
-
-            if is_note {
+        for path in walk_files(root, filter) {
+            if filter.is_note(&path) {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     let delta = index.index(parser::parse(&path, &content));
                     all_affected.extend(delta.affected_paths);
@@ -415,16 +416,20 @@ pub fn build(roots: &[PathBuf], extensions: &[&str]) -> (NoteIndex, IndexDelta) 
         }
     }
 
-    (index, IndexDelta { affected_paths: all_affected })
+    Ok((index, IndexDelta { affected_paths: all_affected }))
 }
 ```
 
-`walk_files` is a recursive directory walk. It uses `entry.file_type()` (not
-`path.is_dir()`) so symlinked directories are never followed, preventing infinite
-loops. Directories whose name starts with `.` (e.g. `.git`) and the well-known
-build/dependency directories `node_modules` and `target` are skipped. Every
-remaining file is returned — no extension filter — so that attachments can be
-registered alongside notes.
+`walk_files`/`walk_dir` form a recursive directory walk. It uses
+`entry.file_type()` (not `path.is_dir()`) so symlinked directories are never
+followed, preventing infinite loops. Before recursing into a subdirectory,
+`filter.should_skip_dir(root, &entry_path, &name)` is checked — this prunes
+both the hardcoded dotfile/`node_modules`/`target` directories and any
+directory matching a `knap.toml` `exclude` pattern, so an excluded
+subdirectory is never even opened with `read_dir`. Each candidate file is
+checked with `filter.should_index(root, &entry_path)` before being
+returned, which applies the same `exclude` patterns to files — so excluded
+files never reach `build` and show up as neither a note nor an attachment.
 
 Each collected file path is passed through `normalize_path` before being
 pushed to the result (v0.11.1, #62). Without this, a root given with a

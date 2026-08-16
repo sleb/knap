@@ -125,18 +125,20 @@ headless `knap lint` and `knap index` commands — see the
 [README](../README.md#knaptoml) for its shape and how it layers with
 `initializationOptions`.
 
-| Option              | Type       | Default  | Description                                                                                                                                         |
-| ------------------- | ---------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `extensions`        | `string[]` | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments.                                                           |
-| `newNoteDir`        | `string`   | —        | Folder path relative to workspace root where Quick Fix "Create note" places new files. When absent, new files are created next to the linking note. |
-| `frontmatterSchema` | `object`   | —        | Defines allowed keys and values for note frontmatter. Enables key/value completions and diagnostics. See below.                                     |
+| Option              | Type       | Default  | Description                                                                                                                                                                                       |
+| ------------------- | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extensions`        | `string[]` | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments.                                                                                                         |
+| `newNoteDir`        | `string`   | —        | Folder path relative to workspace root where Quick Fix "Create note" places new files. When absent, new files are created next to the linking note.                                               |
+| `frontmatterSchema` | `object`   | —        | Defines allowed keys and values for note frontmatter. Enables key/value completions and diagnostics. See below.                                                                                   |
+| `exclude`           | `string[]` | `[]`     | Glob patterns (relative to the workspace root) left out of indexing entirely — no diagnostics, completions, navigation, or backlinks. Unioned with `knap.toml`'s `exclude`, not overridden by it. |
 
 **Example — multi-extension vault with inbox:**
 
 ```json
 {
   "extensions": ["md", "mdx"],
-  "newNoteDir": "0-Inbox"
+  "newNoteDir": "0-Inbox",
+  "exclude": ["tests/fixtures/**"]
 }
 ```
 

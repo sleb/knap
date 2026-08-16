@@ -28,7 +28,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.13](#v013--agent-ergonomics-released-2026-08-08)                              | Agent Ergonomics                             | Released 2026-08-08 |
 | [v0.14](#v014--batch-apply-released-2026-08-08)                                   | Batch Apply                                  | Released 2026-08-08 |
 | [v0.15](#v015--judged-repoints--text-aware-repoint-ranking-released-2026-08-15)   | Judged Repoints & Text-Aware Repoint Ranking | Released 2026-08-15 |
-| [v0.16](#v016--exclude-paths)                                                     | Exclude Paths                                | In Progress         |
+| [v0.16](#v016--exclude-paths-released-2026-08-15)                                 | Exclude Paths                                | Released 2026-08-15 |
 
 ---
 
@@ -466,7 +466,9 @@ full design.
 
 ---
 
-## v0.16 — Exclude Paths
+## v0.16 — Exclude Paths _(released 2026-08-15)_
+
+### Exclude paths
 
 **Goal:** Keep files that are deliberately part of the repo but not part of
 the vault — most notably `tests/fixtures/**`, whose intentionally broken
@@ -482,15 +484,33 @@ a `--exclude` flag on `knap lint`/`knap index` for one-off exclusions.
 Excluded paths are left out of indexing entirely, not just diagnostics — no
 completions, no navigation, no backlinks either.
 
+| Story | Feature                                                                      |
+| ----- | ---------------------------------------------------------------------------- |
+| US-55 | `knap.toml` `exclude` glob patterns; `knap lint`/`knap index --exclude` flag |
+
+See `docs/design/releases/archive/v0.16/exclude-paths/design.md` for the
+full design.
+
+### Path filter authority
+
+**Goal:** Fix a gap in the exclude-paths feature above: a path excluded on
+startup didn't necessarily stay excluded — the initial crawl (and `knap
+lint`/`knap index`) respected `exclude`, but the three live-index LSP
+handlers (`didOpen`, `didChange`, `didChangeWatchedFiles`) never consulted
+the same rules, so an excluded file created or changed while `knap lsp` was
+running could still slip into the index (issue #68).
+
+This release introduces `PathFilter`, a single compiled exclude/index
+authority built once from `exclude` and `extensions`, consulted by
+`index::build`'s crawl and all three live-index handlers alike — so an
+excluded path stays excluded for the life of the session.
+
 | Story   | Feature                                                                                                                                                                               |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| US-55   | `knap.toml` `exclude` glob patterns; `knap lint`/`knap index --exclude` flag                                                                                                          |
 | Bug #68 | `PathFilter`, a single exclude/index authority consulted by the crawl and the three live-index LSP handlers, so a path excluded on startup stays excluded for the rest of the session |
 
-See `docs/design/releases/v0.16/exclude-paths/design.md` for the original
-`exclude` design, and
-`docs/design/releases/v0.16/path-filter-authority/design.md` for the
-follow-up fix.
+See `docs/design/releases/archive/v0.16/path-filter-authority/design.md`
+for the full design.
 
 ---
 

@@ -5,6 +5,34 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.16.0] — 2026-08-15
+
+### Added
+
+- **`exclude` glob patterns.** List glob patterns under `exclude` in
+  `knap.toml` to leave matching files and directories out of indexing
+  entirely — no diagnostics, completions, navigation, or backlinks. Useful
+  for paths that are part of the repo but not part of the vault, like
+  `tests/fixtures/**` whose intentionally broken links exist to exercise
+  diagnostics. `knap lsp`, `knap lint`, and `knap index` all read the same
+  `exclude` list, and an editor's `initializationOptions.exclude` is unioned
+  with (not overridden by) `knap.toml`'s.
+- **`--exclude` flag on `knap lint`/`knap index`.** Repeatable glob pattern
+  for one-off exclusions on top of `knap.toml`'s configured list.
+
+### Fixed
+
+- **A path excluded on startup now stays excluded for the whole session
+  (#68).** Previously, only the initial crawl (and `knap lint`/`knap index`)
+  respected `exclude`; a file matching an `exclude` pattern that was created
+  or changed later while `knap lsp` was running could still slip into the
+  index via `didOpen`/`didChange`/`didChangeWatchedFiles`, because those
+  handlers never consulted the exclude/extension rules. All three now check
+  the same `PathFilter` authority the initial crawl uses, so excluded paths
+  are ignored consistently for the life of the session.
+
+---
+
 ## [0.15.0] — 2026-08-15
 
 ### Added
