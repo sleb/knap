@@ -29,7 +29,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.14](#v014--batch-apply-released-2026-08-08)                                   | Batch Apply                                  | Released 2026-08-08 |
 | [v0.15](#v015--judged-repoints--text-aware-repoint-ranking-released-2026-08-15)   | Judged Repoints & Text-Aware Repoint Ranking | Released 2026-08-15 |
 | [v0.16](#v016--exclude-paths-released-2026-08-15)                                 | Exclude Paths                                | Released 2026-08-15 |
-| [v0.17](#v017--drop-knap-fix--directory-links)                                    | Drop `knap fix` & Directory Links            | Planned             |
+| [v0.17](#v017--drop-knap-fix--directory-links-released-2026-08-17)                | Drop `knap fix` & Directory Links            | Released 2026-08-17 |
 
 ---
 
@@ -515,7 +515,7 @@ for the full design.
 
 ---
 
-## v0.17 — Drop `knap fix` & Directory Links
+## v0.17 — Drop `knap fix` & Directory Links _(released 2026-08-17)_
 
 ### Drop `knap fix`
 
@@ -537,7 +537,7 @@ supplies the exact target it already chose).
 | US-D18 (amended) | `knap apply`'s op list drops `fix`; `rename-file`/`rename-heading`/`rename-tag`/`repoint-link`/`repoint-anchor` remain |
 | US-D20 (amended) | Drops the "`knap fix`'s auto-apply ... decline to auto-apply" half; `--suggest`'s `text_mismatch` flag is unchanged    |
 
-See `docs/design/releases/v0.17/drop-fix/design.md` for the full design.
+See `docs/design/releases/archive/v0.17/drop-fix/design.md` for the full design.
 
 ### Directory Links
 

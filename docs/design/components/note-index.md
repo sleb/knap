@@ -17,6 +17,10 @@ pub struct NoteIndex {
     /// Used to validate link targets without resolving them through `by_path`.
     all_files: HashSet<PathBuf>,
 
+    /// Every directory in the workspace (including index roots), normalized.
+    /// Used so links to a directory resolve like links to a file.
+    all_dirs: HashSet<PathBuf>,
+
     /// Reverse index: target absolute path → all links pointing to it.
     /// Only contains links that resolved successfully at index time.
     links_to: HashMap<PathBuf, Vec<LocatedLink>>,
@@ -64,13 +68,19 @@ pub fn resolve(&self, source: &Path, target: &str) -> ResolvedLink {
         .join(target.as_ref());
     // Normalise away `..` components without requiring the path to exist on disk.
     let candidate = normalize_path(&candidate);
-    if self.all_files.contains(&candidate) {
+    if self.target_exists(&candidate) {
         ResolvedLink::Found(candidate)
     } else {
         ResolvedLink::Broken
     }
 }
 ```
+
+`target_exists` (private) is `self.all_files.contains(path) || self.all_dirs.contains(path)`
+(v0.17) — a link resolves the same way whether it targets a file or a
+directory. `index()` step 3 and `recheck_incoming()` (below) both call
+`target_exists` too, so a link to a directory populates `links_to` and
+participates in backlink tracking exactly like a link to a file.
 
 Empty targets (anchor-only links like `[text](#heading)`) resolve to the
 source file itself directly inside `resolve()` (v0.11.1, #60) — previously
@@ -127,7 +137,7 @@ pub fn index(&mut self, note: Note) -> IndexDelta {
         let candidate = normalize_path(
             &note.path.parent().unwrap().join(target.as_ref())
         );
-        if self.all_files.contains(&candidate) {
+        if self.target_exists(&candidate) {
             self.links_to.entry(candidate.clone()).or_default().push(LocatedLink {
                 source_path: note.path.clone(),
                 md_link: link.clone(),
@@ -309,8 +319,54 @@ impl NoteIndex {
         affected.insert(path.to_path_buf());
         IndexDelta { affected_paths: affected }
     }
+
+    /// Register a directory (including a workspace root) as a known link
+    /// target. Rechecks all existing notes that link to this path so their
+    /// diagnostics clear.
+    pub fn add_dir(&mut self, path: PathBuf) -> IndexDelta {
+        self.all_dirs.insert(path.clone());
+        let affected = self.recheck_incoming(&path);
+        IndexDelta { affected_paths: affected }
+    }
+
+    /// Remove a directory from the index. Notes that linked to it now have
+    /// broken links and are returned in the delta.
+    pub fn remove_dir(&mut self, path: &Path) -> IndexDelta {
+        self.all_dirs.remove(path);
+        let mut affected = AffectedPaths::default();
+        if let Some(incoming) = self.links_to.remove(path) {
+            for l in &incoming { affected.insert(l.source_path.clone()); }
+        }
+        for links in self.links_to.values_mut() {
+            links.retain(|l| l.source_path != path);
+        }
+        self.links_to.retain(|_, v| !v.is_empty());
+        affected.insert(path.to_path_buf());
+        IndexDelta { affected_paths: affected }
+    }
+
+    /// `true` if `path` (already normalized) is a directory registered via
+    /// `add_dir`.
+    pub fn is_dir_indexed(&self, path: &Path) -> bool {
+        self.all_dirs.contains(path)
+    }
+
+    /// Directories whose parent is exactly `dir` (immediate children only).
+    pub fn child_dirs(&self, dir: &Path) -> impl Iterator<Item = &Path> {
+        self.all_dirs
+            .iter()
+            .filter(move |p| p.parent() == Some(dir))
+            .map(PathBuf::as_path)
+    }
 }
 ```
+
+`add_dir`/`remove_dir` (v0.17) mirror `add_attachment`/`remove_attachment` —
+directories live in their own `all_dirs` set rather than `all_files`, since a
+directory has no note/attachment content of its own, only its role as a
+resolvable link target. `is_dir_indexed` and `child_dirs` back the
+directory-trigger completion branch (folder listing, "accept this folder"
+item) in `handle_completion` — see `docs/design/components/handlers.md`.
 
 ---
 
@@ -391,11 +447,13 @@ pub struct IndexDelta {
 
 Called from the Protocol Handler after `initialized`. Note files (matching
 `extensions`) are fully parsed; all other files are registered in
-`all_files` only so attachment links resolve immediately. `filter` — a
-compiled `PathFilter` (see `docs/design/components/protocol-handler.md`) —
-is the single exclude/index authority consulted here and by the three
-live-index LSP handlers, so a path excluded at startup stays excluded for
-the rest of the session.
+`all_files` only so attachment links resolve immediately; every directory
+walked (plus each root itself) is registered in `all_dirs` (v0.17) so
+directory links resolve immediately too. `filter` — a compiled `PathFilter`
+(see `docs/design/components/protocol-handler.md`) — is the single
+exclude/index authority consulted here and by the three live-index LSP
+handlers, so a path excluded at startup stays excluded for the rest of the
+session.
 
 ```rust
 pub(crate) fn build(roots: &[PathBuf], filter: &PathFilter) -> anyhow::Result<(NoteIndex, IndexDelta)> {
@@ -403,7 +461,15 @@ pub(crate) fn build(roots: &[PathBuf], filter: &PathFilter) -> anyhow::Result<(N
     let mut all_affected = HashSet::new();
 
     for root in roots {
-        for path in walk_files(root, filter) {
+        let delta = index.add_dir(normalize_path(root));
+        all_affected.extend(delta.affected_paths);
+
+        let (files, dirs) = walk_files_and_dirs(root, filter);
+        for dir in dirs {
+            let delta = index.add_dir(dir);
+            all_affected.extend(delta.affected_paths);
+        }
+        for path in files {
             if filter.is_note(&path) {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     let delta = index.index(parser::parse(&path, &content));
@@ -420,16 +486,24 @@ pub(crate) fn build(roots: &[PathBuf], filter: &PathFilter) -> anyhow::Result<(N
 }
 ```
 
-`walk_files`/`walk_dir` form a recursive directory walk. It uses
-`entry.file_type()` (not `path.is_dir()`) so symlinked directories are never
-followed, preventing infinite loops. Before recursing into a subdirectory,
-`filter.should_skip_dir(root, &entry_path, &name)` is checked — this prunes
-both the hardcoded dotfile/`node_modules`/`target` directories and any
-directory matching a `knap.toml` `exclude` pattern, so an excluded
-subdirectory is never even opened with `read_dir`. Each candidate file is
-checked with `filter.should_index(root, &entry_path)` before being
-returned, which applies the same `exclude` patterns to files — so excluded
-files never reach `build` and show up as neither a note nor an attachment.
+`walk_files_and_dirs`/`walk_dir` form a recursive directory walk, returning
+`(files, dirs)` — every non-skipped directory visited, plus every accepted
+file. It uses `entry.file_type()` (not `path.is_dir()`) so symlinked
+directories are never followed, preventing infinite loops. Before recursing
+into a subdirectory, `filter.should_skip_dir(root, &entry_path, &name)` is
+checked — this prunes both the hardcoded dotfile/`node_modules`/`target`
+directories and any directory matching a `knap.toml` `exclude` pattern, so
+an excluded subdirectory is never even opened with `read_dir`, and never
+pushed to `dirs`. Each candidate file is checked with
+`filter.should_index(root, &entry_path)` before being returned, which
+applies the same `exclude` patterns to files — so excluded files never
+reach `build` and show up as neither a note nor an attachment.
+
+After startup, newly created directories are discovered lazily rather than
+by re-crawling: `register_ancestor_dirs` (Protocol Handler, see
+`docs/design/components/protocol-handler.md`) climbs from a changed file's
+parent upward, calling `add_dir` on each not-yet-known ancestor, and stops
+at the first already-registered one.
 
 Each collected file path is passed through `normalize_path` before being
 pushed to the result (v0.11.1, #62). Without this, a root given with a

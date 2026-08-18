@@ -5,6 +5,34 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.17.0] — 2026-08-17
+
+### Added
+
+- **Directory links.** A link to an existing folder — `[LLDs](docs/lld/)` —
+  now resolves instead of always showing a `broken-link` diagnostic. Go to
+  Definition navigates to the directory, Find References tracks every note
+  linking to it, and newly created folders (with a file in them) become
+  linkable the moment they're saved, without restarting the server.
+- **"Link to this folder" completion item.** Once you've drilled into a
+  folder in a link-path completion list, the list now offers that folder
+  itself as an item — select it to finish the link at the folder instead of
+  being forced to pick one of its files. Directory listings are now
+  index-backed, so empty folders show up as completion items too.
+
+### Removed
+
+- **`knap fix` and `knap lint --fix`.** Both silently picked the top-ranked
+  candidate from the same ranking `--suggest` shows and wrote it to disk
+  without any human or agent reviewing the specific edit first. Use `knap
+lint --suggest` to see ranked candidates and `knap apply` with an explicit
+  `repoint-link`/`repoint-anchor` op to apply the one you've reviewed.
+  The LSP's quick-fix code actions (reviewed per cursor position in the
+  editor) are unaffected.
+- **`knap apply`'s `"fix"` op.** Dropped for the same reason; `apply`'s
+  `rename-file`, `rename-heading`, `rename-tag`, `repoint-link`, and
+  `repoint-anchor` ops are unchanged.
+
 ## [0.16.0] — 2026-08-15
 
 ### Added

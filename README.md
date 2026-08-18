@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.16.0-blue)
+![Version](https://img.shields.io/badge/version-0.17.0-blue)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Tooling that keeps linked Markdown notes correct — for the human writing them
@@ -51,9 +51,14 @@ files change, so there's no restart needed after edits.
 ### Linking & completions
 
 - **Path completions** — type `(` inside a Markdown link for a directory
-  browser; drill into subfolders one level at a time, or type any filename
-  segment to jump directly to any note or attachment in the workspace (images
-  and PDFs included)
+  browser; drill into subfolders one level at a time (including empty ones),
+  or type any filename segment to jump directly to any note or attachment in
+  the workspace (images and PDFs included); once drilled into a folder, an
+  item lets you link to that folder itself instead of picking a file inside it
+- **Directory links** — link to a folder (`[LLDs](docs/lld/)`) and it
+  resolves like a link to a file: no `broken-link` diagnostic, Go to
+  Definition navigates to the folder, Find References tracks every note
+  linking to it
 - **Anchor completions** — type `#` after a file path to pick from that file's
   headings, or `[text](#` to pick from the current file's headings; inserts the
   GFM slug automatically (`## My Section` → `my-section`)

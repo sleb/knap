@@ -12,8 +12,8 @@ untested code for the next step to build on.
 
 | Step                                        | Status | Notes |
 | ------------------------------------------- | ------ | ----- |
-| 1 — Remove the fix mechanism (code + tests) | Todo   |       |
-| 2 — Update living docs                      | Todo   |       |
+| 1 — Remove the fix mechanism (code + tests) | Done   |       |
+| 2 — Update living docs                      | Done   |       |
 
 ---
 

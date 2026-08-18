@@ -131,15 +131,17 @@ Each item has:
 ### Directory completion (`](` or `](partial/`)
 
 When `check_dir_trigger` detects that the cursor is inside a link destination
-with no `#`, the handler returns items in three sorted tiers. `sort_text` uses
-a string prefix so editors that respect the field keep the tiers ordered even
-when their fuzzy scorer would otherwise rerank items:
+with no `#`, the handler returns items in an optional "accept this folder"
+item plus three sorted tiers. `sort_text` uses a string prefix so editors
+that respect the field keep the tiers ordered even when their fuzzy scorer
+would otherwise rerank items:
 
-| Tier | `sort_text` prefix | Contents                                                                                                                                                                                                                                                                                                                                                          |
-| ---- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | `"0_"`             | **FOLDER** items — immediate subdirectories of `base_dir`. Label is `subdir/`; selecting one re-triggers completion (via the registered `/` trigger character) to show its contents.                                                                                                                                                                              |
-| 1    | `"1_"`             | **FILE** items — notes and attachments directly inside `base_dir`. For notes with a frontmatter `title`, the label is the title and `detail` is the filename.                                                                                                                                                                                                     |
-| 2    | `"2_"`             | **FILE** items — every other workspace file not already shown as a tier-1 item and not the current file. Label is the frontmatter `title` if present, otherwise the bare filename. `filter_text` is the full relative path so editors surface the item when the user types any path segment (e.g. `sub` surfaces `sub/b.md`). `detail` is the full relative path. |
+| Tier                 | `sort_text`  | Contents                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "accept this folder" | `""` (empty) | **FOLDER** item, offered only when `base_dir != note_dir && index.is_dir_indexed(&base_dir)` — i.e. once drilled into an indexed directory. Label is the directory's bare name (no trailing slash), `detail` is `"Link to this folder"`. Its `new_text` is the finished `base_dir/` path, letting the link target the folder itself instead of requiring a further drill-down. Sorts before every tier below. |
+| 0                    | `"0_"`       | **FOLDER** items — immediate subdirectories of `base_dir`, sourced from `index.child_dirs(&base_dir)` (v0.17; includes directories with no files in them, which file-path inference alone could never see). Label is `subdir/`; selecting one re-triggers completion (via the registered `/` trigger character) to show its contents.                                                                         |
+| 1                    | `"1_"`       | **FILE** items — notes and attachments directly inside `base_dir`. For notes with a frontmatter `title`, the label is the title and `detail` is the filename.                                                                                                                                                                                                                                                 |
+| 2                    | `"2_"`       | **FILE** items — every other workspace file not already shown as a tier-1 item and not the current file. Label is the frontmatter `title` if present, otherwise the bare filename. `filter_text` is the full relative path so editors surface the item when the user types any path segment (e.g. `sub` surfaces `sub/b.md`). `detail` is the full relative path.                                             |
 
 Files already shown in tier 1 are tracked in a `HashSet` and excluded from
 tier 2 to avoid duplicates.
@@ -622,7 +624,7 @@ whole ranked list, `text_distance` included, to show the agent).
 ### `compute_link_fix()` (v0.13, text-aware since v0.16)
 
 The link-target counterpart to `compute_anchor_fix`,
-added alongside `knap lint --suggest`/`--fix` (after the six functions
+added alongside `knap lint --suggest` (after the six functions
 above) so a broken link can be repointed at an existing note the same way a
 broken anchor is repointed at an existing heading, instead of always falling
 back to creating a stub file.

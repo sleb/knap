@@ -16,7 +16,7 @@ diagnostics to any LSP-compatible editor — using standard Markdown syntax.
 > and US-D20 were trimmed to drop references to it. `knap lint --suggest`
 > and `knap apply`'s `repoint-link`/`repoint-anchor` ops (pick a candidate,
 > then apply it) remain the recommended flow. See
-> `docs/design/releases/v0.17/drop-fix/design.md`.
+> `docs/design/releases/archive/v0.17/drop-fix/design.md`.
 
 Stories are grouped by persona, not just feature:
 

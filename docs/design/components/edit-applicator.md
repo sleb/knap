@@ -80,14 +80,15 @@ file's _old_ path, so it must apply before the rename, not after.
 
 ## Callers
 
-None yet outside its own unit tests — `apply` currently carries
-`#[allow(dead_code)]`. Its first caller is `knap rename-file` (v0.12); the
-other v0.12 subcommands (`rename-heading`, `rename-tag`) and v0.13's `knap
-fix` are also headless CLI commands expected to call it. `handlers.rs`
-never calls it, and neither does `knap lsp` — when a real editor is
-connected, the editor applies its own edits over `workspace/applyEdit`, and
-this module doesn't run. See `docs/ARCHITECTURE.md` § Boundaries and
-Invariants.
+Headless CLI commands: `knap rename-file`/`rename-heading`/`rename-tag`
+(v0.12), and `knap apply`'s `repoint-link`/`repoint-anchor` ops (v0.13,
+amended v0.17 when `apply`'s `fix` op was dropped — see
+`docs/design/releases/archive/v0.17/drop-fix/design.md`), which compute the
+edit via `handlers::compute_link_fix`/`compute_anchor_fix` and hand the
+result to `edit::apply`. `handlers.rs` never calls it directly, and neither
+does `knap lsp` — when a real editor is connected, the editor applies its
+own edits over `workspace/applyEdit`, and this module doesn't run. See
+`docs/ARCHITECTURE.md` § Boundaries and Invariants.
 
 ---
 

@@ -206,7 +206,10 @@ Once connected, knap provides the following in any Markdown file:
 
 Inside a Markdown link, type `(` to open a completion list. Directory items let
 you drill down one folder at a time — select a folder and the picker re-opens
-showing its contents; typing `/` re-triggers automatically. Below the directory
+showing its contents; typing `/` re-triggers automatically. Once you've drilled
+into a folder, the list also offers that folder itself as a completion item
+(labeled with its name, detail "Link to this folder") — select it to link
+directly to the folder instead of one of its files. Below the directory
 items, the list also shows every file in the workspace, so you can jump directly
 to any note or attachment by typing part of its name or path without navigating
 through folders.

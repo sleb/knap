@@ -247,9 +247,12 @@ notes in the workspace.
   startup
 - Accepting incremental updates (note added, changed, deleted) from the Protocol
   Handler
-- Resolving standard Markdown link paths to file paths within the workspace
-- Detecting broken links (references to files or anchors that don't exist)
-- Maintaining a reverse index: for each file, which files link to it (backlinks)
+- Resolving standard Markdown link paths to file or directory paths within
+  the workspace
+- Detecting broken links (references to files, directories, or anchors that
+  don't exist)
+- Maintaining a reverse index: for each file or directory, which files link
+  to it (backlinks)
 
 **Contract (writes):**
 
@@ -258,6 +261,8 @@ index(note: Note) → IndexDelta             // add or replace; returns affected
 remove(path: string) → IndexDelta          // delete; returns affected paths for diagnostics
 add_attachment(path: PathBuf) → IndexDelta // register a non-note file; may clear broken-link diagnostics
 remove_attachment(path: PathBuf) → IndexDelta
+add_dir(path: PathBuf) → IndexDelta        // register a directory as a link target; may clear broken-link diagnostics
+remove_dir(path: string) → IndexDelta
 ```
 
 **Contract (reads):**
@@ -271,6 +276,8 @@ all_tags() → string[]
 notes_by_tag(tag: string) → Note[]
 note_report(path: string) → NoteSummary | null
 all_attachment_paths() → Path[]
+is_dir_indexed(path: string) → bool
+child_dirs(dir: string) → Path[]  // immediate subdirectories, including empty ones
 ```
 
 The index is the single source of truth. Request Handlers read from it

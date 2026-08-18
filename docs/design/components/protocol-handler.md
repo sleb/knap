@@ -7,7 +7,7 @@ Owns the LSP session lifecycle, resolves configuration, and routes every inbound
 ## Dependencies
 
 ```toml
-lsp-server = "0.7"
+lsp-server = "0.10"
 lsp-types  = "0.97"
 serde_json = "1"
 anyhow     = "1"
@@ -223,7 +223,9 @@ These handlers feed the Note Index. After each index update they trigger diagnos
 
 ```
 params → path from URI → config.should_index(path)? no → return
-       → parse document content → index.index(note) → publish_diagnostics(affected)
+       → parse document content → index.index(note)
+       → extend affected with register_ancestor_dirs(path, config.index_roots, index)
+       → publish_diagnostics(affected)
 ```
 
 ### `textDocument/didChange`
@@ -231,7 +233,9 @@ params → path from URI → config.should_index(path)? no → return
 ```
 params → path from URI → config.should_index(path)? no → return
        → parse full content from params.content_changes[0].text
-       → index.index(note) → publish_diagnostics(affected)
+       → index.index(note)
+       → extend affected with register_ancestor_dirs(path, config.index_roots, index)
+       → publish_diagnostics(affected)
 ```
 
 `FULL` sync guarantees `content_changes` has exactly one entry with the full text.
@@ -248,9 +252,11 @@ for each FileEvent in params.changes:
     config.is_note(path)?
         note:
             Created | Changed → read file from disk → parse → index.index(note)
+                                 → extend affected with register_ancestor_dirs(path, config.index_roots, index)
             Deleted            → index.remove(path)
         attachment:
             Created → index.add_attachment(path)
+                       → extend affected with register_ancestor_dirs(path, config.index_roots, index)
             Deleted → index.remove_attachment(path)
             Changed → no-op
 → publish_diagnostics(all affected files)
@@ -260,3 +266,17 @@ for each FileEvent in params.changes:
 `index::build`'s crawl uses, so a path excluded from the initial index (via
 the hardcoded `.git`/`node_modules`/`target` prune or `knap.toml`'s `exclude`)
 stays excluded across the whole live session, not just on startup.
+
+### `register_ancestor_dirs` (v0.17)
+
+Directories created after startup become visible without a restart. Called
+after every note/attachment `Created` or `Changed` above, it climbs from
+`path`'s parent directory upward, registering each not-yet-known ancestor
+via `index.add_dir(..)`. Climbing stops at the first already-known ancestor,
+or at the matching configured root — so a single new file never walks
+arbitrarily far up the filesystem. If `path` isn't under any configured
+root, it returns an empty set without panicking. Its return value (the
+union of every affected path from each `add_dir` call) is folded into the
+call site's `affected_paths` before `publish_diagnostics` runs, so a
+directory link that was broken because its target didn't exist yet clears
+in the same round-trip as the file that created it.
