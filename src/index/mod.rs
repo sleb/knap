@@ -17,6 +17,10 @@ pub struct NoteIndex {
     /// Used for path-relative link resolution.
     all_files: HashSet<PathBuf>,
 
+    /// Every directory in the workspace (including index roots), normalized.
+    /// Used so links to a directory resolve like links to a file.
+    all_dirs: HashSet<PathBuf>,
+
     /// Reverse index: target path → all standard Markdown links pointing to it.
     /// Only contains links that resolved successfully at index time.
     links_to: HashMap<PathBuf, Vec<LocatedLink>>,
@@ -150,7 +154,7 @@ impl NoteIndex {
             .expect("note path must have a parent directory")
             .join(target.as_ref());
         let candidate = normalize_path(&candidate);
-        if self.all_files.contains(&candidate) {
+        if self.target_exists(&candidate) {
             ResolvedLink::Found(candidate)
         } else {
             ResolvedLink::Broken
@@ -182,7 +186,7 @@ impl NoteIndex {
                 .expect("note path must have a parent directory")
                 .join(target.as_ref());
             let candidate = normalize_path(&candidate);
-            if self.all_files.contains(&candidate) {
+            if self.target_exists(&candidate) {
                 self.links_to
                     .entry(candidate.clone())
                     .or_default()
@@ -469,6 +473,57 @@ impl NoteIndex {
             affected_paths: affected,
         }
     }
+
+    /// Returns `true` if `path` (already normalized) is a known link target
+    /// — either a file in `all_files` or a directory in `all_dirs`.
+    fn target_exists(&self, path: &Path) -> bool {
+        self.all_files.contains(path) || self.all_dirs.contains(path)
+    }
+
+    /// Register a directory (including a workspace root) as a known link
+    /// target. Rechecks all existing notes that link to this path so their
+    /// diagnostics clear.
+    pub fn add_dir(&mut self, path: PathBuf) -> IndexDelta {
+        self.all_dirs.insert(path.clone());
+        let affected = self.recheck_incoming(&path);
+        IndexDelta {
+            affected_paths: affected,
+        }
+    }
+
+    /// Remove a directory from the index. Notes that linked to it now have
+    /// broken links and are returned in the delta.
+    pub fn remove_dir(&mut self, path: &Path) -> IndexDelta {
+        self.all_dirs.remove(path);
+        let mut affected = AffectedPaths::default();
+        if let Some(incoming) = self.links_to.remove(path) {
+            for l in &incoming {
+                affected.insert(l.source_path.clone());
+            }
+        }
+        for links in self.links_to.values_mut() {
+            links.retain(|l| l.source_path != path);
+        }
+        self.links_to.retain(|_, v| !v.is_empty());
+        affected.insert(path.to_path_buf());
+        IndexDelta {
+            affected_paths: affected,
+        }
+    }
+
+    /// `true` if `path` (already normalized) is a directory registered via
+    /// [`NoteIndex::add_dir`].
+    pub fn is_dir_indexed(&self, path: &Path) -> bool {
+        self.all_dirs.contains(path)
+    }
+
+    /// Directories whose parent is exactly `dir` (immediate children only).
+    pub fn child_dirs(&self, dir: &Path) -> impl Iterator<Item = &Path> {
+        self.all_dirs
+            .iter()
+            .filter(move |p| p.parent() == Some(dir))
+            .map(PathBuf::as_path)
+    }
 }
 
 /// Build an initial index by crawling `roots`. Note files (per `filter`'s
@@ -487,7 +542,15 @@ pub(crate) fn build(
     let mut all_affected = HashSet::new();
 
     for root in roots {
-        for path in walk_files(root, filter) {
+        let delta = index.add_dir(normalize_path(root));
+        all_affected.extend(delta.affected_paths);
+
+        let (files, dirs) = walk_files_and_dirs(root, filter);
+        for dir in dirs {
+            let delta = index.add_dir(dir);
+            all_affected.extend(delta.affected_paths);
+        }
+        for path in files {
             if filter.is_note(&path) {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     let delta = index.index(parser::parse(&path, &content));
@@ -508,10 +571,11 @@ pub(crate) fn build(
     ))
 }
 
-fn walk_files(root: &Path, filter: &PathFilter) -> Vec<PathBuf> {
-    let mut results = Vec::new();
-    walk_dir(root, root, filter, &mut results);
-    results
+fn walk_files_and_dirs(root: &Path, filter: &PathFilter) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let mut files = Vec::new();
+    let mut dirs = Vec::new();
+    walk_dir(root, root, filter, &mut files, &mut dirs);
+    (files, dirs)
 }
 
 // Test-only counter of `walk_dir` invocations (i.e. of `read_dir` calls),
@@ -523,7 +587,13 @@ thread_local! {
     pub(crate) static DIR_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-fn walk_dir(dir: &Path, root: &Path, filter: &PathFilter, out: &mut Vec<PathBuf>) {
+fn walk_dir(
+    dir: &Path,
+    root: &Path,
+    filter: &PathFilter,
+    out_files: &mut Vec<PathBuf>,
+    out_dirs: &mut Vec<PathBuf>,
+) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -536,10 +606,11 @@ fn walk_dir(dir: &Path, root: &Path, filter: &PathFilter, out: &mut Vec<PathBuf>
         if ft.is_dir() {
             let name = entry.file_name();
             if !filter.should_skip_dir(root, &entry_path, &name.to_string_lossy()) {
-                walk_dir(&entry_path, root, filter, out);
+                out_dirs.push(normalize_path(&entry_path));
+                walk_dir(&entry_path, root, filter, out_files, out_dirs);
             }
         } else if ft.is_file() && filter.should_index(root, &entry_path) {
-            out.push(normalize_path(&entry_path));
+            out_files.push(normalize_path(&entry_path));
         }
         // symlinks: ft.is_symlink() → skip to prevent infinite loops
     }
@@ -551,5 +622,11 @@ impl NoteIndex {
     /// affected-paths set is irrelevant.
     pub(crate) fn seed(&mut self, note: Note) {
         let _ = self.index(note);
+    }
+
+    /// Register a directory directly, bypassing `add_dir`'s recheck logic.
+    /// Use in test setup where the affected-paths set is irrelevant.
+    pub(crate) fn seed_dir(&mut self, path: PathBuf) {
+        self.all_dirs.insert(path);
     }
 }

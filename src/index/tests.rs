@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::PathFilter;
-use crate::index::{NoteIndex, ResolvedLink, build, walk_files};
+use crate::index::{NoteIndex, ResolvedLink, build, walk_files_and_dirs};
 use crate::test_helpers::note;
 
 fn pb(s: &str) -> PathBuf {
@@ -260,6 +260,103 @@ fn attachment_remove_breaks_links() {
     assert_eq!(idx.links_to(Path::new("/vault/logo.png")).len(), 0);
 }
 
+// ── directories ────────────────────────────────────────────────────────────────
+
+#[test]
+fn resolve_existing_dir_found() {
+    let mut idx = NoteIndex::default();
+    idx.seed_dir(pb("/vault/docs/lld"));
+    // Source at /vault/a.md links to "docs/lld/" → normalizes to
+    // /vault/docs/lld, which was registered as a directory.
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "docs/lld/"),
+        ResolvedLink::Found(_)
+    ));
+}
+
+#[test]
+fn resolve_nonexistent_dir_broken() {
+    let idx = NoteIndex::default();
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "docs/lld/"),
+        ResolvedLink::Broken
+    ));
+}
+
+#[test]
+fn index_populates_links_to_for_dir_target() {
+    let mut idx = NoteIndex::default();
+    idx.seed_dir(pb("/vault/docs/lld"));
+    idx.seed(note("/vault/a.md", "[LLDs](docs/lld/)"));
+    assert_eq!(idx.links_to(Path::new("/vault/docs/lld")).len(), 1);
+}
+
+#[test]
+fn add_dir_resolves_previously_broken_link() {
+    let mut idx = NoteIndex::default();
+    idx.seed(note("/vault/a.md", "[LLDs](docs/lld/)"));
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "docs/lld/"),
+        ResolvedLink::Broken
+    ));
+
+    let delta = idx.add_dir(pb("/vault/docs/lld"));
+    assert!(delta.affected_paths.contains(Path::new("/vault/a.md")));
+    assert!(matches!(
+        idx.resolve(Path::new("/vault/a.md"), "docs/lld/"),
+        ResolvedLink::Found(_)
+    ));
+}
+
+#[test]
+fn remove_dir_breaks_links() {
+    let mut idx = NoteIndex::default();
+    let _ = idx.add_dir(pb("/vault/docs/lld"));
+    idx.seed(note("/vault/a.md", "[LLDs](docs/lld/)"));
+    assert_eq!(idx.links_to(Path::new("/vault/docs/lld")).len(), 1);
+
+    let delta = idx.remove_dir(Path::new("/vault/docs/lld"));
+    assert!(delta.affected_paths.contains(Path::new("/vault/a.md")));
+    assert_eq!(idx.links_to(Path::new("/vault/docs/lld")).len(), 0);
+}
+
+#[test]
+fn is_dir_indexed_true_for_known_dir() {
+    let mut idx = NoteIndex::default();
+    let _ = idx.add_dir(pb("/vault/docs/lld"));
+    idx.seed_dir(pb("/vault/docs/empty"));
+    assert!(idx.is_dir_indexed(Path::new("/vault/docs/lld")));
+    assert!(idx.is_dir_indexed(Path::new("/vault/docs/empty")));
+    assert!(!idx.is_dir_indexed(Path::new("/vault/docs/missing")));
+}
+
+#[test]
+fn child_dirs_returns_immediate_children_only() {
+    let mut idx = NoteIndex::default();
+    idx.seed_dir(pb("/vault/docs"));
+    idx.seed_dir(pb("/vault/docs/lld"));
+    idx.seed_dir(pb("/vault/docs/lld/nested"));
+
+    let children: Vec<PathBuf> = idx
+        .child_dirs(Path::new("/vault/docs"))
+        .map(Path::to_path_buf)
+        .collect();
+    assert_eq!(children, vec![pb("/vault/docs/lld")]);
+}
+
+#[test]
+fn child_dirs_includes_empty_directory() {
+    let mut idx = NoteIndex::default();
+    idx.seed_dir(pb("/vault/docs"));
+    let _ = idx.add_dir(pb("/vault/docs/empty"));
+
+    let children: Vec<PathBuf> = idx
+        .child_dirs(Path::new("/vault/docs"))
+        .map(Path::to_path_buf)
+        .collect();
+    assert_eq!(children, vec![pb("/vault/docs/empty")]);
+}
+
 // ── all_attachment_paths ──────────────────────────────────────────────────────
 
 #[test]
@@ -430,10 +527,10 @@ fn note_report_none_for_unindexed_path() {
 #[test]
 fn walk_files_strips_leading_curdir_from_root() {
     let root = Path::new("./tests/fixtures/lint_clean");
-    let files = walk_files(root, &filter(&["md"], &[]));
+    let (files, _dirs) = walk_files_and_dirs(root, &filter(&["md"], &[]));
     assert!(
         !files.is_empty(),
-        "expected walk_files to find fixture files"
+        "expected walk_files_and_dirs to find fixture files"
     );
     for path in &files {
         assert_ne!(
@@ -566,6 +663,45 @@ fn build_excluded_file_not_registered_as_attachment() {
     let attachments: Vec<_> = idx.all_attachment_paths().collect();
     assert!(!attachments.contains(&root.join("tests/fixtures/image.png").as_path()));
     assert!(attachments.contains(&root.join("kept.png").as_path()));
+}
+
+#[test]
+fn build_registers_every_directory_including_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    write_file(&root.join("docs/lld/note.md"), "# lld\n");
+    std::fs::create_dir_all(root.join("docs/empty")).unwrap();
+
+    let (idx, _) = build(std::slice::from_ref(&root), &filter(&["md"], &[])).unwrap();
+
+    assert!(idx.is_dir_indexed(&root.join("docs")));
+    assert!(idx.is_dir_indexed(&root.join("docs/lld")));
+    assert!(idx.is_dir_indexed(&root.join("docs/empty")));
+}
+
+#[test]
+fn build_registers_workspace_root_as_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    write_file(&root.join("note.md"), "# note\n");
+
+    let (idx, _) = build(std::slice::from_ref(&root), &filter(&["md"], &[])).unwrap();
+
+    assert!(idx.is_dir_indexed(&root));
+}
+
+#[test]
+fn build_excludes_dir_matching_exclude_pattern() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    write_file(&root.join("tests/fixtures/note.md"), "# excluded\n");
+    write_file(&root.join("other.md"), "# kept\n");
+
+    let exclude = vec!["tests/fixtures".to_string()];
+    let (idx, _) = build(std::slice::from_ref(&root), &filter(&["md"], &exclude)).unwrap();
+
+    assert!(!idx.is_dir_indexed(&root.join("tests/fixtures")));
+    assert!(idx.is_dir_indexed(&root.join("tests")));
 }
 
 #[test]
