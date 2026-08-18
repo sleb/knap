@@ -1048,7 +1048,10 @@ fn test_anchor_completion() {
 #[test]
 fn test_dir_completion_initial() {
     let client = spawn_server();
-    do_initialize(&client);
+    // A workspace root must be configured so `sub/` gets registered as a
+    // known directory (via `register_ancestor_dirs` on didOpen) — directory
+    // completion is index-backed, not inferred from file paths.
+    do_initialize_with_options(&client, "file:///vault", json!({}));
 
     // Workspace: vault/sub/b.md (in subdirectory) + vault/c.md (sibling of a.md)
     did_open(&client, "file:///vault/sub/b.md", "# B\n");
@@ -2388,4 +2391,164 @@ fn rename_tag_round_trip() {
     assert_eq!(b_edits[0]["newText"].as_str(), Some("systems"));
 
     do_shutdown(&client, 3);
+}
+
+// ─── v0.17 Directory Links integration tests ──────────────────────────────────
+
+fn file_uri(path: &std::path::Path) -> String {
+    format!("file://{}", path.display())
+}
+
+/// A note linking to an existing subdirectory reports no diagnostics after
+/// `initialize` — the initial crawl (Step 2) registers directories before any
+/// note is opened.
+#[test]
+fn directory_link_resolves_end_to_end() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join("docs/lld")).unwrap();
+    std::fs::write(root.join("docs/lld/note.md"), "# LLD\n").unwrap();
+
+    let client = spawn_server();
+    do_initialize_with_options(&client, &file_uri(&root), json!({}));
+
+    did_open(&client, &file_uri(&root.join("a.md")), "[LLDs](docs/lld/)\n");
+
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let last = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .last()
+        .expect("no diagnostics published for a.md");
+    assert!(
+        last.diagnostics.is_empty(),
+        "expected no diagnostics for a directory link, got {:?}",
+        last.diagnostics
+    );
+
+    do_shutdown(&client, 3);
+}
+
+/// Go to Definition on a directory link navigates to that directory; Find
+/// References from a directory link returns every other note linking to it.
+#[test]
+fn directory_link_definition_and_references() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join("docs/lld")).unwrap();
+    std::fs::write(root.join("docs/lld/note.md"), "# LLD\n").unwrap();
+
+    let client = spawn_server();
+    do_initialize_with_options(&client, &file_uri(&root), json!({}));
+
+    did_open(&client, &file_uri(&root.join("a.md")), "[LLDs](docs/lld/)\n");
+    did_open(&client, &file_uri(&root.join("b.md")), "[LLDs](docs/lld/)\n");
+
+    // Go to Definition — cursor inside the link on a.md.
+    send_request(
+        &client,
+        3,
+        "textDocument/definition",
+        json!({
+            "textDocument": { "uri": file_uri(&root.join("a.md")) },
+            "position": { "line": 0, "character": 3 }
+        }),
+    );
+    let resp = recv_response(&client, lsp_server::RequestId::from(3i32));
+    let result: Option<GotoDefinitionResponse> =
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
+    let loc = match result.expect("expected definition result") {
+        GotoDefinitionResponse::Scalar(loc) => loc,
+        GotoDefinitionResponse::Array(locs) if locs.len() == 1 => locs.into_iter().next().unwrap(),
+        other => panic!("unexpected response shape: {:?}", other),
+    };
+    assert!(
+        loc.uri.as_str().ends_with("lld"),
+        "expected navigation to docs/lld, got {:?}",
+        loc.uri
+    );
+    assert_eq!(loc.range, lsp_types::Range::default());
+
+    // Find References — cursor inside the same link on a.md; both a.md and
+    // b.md link to docs/lld/, so both should come back as backlinks.
+    send_request(
+        &client,
+        4,
+        "textDocument/references",
+        json!({
+            "textDocument": { "uri": file_uri(&root.join("a.md")) },
+            "position": { "line": 0, "character": 3 },
+            "context": { "includeDeclaration": false }
+        }),
+    );
+    let resp = recv_response(&client, lsp_server::RequestId::from(4i32));
+    let locs: Option<Vec<Location>> =
+        serde_json::from_value(resp.response_result.unwrap_or_default()).unwrap();
+    let locs = locs.unwrap_or_default();
+    assert_eq!(locs.len(), 2, "expected backlinks from both a.md and b.md");
+    assert!(locs.iter().any(|l| l.uri.as_str().ends_with("a.md")));
+    assert!(locs.iter().any(|l| l.uri.as_str().ends_with("b.md")));
+
+    do_shutdown(&client, 5);
+}
+
+/// A `didChangeWatchedFiles` `Created` event for a new note under a
+/// brand-new nested directory clears a previously-broken directory-link
+/// diagnostic in another open note, with no server restart.
+#[test]
+fn directory_created_live_resolves_without_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+
+    let client = spawn_server();
+    do_initialize_with_options(&client, &file_uri(&root), json!({}));
+
+    // Note links to a directory that doesn't exist yet — broken.
+    did_open(
+        &client,
+        &file_uri(&root.join("a.md")),
+        "[New](docs/new-section/)\n",
+    );
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let before = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .last()
+        .expect("no diagnostics published for a.md");
+    assert_eq!(
+        before.diagnostics.len(),
+        1,
+        "expected broken-link diagnostic before the directory exists"
+    );
+
+    // Create the directory + note on disk, then simulate the watcher seeing
+    // the new note (Created event → server reads it from disk).
+    std::fs::create_dir_all(root.join("docs/new-section")).unwrap();
+    std::fs::write(root.join("docs/new-section/note.md"), "# New\n").unwrap();
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "workspace/didChangeWatchedFiles".to_string(),
+            params: json!({
+                "changes": [{
+                    "uri": file_uri(&root.join("docs/new-section/note.md")),
+                    "type": 1
+                }]
+            }),
+        }))
+        .unwrap();
+
+    let diags = sync_and_collect_diagnostics(&client, 3);
+    let after = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .last()
+        .expect("no diagnostics for a.md after the directory was created");
+    assert!(
+        after.diagnostics.is_empty(),
+        "expected diagnostic to clear once the directory exists, got {:?}",
+        after.diagnostics
+    );
+
+    do_shutdown(&client, 4);
 }
