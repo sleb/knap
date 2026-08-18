@@ -977,6 +977,168 @@ folding link text into the ranking (Opportunity 1) targeted the exact
 failure Trial 4 found, and this run is the first evidence it worked against
 that same failure, under the same model, same seed, same task.
 
+### Trial 6 — 2026-08-17, N=3 per condition, Haiku 4.5, 200-note vault (official run)
+
+The official N≥3 run at this vault size on Haiku, using the ranking fix
+validated directionally by Trial 5. Setup: `scripts/bench-setup-trial.sh
+--seed 1 --notes 200` (defaults for `--broken-links`/`--broken-anchors`,
+i.e. 12/8) — identical seed/parameters to Trials 3–5, confirmed
+byte-identical (hub `topics/release.md`, 17 backlinks; split target
+`reference/cache.md`, 14 backlinks; tag `archived`; `knap lint --json`
+reporting exactly 20/20 seeded problems pre-run). `knap` was rebuilt from
+this branch (0.17.0) and installed on `PATH` via `cargo install --path .
+--force` before the setup script's own PATH-version check, which passed.
+6 fresh git repos were seeded at the identical `bench-vault-seed` tag (3
+`baseline-runN`, 3 `knap-assisted-runN`), each dispatched as a fully
+independent, isolated Agent-tool subagent pinned to `claude-haiku-4-5`, no
+shared context between runs or across conditions.
+
+**Departure from the discoverability-neutral protocol, by explicit
+request for this trial**: rather than relying solely on the `CLAUDE.md`
+installed in `knap-assisted/` (the Trial 5 mechanism), the three
+knap-assisted prompts added an explicit paragraph telling the agent the
+`knap` CLI was installed and to use it (`lint`/`index`/`rename-*`/`apply`)
+rather than hand-editing — instructing the tool directly rather than
+relying on the agent to discover and act on the installed `CLAUDE.md`/
+`SKILL.md` on its own. This trades away the discoverability question (not
+under test here — see Trial 5's own note on why it's deliberately not a
+variable) for a cleaner read on "does knap help once an agent is actually
+told to use it," which is what this run measures. Baseline prompts were
+unchanged from the standard template, no mention of knap in either
+condition's task text otherwise.
+
+| Metric                                  | Baseline (median) | knap-assisted (median)                                 | Δ                             |
+| --------------------------------------- | ----------------- | ------------------------------------------------------ | ----------------------------- |
+| Wall time (harness `duration_ms`)       | 348.5s            | 199.6s                                                 | knap **42.7% faster**         |
+| Tokens (harness `subagent_tokens`)      | 66,099            | 45,365                                                 | knap **31.4% fewer**          |
+| Tool calls (harness `tool_uses`)        | 113               | 52                                                     | knap **54.0% fewer**          |
+| Files changed (`git diff --stat`)       | 96                | 96                                                     | tie                           |
+| Broken links/anchors left (`knap lint`) | 0 (all 3 runs)    | 0 (all 3 runs)                                         | tie (misleading — see below)  |
+| Seeded-fix accuracy (vs. ground truth)  | **20/20** (all 3) | 20/20, 20/20, **15/20**                                | knap **worse in 1 of 3 runs** |
+| Tasks fully completed (of 7)            | 7/7 (all 3 runs)  | 7/7 self-reported (1 of 3 actually broken — see below) | —                             |
+
+Per-run raw numbers, for the record:
+
+| Run                | Wall time | Tokens | Tool calls |
+| ------------------ | --------- | ------ | ---------- |
+| baseline-run1      | 348.5s    | 63,677 | 113        |
+| baseline-run2      | 277.7s    | 66,099 | 100        |
+| baseline-run3      | 413.7s    | 87,951 | 147        |
+| knap-assisted-run1 | 171.5s    | 45,365 | 43         |
+| knap-assisted-run2 | 270.8s    | 58,760 | 99         |
+| knap-assisted-run3 | 199.6s    | 44,222 | 52         |
+
+**Efficiency wins are the largest and cleanest of any trial so far, with
+zero overlap between conditions on every harness-measured metric**: every
+knap-assisted run's wall time (171.5–270.8s) beat every baseline run's
+(277.7–413.7s); every knap-assisted run's token count (44,222–58,760) beat
+every baseline run's (63,677–87,951); every knap-assisted run's tool-call
+count (43–99) beat every baseline run's (100–147). This is a stronger
+separation than Trial 3's official run (which had one point of overlap on
+tool calls) and directionally consistent with Trial 5's dry run.
+
+**Correctness is the important finding, and `knap lint`'s tie is not the
+whole story.** All 6 vaults reported `problem_count: 0` — but
+seeded-fix accuracy against `BENCH_MANIFEST.json` found `knap-assisted-run3`
+actually regressed 5 of its 8 broken-anchor fixes into **syntactically
+malformed, unparseable links** — not wrong-target repoints (Trial 4's
+failure mode) but links with no closing `)`, invisible to `knap lint` (or
+any link checker) because a markdown parser doesn't recognize unclosed
+`[text](target` as a link at all once it's broken that badly. E.g.
+`projects/notifications.md` line 11 became:
+
+```
+See [Template 90](../topics/template-90.md#ddashboard-overviewor related context.
+```
+
+(compare the correctly-fixed `notes/deployment.md` line 11 in the same
+run: ` [Handler](../topics/handler.md#session-notes) for related
+context.`)
+
+Root cause, traced through the transcript (`agent-adeee94d381943e43.jsonl`):
+the agent used `knap lint --suggest --json` correctly to enumerate all 20
+diagnostics (7 calls across the session), and for 3 of the 8 broken
+anchors it copied the diagnostic's `range` field verbatim into a
+hand-assembled JSON plan piped into `knap apply --json` — those 3 came out
+correct, byte-for-byte matching `knap lint`'s own reported range. For the
+other 5, the ranges in that same hand-assembled plan were off by a
+consistent `+1` on `start.character` and `+3` on `end.character` relative
+to what `knap lint --suggest` actually reported for those exact
+diagnostics (verified directly: e.g. `projects/notifications.md`'s true
+range is `{35→43, char 43}`–`{43→67}` per a fresh `knap lint --suggest
+--json` against the seed vault; the agent's plan used `{44}`–`{70}`). That
+`+1`/`+3` skew is exactly what produces the observed corruption: skipping
+the true start leaves the anchor's own first character in place ahead of
+the inserted replacement (`d` + `dashboard-overview` → `ddashboard-overview`),
+and overshooting the true end eats the closing `)`, a space, and the first
+letter of "for" (`-stale)` → gone, `for` → `or`).
+
+**This is a new failure mode, not a repeat of Trial 4's.** `knap apply`
+is a low-level primitive that executes exactly the character range it's
+given with no post-apply validation that the result is well-formed
+markdown — a reasonable contract for a tool whose ranges are meant to come
+from `knap lint`'s own diagnostics, but with no guardrail against a caller
+(agent or otherwise) that recomputes or mistypes ranges by hand instead of
+copying them verbatim. Nothing in `skill/knap/SKILL.md` currently tells an
+agent to copy `range` fields byte-for-byte rather than re-deriving them —
+the skill's prescribed loop is "read `data.suggestions`, decide, then
+apply," and how to construct the range for that apply call is left
+unspecified. The other 5 knap-assisted transcripts across Trials 1–6 that
+used `apply` never hit this, but this is only the second trial to check
+seeded-fix accuracy at all (Trial 4 was the first), and the first time
+`apply`'s range-based interface — as opposed to `rename-*`'s
+name-based one — was exercised this heavily by a smaller model. Baseline
+had zero instances of this or any other corruption across all 3 runs.
+
+Per the hypothesis's own bar (wins/ties on tokens/time **provided**
+correctness ties/wins), Trial 6 does not cleanly support it the way Trial
+3 and Trial 5's dry run did: efficiency wins are unambiguous and larger
+than any prior trial, but correctness in 1 of 3 knap-assisted runs is a
+genuine regression that `knap lint` alone would never surface — exactly
+the scenario the seeded-fix ground-truth check exists to catch, and exactly
+why it's not just a token/time race.
+
+## Opportunities for improvement surfaced by Trial 6
+
+**Status: proposed, not yet implemented.**
+
+### 1. Make `knap apply` refuse to produce unparseable markdown
+
+`knap apply` currently splices in caller-supplied text at a caller-supplied
+range with no check on the result. A cheap, high-value guardrail: after
+applying each operation, re-parse the affected file and confirm the edited
+region still round-trips through the markdown parser as a link (or
+heading, for anchor-rename ops) — reject the operation (or the whole batch,
+`lint --fix`-style) and report which op failed, rather than silently
+writing corrupted output. This would have caught all 5 corruptions in
+Trial 6's `knap-assisted-run3` before they ever hit disk, regardless of
+why the caller's range was wrong.
+
+### 2. Tell the skill to copy `range` verbatim, never recompute it
+
+`skill/knap/SKILL.md`'s apply-from-suggestions loop should say explicitly:
+copy the `range` object from the diagnostic byte-for-byte into the apply
+operation; never re-derive line/character offsets by hand or from a
+separately re-read copy of the file. This is a cheap prompt fix that
+targets the exact behavior that produced Trial 6's corruption, though
+Opportunity 1 above is the more durable fix — a skill instruction only
+helps an agent that reads and follows it, while a tool-side guardrail
+protects every caller.
+
+### 3. Re-run with a machine-checked "no unparseable links" pass in every future trial's scoring
+
+Trial 6 is the first time the seeded-fix accuracy script needed to be
+cross-checked against a raw "does this line still parse as a well-formed
+markdown link" pass — the existing regex-based scorer caught it
+incidentally (a malformed link produces no matching `](...)`, so it
+correctly showed up as "no candidates found"), but that was luck, not
+design. Add an explicit malformed-link/malformed-heading check (e.g. "every
+`](` on a line has a matching `)` before end of line/next `[`") to the
+standard scoring pass in [Metrics](#metrics), independent of both `knap
+lint` and the seeded-fix ground-truth comparison — a corruption that
+happens to land outside the 20 seeded-defect files would currently go
+undetected by either existing check.
+
 ## Threats to validity (call these out alongside results, don't bury them)
 
 - **N is small.** This is a manual protocol for a directional check, not a
