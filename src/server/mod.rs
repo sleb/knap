@@ -1,6 +1,9 @@
 // LSP lifecycle, message loop, request/notification routing.
 // See docs/design/components/protocol-handler.md
 
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
 use anyhow::Result;
 use crossbeam_channel::Sender;
 use log::{debug, info, warn};
@@ -358,7 +361,10 @@ fn on_did_open(
         return;
     }
     let note = parser::parse(&path, &params.text_document.text);
-    let delta = index.index(note);
+    let mut delta = index.index(note);
+    delta
+        .affected_paths
+        .extend(register_ancestor_dirs(&path, &config.index_roots, index));
     handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
 }
 
@@ -393,7 +399,10 @@ fn on_did_change(
         return;
     }
     let note = parser::parse(&path, &content);
-    let delta = index.index(note);
+    let mut delta = index.index(note);
+    delta
+        .affected_paths
+        .extend(register_ancestor_dirs(&path, &config.index_roots, index));
     handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
 }
 
@@ -423,7 +432,12 @@ fn on_did_change_watched_files(
             if event.typ == FileChangeType::CREATED || event.typ == FileChangeType::CHANGED {
                 match std::fs::read_to_string(&path) {
                     Ok(content) => {
-                        let delta = index.index(parser::parse(&path, &content));
+                        let mut delta = index.index(parser::parse(&path, &content));
+                        delta.affected_paths.extend(register_ancestor_dirs(
+                            &path,
+                            &config.index_roots,
+                            index,
+                        ));
                         handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
                     }
                     Err(e) => {
@@ -437,7 +451,12 @@ fn on_did_change_watched_files(
         } else {
             // Non-note file (attachment): update all_files only.
             if event.typ == FileChangeType::CREATED {
-                let delta = index.add_attachment(path);
+                let mut delta = index.add_attachment(path.clone());
+                delta.affected_paths.extend(register_ancestor_dirs(
+                    &path,
+                    &config.index_roots,
+                    index,
+                ));
                 handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
             } else if event.typ == FileChangeType::DELETED {
                 let delta = index.remove_attachment(&path);
@@ -445,5 +464,106 @@ fn on_did_change_watched_files(
             }
             // Changed → no-op for attachments
         }
+    }
+}
+
+/// Register any not-yet-known ancestor directories of `path` (a note or
+/// attachment that was just indexed), climbing from its parent directory
+/// upward. Climbing stops at the first already-known directory, or at the
+/// configured root itself, so a single new file doesn't walk arbitrarily far
+/// up the filesystem. Returns the union of every affected path from each
+/// `add_dir` call, bounded to directories under one of `roots`; if `path`
+/// isn't under any configured root, returns an empty set.
+fn register_ancestor_dirs(
+    path: &Path,
+    roots: &[PathBuf],
+    index: &mut NoteIndex,
+) -> HashSet<PathBuf> {
+    let path = index::normalize_path(path);
+    let Some(root) = roots
+        .iter()
+        .map(|root| index::normalize_path(root))
+        .find(|root| path.starts_with(root))
+    else {
+        return HashSet::new();
+    };
+
+    // Climb from the parent directory upward, collecting every directory
+    // not yet known, stopping at the first already-known one (or the root).
+    let mut to_register = Vec::new();
+    let mut dir = path.parent();
+    while let Some(d) = dir {
+        if index.is_dir_indexed(d) {
+            break;
+        }
+        to_register.push(d.to_path_buf());
+        if d == root {
+            break;
+        }
+        dir = d.parent();
+    }
+
+    // Register root-to-leaf so a directory's parent is always already known
+    // by the time it's registered.
+    let mut affected = HashSet::new();
+    for d in to_register.into_iter().rev() {
+        let delta = index.add_dir(d.clone());
+        affected.insert(d);
+        affected.extend(delta.affected_paths);
+    }
+    affected
+}
+
+#[cfg(test)]
+mod register_ancestor_dirs_tests {
+    use super::*;
+
+    #[test]
+    fn register_ancestor_dirs_stops_at_known_ancestor() {
+        let root = PathBuf::from("/vault");
+        let mut index = NoteIndex::default();
+        index.seed_dir(root.clone());
+        index.seed_dir(root.join("docs"));
+
+        let affected = register_ancestor_dirs(
+            &root.join("docs/note.md"),
+            std::slice::from_ref(&root),
+            &mut index,
+        );
+
+        assert!(affected.is_empty());
+    }
+
+    #[test]
+    fn register_ancestor_dirs_registers_new_nested_dirs() {
+        let root = PathBuf::from("/vault");
+        let mut index = NoteIndex::default();
+        index.seed_dir(root.clone());
+
+        let affected = register_ancestor_dirs(
+            &root.join("docs/lld/note.md"),
+            std::slice::from_ref(&root),
+            &mut index,
+        );
+
+        assert!(index.is_dir_indexed(&root.join("docs")));
+        assert!(index.is_dir_indexed(&root.join("docs/lld")));
+        assert!(affected.contains(&root.join("docs")));
+        assert!(affected.contains(&root.join("docs/lld")));
+    }
+
+    #[test]
+    fn register_ancestor_dirs_no_root_match_returns_empty() {
+        let root = PathBuf::from("/vault");
+        let mut index = NoteIndex::default();
+        index.seed_dir(root.clone());
+
+        let affected = register_ancestor_dirs(
+            Path::new("/elsewhere/note.md"),
+            std::slice::from_ref(&root),
+            &mut index,
+        );
+
+        assert!(affected.is_empty());
     }
 }

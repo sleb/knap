@@ -15,7 +15,7 @@ down untested code for the next step to build on.
 | -------------------------------------------------------- | ------ | ----- |
 | 1 — `NoteIndex`: `all_dirs` and directory primitives     | Done   |       |
 | 2 — Initial crawl registers directories                  | Done   |       |
-| 3 — Live discovery: `register_ancestor_dirs`             | Todo   |       |
+| 3 — Live discovery: `register_ancestor_dirs`             | Done   |       |
 | 4 — Definition, References, Diagnostics, Code Actions    | Todo   |       |
 | 5 — Completion: index-backed dirs + "accept this folder" | Todo   |       |
 | 6 — Integration tests                                    | Todo   |       |
