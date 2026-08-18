@@ -660,8 +660,11 @@ pub(crate) fn handle_completion(
             .map(Path::to_path_buf)
             .collect();
 
-        let mut dirs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         let mut files: Vec<PathBuf> = vec![];
+        // Whether any file lives above base_dir — offers a `..` item to climb
+        // back out. Child directories themselves come from the index (below),
+        // which knows about empty directories that no file inference could see.
+        let mut has_parent_files = false;
 
         for file_path in note_paths.iter().chain(attach_paths.iter()) {
             if file_path.as_path() == path.as_path() {
@@ -671,9 +674,17 @@ pub(crate) fn handle_completion(
             let first = rel.split('/').next().unwrap_or("");
             if first == rel && !rel.is_empty() {
                 files.push(file_path.clone());
-            } else if !first.is_empty() {
-                dirs.insert(first.to_string());
+            } else if first == ".." {
+                has_parent_files = true;
             }
+        }
+
+        let mut dirs: std::collections::BTreeSet<String> = index
+            .child_dirs(&base_dir)
+            .filter_map(|d| d.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        if has_parent_files {
+            dirs.insert("..".to_string());
         }
 
         // Compute the TextEdit range: from right after `](` to the cursor.
@@ -692,6 +703,29 @@ pub(crate) fn handle_completion(
         };
 
         let mut items: Vec<CompletionItem> = Vec::new();
+
+        // "Accept this folder" — offered once drilled into an indexed
+        // directory, letting the link target the folder itself instead of
+        // requiring a further drill-down into one of its children.
+        if base_dir != note_dir && index.is_dir_indexed(&base_dir) {
+            let full_rel = relative_path(note_dir, &base_dir) + "/";
+            let dir_name = base_dir
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            items.push(CompletionItem {
+                label: dir_name.clone(),
+                kind: Some(CompletionItemKind::FOLDER),
+                filter_text: Some(dir_name),
+                sort_text: Some(String::new()),
+                detail: Some("Link to this folder".to_string()),
+                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                    range: replace_range,
+                    new_text: full_rel,
+                })),
+                ..Default::default()
+            });
+        }
 
         for dir_name in &dirs {
             let abs_dir = index::normalize_path(&base_dir.join(dir_name));
@@ -2684,6 +2718,7 @@ mod tests {
     #[test]
     fn completion_relative_path_subdirectory() {
         let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/sub"));
         idx.seed(note("/vault/sub/b.md", ""));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
@@ -2779,6 +2814,7 @@ mod tests {
     #[test]
     fn completion_folder_item_with_space_not_wrapped() {
         let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/My Sub"));
         idx.seed(note("/vault/My Sub/b.md", ""));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
@@ -2796,6 +2832,69 @@ mod tests {
         let params = make_completion_params("/vault/a.md", 0, 7);
         let items = handle_completion(params, &idx, &crate::config::Config::default());
         assert!(items.iter().any(|i| text_edit_new_text(i) == Some("b.md")));
+    }
+
+    #[test]
+    fn completion_dir_trigger_lists_child_dirs_including_empty() {
+        let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/docs"));
+        idx.seed_dir(PathBuf::from("/vault/docs/empty"));
+        // "[link](docs/" — cursor right after the trailing `/`
+        idx.seed(note("/vault/a.md", "[link](docs/"));
+        let params = make_completion_params("/vault/a.md", 0, 12);
+        let items = handle_completion(params, &idx, &crate::config::Config::default());
+        assert!(
+            items
+                .iter()
+                .any(|i| { i.kind == Some(CompletionItemKind::FOLDER) && i.label == "empty/" }),
+            "empty directory should still appear via the index"
+        );
+    }
+
+    #[test]
+    fn completion_dir_trigger_offers_accept_item_when_drilled_in() {
+        let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/docs"));
+        idx.seed_dir(PathBuf::from("/vault/docs/lld"));
+        // "[link](docs/lld/" — cursor right after the trailing `/`
+        idx.seed(note("/vault/a.md", "[link](docs/lld/"));
+        let params = make_completion_params("/vault/a.md", 0, 17);
+        let items = handle_completion(params, &idx, &crate::config::Config::default());
+        let item = items
+            .iter()
+            .find(|i| i.kind == Some(CompletionItemKind::FOLDER) && i.label == "lld")
+            .expect("expected an accept-this-folder item labeled \"lld\"");
+        assert_eq!(text_edit_new_text(item), Some("docs/lld/"));
+        assert_eq!(item.detail.as_deref(), Some("Link to this folder"));
+    }
+
+    #[test]
+    fn completion_dir_trigger_no_accept_item_at_note_own_dir() {
+        let mut idx = NoteIndex::default();
+        // "[link](" — nothing typed, base_dir is the note's own directory
+        idx.seed(note("/vault/a.md", "[link]("));
+        let params = make_completion_params("/vault/a.md", 0, 7);
+        let items = handle_completion(params, &idx, &crate::config::Config::default());
+        assert!(
+            !items
+                .iter()
+                .any(|i| i.detail.as_deref() == Some("Link to this folder"))
+        );
+    }
+
+    #[test]
+    fn completion_dir_trigger_no_accept_item_for_unindexed_partial() {
+        let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/docs"));
+        // "nonexist" under docs/ was never registered as a directory
+        idx.seed(note("/vault/a.md", "[link](docs/nonexist/"));
+        let params = make_completion_params("/vault/a.md", 0, 22);
+        let items = handle_completion(params, &idx, &crate::config::Config::default());
+        assert!(
+            !items
+                .iter()
+                .any(|i| i.detail.as_deref() == Some("Link to this folder"))
+        );
     }
 
     // ── handle_definition ─────────────────────────────────────────────────────
@@ -4504,6 +4603,7 @@ mod tests {
     #[test]
     fn dir_completion_initial_shows_subdir() {
         let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/subdir"));
         idx.seed(note("/vault/subdir/c.md", ""));
         idx.seed(note("/vault/a.md", "[link]("));
         let params = make_completion_params("/vault/a.md", 0, 7);
