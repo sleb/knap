@@ -2462,6 +2462,36 @@ mod tests {
     }
 
     #[test]
+    fn compute_diagnostics_no_broken_link_for_existing_dir() {
+        let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/docs"));
+        idx.seed(note("/vault/a.md", "[Docs](docs/)"));
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn compute_diagnostics_broken_anchor_on_dir_link() {
+        let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/docs"));
+        idx.seed(note("/vault/a.md", "[Docs](docs/#foo)"));
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String(CODE_BROKEN_ANCHOR.to_string()))
+        );
+    }
+
+    #[test]
     fn diagnostics_valid_anchor_no_warning() {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/b.md", "## Existing\n"));
@@ -2812,6 +2842,28 @@ mod tests {
         assert!(handle_definition(params, &idx).is_none());
     }
 
+    #[test]
+    fn handle_definition_directory_link_returns_location() {
+        let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/docs/lld"));
+        idx.seed(note("/vault/a.md", "[LLDs](docs/lld/)"));
+        let params = make_definition_params("/vault/a.md", 0, 3);
+        let loc = unwrap_scalar(handle_definition(params, &idx));
+        assert!(loc.uri.as_str().ends_with("lld"));
+        assert_eq!(loc.range, Range::default());
+    }
+
+    #[test]
+    fn handle_definition_directory_link_with_anchor_returns_no_heading() {
+        let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/docs/lld"));
+        idx.seed(note("/vault/a.md", "[LLDs](docs/lld/#section)"));
+        let params = make_definition_params("/vault/a.md", 0, 3);
+        let loc = unwrap_scalar(handle_definition(params, &idx));
+        assert!(loc.uri.as_str().ends_with("lld"));
+        assert_eq!(loc.range, Range::default());
+    }
+
     // ── handle_references ─────────────────────────────────────────────────────
 
     #[test]
@@ -2845,6 +2897,20 @@ mod tests {
         let params = make_references_params("/vault/a.md", 0, 3);
         let locs = handle_references(params, &idx);
         assert!(locs.is_empty());
+    }
+
+    #[test]
+    fn handle_references_directory_link_returns_backlinks() {
+        let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/docs/lld"));
+        idx.seed(note("/vault/a.md", "[LLDs](docs/lld/)"));
+        idx.seed(note("/vault/b.md", "[LLDs](docs/lld/)"));
+        // cursor on the link in a.md → backlinks to docs/lld, including b.md.
+        let params = make_references_params("/vault/a.md", 0, 3);
+        let locs = handle_references(params, &idx);
+        assert_eq!(locs.len(), 2);
+        assert!(locs.iter().any(|l| l.uri.as_str().ends_with("a.md")));
+        assert!(locs.iter().any(|l| l.uri.as_str().ends_with("b.md")));
     }
 
     // ── handle_will_rename_files ──────────────────────────────────────────────
@@ -3913,6 +3979,17 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/b.md", "just prose"));
         idx.seed(note("/vault/a.md", "[link](b.md#nonexistent)"));
+        let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
+        let params = make_code_action_params("/vault/a.md", 0, 3);
+        let actions = handle_code_actions(params, &idx, &config);
+        assert!(actions.is_empty());
+    }
+
+    #[test]
+    fn handle_code_actions_no_anchor_fix_offered_for_dir_link() {
+        let mut idx = NoteIndex::default();
+        idx.seed_dir(PathBuf::from("/vault/docs"));
+        idx.seed(note("/vault/a.md", "[Docs](docs/#foo)"));
         let config = make_config(vec![std::path::PathBuf::from("/vault")], None);
         let params = make_code_action_params("/vault/a.md", 0, 3);
         let actions = handle_code_actions(params, &idx, &config);
