@@ -66,6 +66,20 @@ the heading as written (e.g. "My Section") and inserts the GFM slug form
 (e.g. `my-section`), so I can link to a specific section without manually
 computing the anchor.
 
+**US-57** — As a writer, path completions inside `[text](` let me accept a
+directory itself as the finished link target — not just a step to drill
+further into — so I can link to a whole folder (e.g. `[LLDs](../docs/lld/)`)
+in one completion instead of drilling in and backing the trailing filename
+back out.
+
+**US-56** — As a writer, a link that points to a directory that exists in my
+workspace (e.g. `[LLDs](../docs/lld/)`) resolves like a link to a file: it is
+not flagged as a broken link, `Go to Definition` on it navigates to the
+directory, and `Find References` from any note that links to that same
+directory shows every other note linking to it — so I can link to a whole
+folder of related notes without picking one file inside it as a stand-in
+target.
+
 **US-02** — As a writer, I can `Go to Definition` on a `[text](path/to/note.md)`
 link to open the target file, so I can navigate my knowledge base from the
 keyboard.

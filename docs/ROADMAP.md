@@ -29,6 +29,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.14](#v014--batch-apply-released-2026-08-08)                                   | Batch Apply                                  | Released 2026-08-08 |
 | [v0.15](#v015--judged-repoints--text-aware-repoint-ranking-released-2026-08-15)   | Judged Repoints & Text-Aware Repoint Ranking | Released 2026-08-15 |
 | [v0.16](#v016--exclude-paths-released-2026-08-15)                                 | Exclude Paths                                | Released 2026-08-15 |
+| [v0.17](#v017--drop-knap-fix--directory-links)                                    | Drop `knap fix` & Directory Links            | Planned             |
 
 ---
 
@@ -511,6 +512,48 @@ excluded path stays excluded for the life of the session.
 
 See `docs/design/releases/archive/v0.16/path-filter-authority/design.md`
 for the full design.
+
+---
+
+## v0.17 — Drop `knap fix` & Directory Links
+
+### Drop `knap fix`
+
+**Goal:** An agent can no longer ask knap to blindly rewrite links, anchors,
+and stub files across a whole vault in one unreviewed call. `knap fix`, `knap
+lint --fix`, and `knap apply`'s `{"op":"fix"}` all shared one mechanism: pick
+the single "unambiguous" candidate a ranking algorithm produced and write it
+to disk with nobody — human or agent — looking at the specific edit first.
+This release removes the capability instead of just the advice not to use
+it. What stays: the LSP's quick-fix code actions (human reviews per cursor
+position), `knap lint --suggest` (agent reads and judges the ranked
+candidates), and `knap apply`'s `repoint-link`/`repoint-anchor` ops (agent
+supplies the exact target it already chose).
+
+| Story            | Change                                                                                                                 |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| US-D14 (removed) | `knap fix [path] [--dry-run]` — deleted outright                                                                       |
+| US-D17 (amended) | Drops the `--fix`-collapses-the-loop half of the story; `--suggest` itself is unchanged                                |
+| US-D18 (amended) | `knap apply`'s op list drops `fix`; `rename-file`/`rename-heading`/`rename-tag`/`repoint-link`/`repoint-anchor` remain |
+| US-D20 (amended) | Drops the "`knap fix`'s auto-apply ... decline to auto-apply" half; `--suggest`'s `text_mismatch` flag is unchanged    |
+
+See `docs/design/releases/v0.17/drop-fix/design.md` for the full design.
+
+### Directory Links
+
+**Goal:** A writer can link to a whole folder — `[LLDs](../docs/lld/)` — and
+have it behave like a link to a file instead of a permanent false-positive
+broken-link diagnostic. Today `NoteIndex` only ever tracks file paths, so any
+link whose target resolves to a directory is unconditionally `Broken`: no Go
+to Definition, no Find References, no way to accept a directory as a
+completion's finished target. This release extends resolution, navigation,
+and completion to treat an existing directory as a valid link target
+alongside files.
+
+| Story | Feature                                                                                                                         |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------- |
+| US-56 | Links to an existing directory resolve (no broken-link diagnostic); Go to Definition navigates to it; Find References tracks it |
+| US-57 | Path completions let a directory be accepted as the finished link target, not just a step to drill further into                 |
 
 ---
 
