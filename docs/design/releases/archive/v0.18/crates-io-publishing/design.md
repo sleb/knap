@@ -73,13 +73,15 @@ Status: plan finalized, not yet implemented.
    Renumbered the old "Post-release" step to 9 and folded in crates.io/docs.rs
    verification and (first-publish-only) README badge reminders.
 
-7. **Publish**
-   - `cargo publish` (real). One-way door — can't delete a version, only
-     yank.
+7. ~~**Publish**~~ — done. `cargo publish` succeeded for v0.18.0:
+   https://crates.io/crates/knap. First attempt failed with a 400 (crates.io
+   requires a verified account email); retried after verifying and it went
+   through cleanly.
 
-8. **Post-publish**
-   - Add crates.io badge to `README.md` (`docs.rs` badge too — docs.rs
-     auto-builds from crates.io)
-   - Verify `docs.rs/knap` builds cleanly
-   - Tag the release / update `CHANGELOG.md` if not already part of the
-     release flow
+8. ~~**Post-publish**~~ — done. crates.io + docs.rs badges added to
+   `README.md` alongside this release's version bump (step 5 of
+   `/knap-release`); docs.rs build queued automatically on publish (check
+   https://docs.rs/knap once it's built — a few minutes). Tag `v0.18.0` and
+   `CHANGELOG.md` were part of the same `/knap-release` run, which also
+   triggered the existing GitHub Actions release workflow (binaries for all
+   platforms).

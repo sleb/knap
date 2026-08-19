@@ -574,7 +574,8 @@ surfaced while trimming that API.
 | Release flow              | `cargo publish --dry-run` then `cargo publish` folded into `/knap-release`, right after commit/tag/push                                                                          |
 | Fixed: directory deletion | Deleting a directory a note links to now clears the link live — the watched-files handler had no path for directory deletions and misrouted the event through attachment removal |
 
-See `docs/design/crates-io-publishing.md` for the full design.
+See `docs/design/releases/archive/v0.18/crates-io-publishing/design.md` for
+the full design.
 
 ---
 
