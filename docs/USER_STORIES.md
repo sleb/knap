@@ -409,6 +409,13 @@ else in one call — instead of falling back to a hand edit outside the batch.
 `file` and `range` are exactly the diagnostic's own `path`/`range` fields, so
 no re-locating the edit is needed.
 
+**US-D21** — As an agent, if a `repoint-link`/`repoint-anchor` operation in a
+`knap apply --json` batch carries a wrong `range` (e.g. hand-recomputed
+instead of copied from the diagnostic), the batch fails with an error naming
+the operation instead of silently writing a corrupted, unparseable link to
+disk — so a bad range never produces a result that both `knap lint` and I
+would otherwise mistake for a clean fix.
+
 ---
 
 ### The Skill

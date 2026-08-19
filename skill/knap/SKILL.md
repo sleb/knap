@@ -224,10 +224,35 @@ $ echo '[{"op":"repoint-link","file":"docs/index.md","range":{"start":{"line":11
 
 `repoint-anchor` works the same way, with an `anchor` field instead of
 `target` (a leading `#` on `anchor` is optional — `knap apply` strips it
-either way). Both operations use the diagnostic's own `range`, so there's no
-need to re-locate the link/anchor text by hand before repointing it. They
-compose with `rename-*` in the same batch — mix as many operations as the
-task needs into one array; `apply` applies all of them or none.
+either way). Both operations use the diagnostic's own `range` — copy it
+byte-for-byte into the apply operation. **Never re-derive `range`'s
+`line`/`character` values by hand, and never recompute them from a
+separately re-read copy of the file** — even a small skew (off by one
+character, a stray `+1`) can eat part of the link's syntax (its closing `)`,
+for instance) and leave behind text a markdown parser no longer recognizes
+as a link at all, which `knap lint` then reports as clean because it never
+sees a link there to check. `knap apply` rejects an operation that would do
+this (see the "produced unparseable markdown" error below) — but the fix is
+cheap enough that you shouldn't rely on the rejection catching it: copy
+`range` as-is.
+
+```
+$ echo '[{"op":"repoint-anchor","file":"a.md","range":{"start":{"line":11,"character":35},"end":{"line":11,"character":43}},"anchor":"dashboard-overview"}]' \
+  | knap apply --json
+Error: operation 1 (repoint-anchor)
+
+Caused by:
+    0: repoint-anchor produced unparseable markdown
+    1: no well-formed link found at line 12 after the edit — the markdown is likely corrupted (e.g. a missing closing ')')
+```
+
+If you see this error, re-fetch the diagnostic's `range` from a fresh
+`knap lint --suggest --json` rather than adjusting the numbers you already
+have — an adjusted-but-still-guessed range is exactly how this happens in
+the first place.
+
+They compose with `rename-*` in the same batch — mix as many operations as
+the task needs into one array; `apply` applies all of them or none.
 
 ## Example: `blocking_count` vs. `problem_count`
 

@@ -10,7 +10,7 @@ use lsp_types::Range;
 
 use crate::cli::rename;
 use crate::config::PathFilter;
-use crate::{config, edit, handlers, index};
+use crate::{config, edit, handlers, index, parser};
 
 /// A single batch entry `knap apply` reads from stdin, one variant per
 /// existing mutating subcommand (`rename-file`/`rename-heading`/
@@ -194,6 +194,33 @@ struct AppliedOp {
     files_touched: usize,
 }
 
+/// Re-parses `content` (the file as it reads *after* an edit was applied)
+/// and confirms a well-formed `MarkdownLink` still sits at `expected_line`
+/// satisfying `matches`. A `range` computed from a stale diagnostic (e.g.
+/// skewed by an earlier edit in the same batch) can make `edit::apply`
+/// write text that is no longer valid markdown — a truncated `[text](target`
+/// with no closing `)`, for instance — and the writer itself has no way to
+/// notice that; only re-parsing the result does. `path` is only used to
+/// build the `Note` (its own paths aren't inspected), so this works equally
+/// well against the real file or a scratch copy.
+fn validate_link_round_trip(
+    path: &Path,
+    content: &str,
+    expected_line: u32,
+    matches: impl Fn(&parser::MarkdownLink) -> bool,
+) -> anyhow::Result<()> {
+    let note = parser::parse(path, content);
+    anyhow::ensure!(
+        note.md_links
+            .iter()
+            .any(|l| l.range.start.line == expected_line && matches(l)),
+        "no well-formed link found at line {} after the edit — the markdown \
+         is likely corrupted (e.g. a missing closing ')')",
+        expected_line + 1
+    );
+    Ok(())
+}
+
 /// Dispatches one `ChangeOp` to the matching `_at`/`targets_for` call,
 /// scoped to `root` (the batch's scratch copy, not the process's actual
 /// cwd). Every path field is checked with `ensure_scoped` before use, since
@@ -238,6 +265,11 @@ fn apply_one(root: &Path, op: &ChangeOp) -> anyhow::Result<AppliedOp> {
             let file_abs = index::normalize_path(&root.join(file));
             let files_touched =
                 edit::apply(&handlers::compute_link_fix(&file_abs, *range, target))?;
+            let content = fs::read_to_string(&file_abs)?;
+            validate_link_round_trip(&file_abs, &content, range.start.line, |l| {
+                index::unescape_link_target(&l.target) == *target
+            })
+            .context("repoint-link produced unparseable markdown")?;
             Ok(AppliedOp {
                 op: op.kind(),
                 summary: format!("{}: repoint → '{target}'", file.display()),
@@ -254,6 +286,11 @@ fn apply_one(root: &Path, op: &ChangeOp) -> anyhow::Result<AppliedOp> {
             let anchor = anchor.strip_prefix('#').unwrap_or(anchor);
             let files_touched =
                 edit::apply(&handlers::compute_anchor_fix(&file_abs, *range, anchor))?;
+            let content = fs::read_to_string(&file_abs)?;
+            validate_link_round_trip(&file_abs, &content, range.start.line, |l| {
+                l.anchor.as_deref() == Some(anchor)
+            })
+            .context("repoint-anchor produced unparseable markdown")?;
             Ok(AppliedOp {
                 op: op.kind(),
                 summary: format!("{}: anchor → '#{anchor}'", file.display()),
@@ -299,8 +336,9 @@ pub fn run(dry_run: bool, json: bool) -> anyhow::Result<()> {
     copy_tree(&root, scratch.path(), &config.path_filter)?;
 
     let mut operations = Vec::with_capacity(ops.len());
-    for op in &ops {
-        let applied = apply_one(scratch.path(), op).with_context(|| op.kind().to_string())?;
+    for (i, op) in ops.iter().enumerate() {
+        let applied = apply_one(scratch.path(), op)
+            .with_context(|| format!("operation {} ({})", i + 1, op.kind()))?;
         operations.push(applied);
     }
 
@@ -332,6 +370,39 @@ pub fn run(dry_run: bool, json: bool) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validate_link_round_trip_accepts_well_formed_link() {
+        let path = Path::new("/vault/a.md");
+        let content = "[text](real.md)\n";
+
+        let result = validate_link_round_trip(path, content, 0, |l| l.target == "real.md");
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn validate_link_round_trip_rejects_missing_link_at_line() {
+        let path = Path::new("/vault/a.md");
+        // The exact corrupted shape Trial 6 produced: a range that ate the
+        // closing `)`, leaving a truncated `[text](target` with no link at
+        // all once re-parsed.
+        let content = "[text](real.md\n";
+
+        let result = validate_link_round_trip(path, content, 0, |l| l.target == "real.md");
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_link_round_trip_rejects_link_with_wrong_field() {
+        let path = Path::new("/vault/a.md");
+        let content = "[text](wrong.md)\n";
+
+        let result = validate_link_round_trip(path, content, 0, |l| l.target == "real.md");
+
+        assert!(result.is_err());
+    }
 
     #[test]
     fn change_op_deserializes_rename_file() {
@@ -674,6 +745,99 @@ mod tests {
         assert_eq!(
             fs::read_to_string(root.join("a.md")).unwrap(),
             "[text](#new)\n"
+        );
+    }
+
+    #[test]
+    fn apply_one_repoint_link_rejects_range_that_eats_closing_paren() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.md"), "[text](old.md)\n").unwrap();
+
+        // A correct range is 7..13 (just "old.md"); extending `end` to 14
+        // eats the closing `)` too, mirroring Trial 6's `+1`/`+3` skew.
+        let op = ChangeOp::RepointLink {
+            file: PathBuf::from("a.md"),
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 7,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 14,
+                },
+            },
+            target: "real.md".to_string(),
+        };
+
+        let result = apply_one(root, &op);
+
+        assert!(result.is_err());
+        assert_eq!(
+            fs::read_to_string(root.join("a.md")).unwrap(),
+            "[text](real.md\n",
+            "the corrupted write should still land on the scratch copy — \
+             the all-or-nothing guarantee comes from `run` never reaching \
+             `diff_and_sync`, not from `apply_one` rolling back its own write"
+        );
+    }
+
+    #[test]
+    fn apply_one_repoint_anchor_rejects_range_that_eats_closing_paren() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.md"), "[text](#old)\n").unwrap();
+
+        // A correct range is 8..11 (just "old"); extending `end` to 12 eats
+        // the closing `)` too.
+        let op = ChangeOp::RepointAnchor {
+            file: PathBuf::from("a.md"),
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 12,
+                },
+            },
+            anchor: "new".to_string(),
+        };
+
+        let result = apply_one(root, &op);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn apply_one_repoint_link_accepts_target_needing_angle_bracket_escaping() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.md"), "[text](old.md)\n").unwrap();
+
+        let op = ChangeOp::RepointLink {
+            file: PathBuf::from("a.md"),
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 7,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 13,
+                },
+            },
+            target: "My File.md".to_string(),
+        };
+
+        let applied = apply_one(root, &op).unwrap();
+
+        assert_eq!(applied.op, "repoint-link");
+        assert_eq!(
+            fs::read_to_string(root.join("a.md")).unwrap(),
+            "[text](<My File.md>)\n"
         );
     }
 

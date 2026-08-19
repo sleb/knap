@@ -1179,3 +1179,48 @@ fn apply_repoint_link_rejects_path_outside_workspace_root() {
         "fixture dir should be unchanged"
     );
 }
+
+#[test]
+fn apply_cli_rejects_corrupt_repoint_anchor_and_exits_nonzero() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "[text](#old)\n").unwrap();
+    let before = snapshot_dir(dir.path());
+
+    // A correct range is 8..11 (just "old"); extending `end` to 12 eats the
+    // closing `)` too, mirroring Trial 6's `+1`/`+3` skew.
+    let batch = r#"[
+        {"op":"repoint-anchor","file":"a.md","range":{"start":{"line":0,"character":8},"end":{"line":0,"character":12}},"anchor":"new"}
+    ]"#;
+
+    let output = knap_with_stdin(&["apply"], dir.path(), batch);
+    assert!(!output.status.success());
+
+    assert_eq!(
+        snapshot_dir(dir.path()),
+        before,
+        "file on disk should be byte-for-byte unchanged after a rejected batch"
+    );
+}
+
+#[test]
+fn apply_cli_reports_which_operation_failed_in_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "[text](old.md)\n").unwrap();
+    std::fs::write(dir.path().join("b.md"), "[text](old.md)\n").unwrap();
+
+    // Op 1 is a valid repoint-link; op 2 is a repoint-link whose range eats
+    // the closing `)`, so it should fail and be named by position and kind.
+    let batch = r#"[
+        {"op":"repoint-link","file":"a.md","range":{"start":{"line":0,"character":7},"end":{"line":0,"character":13}},"target":"real.md"},
+        {"op":"repoint-link","file":"b.md","range":{"start":{"line":0,"character":7},"end":{"line":0,"character":14}},"target":"real.md"}
+    ]"#;
+
+    let output = knap_with_stdin(&["apply"], dir.path(), batch);
+    assert!(!output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("operation 2 (repoint-link)"),
+        "stderr was: {stderr}"
+    );
+}
