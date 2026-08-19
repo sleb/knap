@@ -5,6 +5,28 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.18.0] — 2026-08-18
+
+### Added
+
+- **Published to crates.io.** `knap` is now installable with
+  `cargo install knap`, alongside the existing pre-built binaries and
+  build-from-source options. The published crate ships as a binary; its
+  library surface is trimmed to just what `main.rs` needs, so a normal
+  `cargo add knap` doesn't pull in internal modules.
+- **`cargo publish` folded into the release process.** Every release from
+  here on publishes to crates.io as part of the same version bump / tag /
+  push flow, gated by a `cargo publish --dry-run` safety check.
+
+### Fixed
+
+- **Deleting a directory now clears links pointing at it, live, with no
+  server restart.** Previously, deleting a directory that a note linked to
+  (e.g. `[LLDs](docs/lld/)`) left the link showing no diagnostic — the
+  watched-files handler had no path for directory deletions and silently
+  misrouted the event. Directory creation was already handled this way
+  (v0.17); deletion now mirrors it.
+
 ## [0.17.0] — 2026-08-17
 
 ### Added

@@ -40,15 +40,9 @@ Status: plan finalized, not yet implemented.
 
 ## Plan
 
-1. **Metadata pass on `Cargo.toml`**
-   - Add `description` (one-liner, ~200 chars max for the crates.io listing)
-   - Add `license = "MIT"` (matches `LICENSE` file)
-   - Add `repository = "https://github.com/sleb/knap"`
-   - Add `readme = "README.md"`
-   - Add `keywords` (max 5, e.g. `lsp`, `markdown`, `linter`) and
-     `categories` (from crates.io's fixed list, e.g.
-     `command-line-utilities`, `development-tools`)
-   - Add `homepage` if there's a docs site, otherwise skip
+1. ~~**Metadata pass on `Cargo.toml`**~~ — done. `description`, `license`,
+   `repository`, `readme`, `keywords`, `categories` added; no `homepage` (no
+   separate docs site). Implemented in `7623139`.
 
 2. ~~**Decide binary vs library shape**~~ — done, see Decisions above.
 

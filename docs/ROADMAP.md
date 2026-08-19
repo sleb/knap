@@ -30,6 +30,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.15](#v015--judged-repoints--text-aware-repoint-ranking-released-2026-08-15)   | Judged Repoints & Text-Aware Repoint Ranking | Released 2026-08-15 |
 | [v0.16](#v016--exclude-paths-released-2026-08-15)                                 | Exclude Paths                                | Released 2026-08-15 |
 | [v0.17](#v017--drop-knap-fix--directory-links-released-2026-08-17)                | Drop `knap fix` & Directory Links            | Released 2026-08-17 |
+| [v0.18](#v018--publish-to-cratesio-released-2026-08-18)                           | Publish to crates.io                         | Released 2026-08-18 |
 
 ---
 
@@ -554,6 +555,26 @@ alongside files.
 | ----- | ------------------------------------------------------------------------------------------------------------------------------- |
 | US-56 | Links to an existing directory resolve (no broken-link diagnostic); Go to Definition navigates to it; Find References tracks it |
 | US-57 | Path completions let a directory be accepted as the finished link target, not just a step to drill further into                 |
+
+---
+
+## v0.18 — Publish to crates.io _(released 2026-08-18)_
+
+**Goal:** `knap` becomes installable with `cargo install knap`, not just from
+GitHub Releases or building from source. This release adds the crates.io
+package metadata, trims the published library API to only what `main.rs`
+needs across the crate boundary, folds `cargo publish` into the release
+process itself, and fixes a directory-deletion gap in the live index
+surfaced while trimming that API.
+
+| Change                    | Description                                                                                                                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Crate metadata            | `description`, `license`, `repository`, `readme`, `keywords`, `categories` added to `Cargo.toml`; package trimmed via `exclude` to just what the binary needs                    |
+| Library API trim          | Only `cli` is `pub`; everything else is `pub(crate)`. `server::run`/`handlers::slug` stay reachable to this crate's own `tests`/`examples` via an opt-in `test-support` feature  |
+| Release flow              | `cargo publish --dry-run` then `cargo publish` folded into `/knap-release`, right after commit/tag/push                                                                          |
+| Fixed: directory deletion | Deleting a directory a note links to now clears the link live — the watched-files handler had no path for directory deletions and misrouted the event through attachment removal |
+
+See `docs/design/crates-io-publishing.md` for the full design.
 
 ---
 

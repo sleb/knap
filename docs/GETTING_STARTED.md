@@ -27,9 +27,16 @@ download the binary for your platform, and copy it somewhere on your `PATH`:
 cp knap ~/.local/bin/
 ```
 
-### Build from source
+### Install with cargo
 
-Requires Rust stable:
+Requires Rust stable. Installs to `~/.cargo/bin`, which most Rust setups
+already have on `PATH`:
+
+```bash
+cargo install knap
+```
+
+### Build from source
 
 ```bash
 git clone https://github.com/sleb/knap.git
