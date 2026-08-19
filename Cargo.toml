@@ -8,6 +8,7 @@ repository = "https://github.com/sleb/knap"
 readme = "README.md"
 keywords = ["lsp", "markdown", "linter", "notes", "cli"]
 categories = ["command-line-utilities", "development-tools"]
+exclude = ["tests/", "docs/", "examples/"]
 
 [dependencies]
 lsp-server  = "0.10"
