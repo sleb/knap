@@ -60,10 +60,12 @@ Status: plan finalized, not yet implemented.
    uncompressed, 131.8 KiB compressed) and passes verification.
    Implemented in `4c9d23b`.
 
-4. **Local dry run**
-   - `cargo publish --dry-run` to catch metadata/lint errors before
-     touching the real registry
-   - `cargo package` + inspect the generated `.crate` tarball
+4. ~~**Local dry run**~~ — done. `cargo publish --dry-run` packaged and
+   verified cleanly (only expected warnings: excluded `examples/`/`tests/`
+   files ignored, plus one pre-existing unrelated dead-code warning);
+   aborted the upload as intended. `cargo package` + `tar tzvf` on the
+   `.crate` confirmed the same 44 files / ~135 KB seen in step 3, nothing
+   unexpected.
 
 5. **crates.io account/auth**
    - Confirm a crates.io account linked to GitHub, with an API token
