@@ -1100,7 +1100,15 @@ why it's not just a token/time race.
 
 ## Opportunities for improvement surfaced by Trial 6
 
-**Status: proposed, not yet implemented.**
+**Status: all three items implemented and confirmed.** `defe511` ("Guard
+repoint operations by re-parsing markdown to reject corrupting edits") +
+updated `skill/knap/SKILL.md` wording (items 1–2), and a standing
+whole-vault malformed-link scan as part of every trial's scoring (item 3).
+Trial 7 (N=1 dry run) and Trial 8 (N=3, official) both found zero malformed
+links across every run — 7 knap-assisted runs total since the fix landed,
+no repeat of Trial 6's corruption. See Trial 8 below for the N≥3
+confirmation; note its efficiency numbers use a different prompt protocol
+than Trial 6's and aren't directly comparable on that axis.
 
 ### 1. Make `knap apply` refuse to produce unparseable markdown
 
@@ -1138,6 +1146,198 @@ standard scoring pass in [Metrics](#metrics), independent of both `knap
 lint` and the seeded-fix ground-truth comparison — a corruption that
 happens to land outside the 20 seeded-defect files would currently go
 undetected by either existing check.
+
+### Trial 7 — 2026-08-19, N=1 per condition, Haiku 4.5, 200-note vault (dry run, validating the apply-corruption fix)
+
+A dry run to check whether `defe511` ("Guard repoint operations by
+re-parsing markdown to reject corrupting edits" — the tool-side guardrail
+proposed as Trial 6's Opportunity 1) and the accompanying skill wording
+(copy `range` byte-for-byte, Opportunity 2) actually prevent the
+`knap-assisted-run3` corruption Trial 6 found. Also the first trial to run
+against `knap` 0.19.0 and the first to apply Trial 6's Opportunity 3 (a
+standing malformed-link scan over the whole vault, not just the 20
+seeded-defect files).
+
+Setup: `scripts/bench-setup-trial.sh --seed 1 --notes 200` — identical
+seed/parameters to Trials 3–6, confirmed byte-identical (hub
+`topics/release.md`, 17 backlinks; split target `reference/cache.md`, 14
+backlinks; tag `archived`; `knap lint --json` reporting exactly 20/20
+seeded problems pre-run). `knap` was installed on `PATH` via `cargo install
+--path . --force` (0.19.0, carrying the guard) after the setup script's own
+build first failed its PATH-version check with no prior `knap` install on
+this machine — recorded here because it's a real setup gotcha, not a
+protocol change: the script verifies PATH matches its fresh build but
+doesn't install one itself. Two fresh git repos seeded at the identical
+`bench-vault-seed` tag; `knap` and `skill/knap/SKILL.md` (+ `CLAUDE.md`)
+present only in `knap-assisted/`. Following Trial 6's departure (kept here
+for a clean read on "does knap help once told to use it," not
+discoverability), the knap-assisted prompt added an explicit paragraph
+naming `knap` and its subcommands; baseline prompt was the standard
+template, no mention of knap in either condition's task text otherwise.
+Both ran as isolated Agent-tool subagents pinned to `claude-haiku-4-5`.
+
+| Metric                                   | Baseline | knap-assisted | Δ                     |
+| ----------------------------------------- | -------- | -------------- | --------------------- |
+| Wall time (harness `duration_ms`)        | 333.2s   | 197.0s         | knap **40.9% faster** |
+| Tokens (harness `subagent_tokens`)       | 73,462   | 50,824         | knap **30.8% fewer**  |
+| Tool calls (harness `tool_uses`)         | 95       | 43             | knap **54.7% fewer**  |
+| Files changed (`git diff --stat`)        | 96       | 96             | tie                   |
+| Broken links/anchors left (`knap lint`)  | 0        | 0              | tie                   |
+| Seeded-fix accuracy (vs. ground truth)   | **20/20**| **20/20**      | tie                   |
+| Malformed/unparseable links (whole vault)| 0        | 0              | tie                   |
+| Tasks fully completed (of 7)             | 7/7      | 7/7            | tie                   |
+
+**This is the result Trial 6's opportunities predicted, and it's the
+cleanest outcome across all seven trials against the hypothesis's own
+bar.** Efficiency wins are directionally consistent with Trials 3, 5, and 6
+(knap faster, fewer tokens, fewer tool calls), and correctness ties cleanly
+at 20/20 with zero malformed links found anywhere in either 200-note vault —
+not just the 20 seeded-defect files Trial 6's original scoring covered, but
+every `.md` file, per Opportunity 3's standing scan. The knap-assisted
+transcript shows a real 20-operation `knap apply --json` batch
+(`repoint-link`/`repoint-anchor` mixed) built directly from `knap lint
+--suggest --json`'s own `range` fields — the exact discipline Trial 6's
+Opportunity 2 asked the skill to prescribe — and it applied cleanly with no
+rejected operations, so this run doesn't distinguish whether Opportunity 1's
+guardrail (`apply` refusing a corrupting edit) or Opportunity 2's skill
+wording (copy `range` verbatim) is what actually prevented a repeat, only
+that the two together did. Independent verification found no malformed
+links in `baseline/` either, consistent with Trial 6 (hand-editing was never
+the failure mode — a caller with a home-grown range only shows up when
+`apply`'s range-based interface is exercised, which only the knap-assisted
+condition does).
+
+One point worth flagging for the next official run rather than treating as
+settled: Trial 6's corruption fired in only 1 of 3 knap-assisted runs on the
+same seed — an N=1 tie here is consistent with the fix working, but also
+consistent with the failure mode simply not firing this time by chance, the
+same way it didn't fire in 2 of Trial 6's 3 runs even before the fix
+existed. **The official follow-up is N≥3 on this exact setup (0.19.0,
+seed 1, Haiku)**, specifically watching whether the guard either prevents
+the corruption outright (an `apply` rejection visible in the transcript,
+recovered correctly) or — the weaker but still-acceptable outcome — forces
+a re-fetch-and-retry that costs some tool calls but never lands corrupted
+markdown on disk, either of which would support the hypothesis; a repeat of
+Trial 6's `knap-assisted-run3` silently on disk would not.
+
+## Opportunities for improvement surfaced by Trial 7
+
+None — Trial 7 didn't surface a new failure mode. The one open item is
+procedural, not code/skill: run the official N≥3 follow-up described above
+before calling Trial 6's corruption fix confirmed rather than "not observed
+once."
+
+### Trial 8 — 2026-08-19, N=3 per condition, Haiku 4.5, 200-note vault (official run, corruption-fix confirmation — but see protocol note)
+
+The N≥3 follow-up Trial 7 called for, on the identical seed-1/200-note
+setup (`scripts/bench-setup-trial.sh --seed 1 --notes 200`, confirmed
+byte-identical to Trials 3–7: hub `topics/release.md`/17 backlinks, split
+target `reference/cache.md`/14 backlinks, tag `archived`, 20/20 seeded
+problems pre-run), `knap` 0.19.0 (this branch, same build Trial 7 used, no
+rebuild needed — `knap --version` on `PATH` already matched). 6 fresh git
+repos seeded at the identical `bench-vault-seed` tag (3 `baseline-runN`, 3
+`knap-assisted-runN`), each dispatched as a fully independent, isolated
+Agent-tool subagent pinned to Haiku 4.5, no shared context between runs or
+across conditions.
+
+**Protocol note, found after the fact — this run does not cleanly replicate
+Trial 6/7's setup and the efficiency numbers below should not be read
+against theirs.** Trial 6 and 7 both used a departure from the standard
+protocol: an explicit paragraph in the knap-assisted prompt naming `knap`
+and its subcommands directly, "by explicit request," specifically to get a
+clean read on "does knap help once told to use it" rather than measuring
+skill discoverability. This trial used `scripts/bench-setup-trial.sh`'s
+default rendered prompt instead — task list only, relying on the installed
+`CLAUDE.md` and the instruction to check for it, the same
+discoverability-reliant setup as Trials 3 and 5 — because the departure is
+a manual addition to the prompt text that the script itself doesn't apply,
+and that wasn't reproduced here. All three knap-assisted transcripts show
+the agent did read `CLAUDE.md` and did use `knap` (`rename-file`,
+`rename-heading`, `rename-tag` named explicitly in two of three summaries,
+consistent tooling in the third), so this isn't a repeat of Trial 4's
+undiscovered-skill failure — but the efficiency comparison below is now
+confounded with whatever overhead self-directed discovery costs versus
+being told directly, which Trial 6/7 deliberately controlled for and this
+run did not.
+
+| Metric                                  | Baseline (median) | knap-assisted (median) | Δ                              |
+| ---------------------------------------- | ------------------ | ------------------------ | ------------------------------ |
+| Wall time (harness `duration_ms`)        | 295.3s             | 325.0s                   | knap **10.1% slower**          |
+| Tokens (harness `subagent_tokens`)       | 68,052             | 70,018                   | knap **2.9% more**             |
+| Tool calls (harness `tool_uses`)         | 98                 | 106                      | knap **8.2% more**             |
+| Files changed (`git diff --stat`)        | 99                 | 100                      | ~tie                           |
+| Broken links/anchors left (`knap lint`)  | 0 (all 3 runs)      | 0 (all 3 runs)            | tie                             |
+| Malformed/unparseable links (whole vault)| 0 (all 3 runs)      | 0 (all 3 runs)            | tie — **corruption fix holds** |
+| Seeded-fix accuracy (vs. ground truth)   | 20/20 (all 3)       | 20/20, 20/20, **19/20**   | knap worse in 1 of 3 runs      |
+| Tasks fully completed (of 7)             | 7/7 (all 3, verified structurally) | 7/7 (all 3, verified structurally) | tie |
+
+Per-run raw numbers, for the record:
+
+| Run                 | Wall time | Tokens | Tool calls |
+| -------------------- | --------- | ------ | ---------- |
+| baseline-run1        | 277.7s    | 68,052 | 95         |
+| baseline-run2        | 416.4s    | 69,960 | 140        |
+| baseline-run3        | 295.3s    | 58,388 | 98         |
+| knap-assisted-run1   | 244.0s    | 58,285 | 81         |
+| knap-assisted-run2   | 325.0s    | 81,843 | 106        |
+| knap-assisted-run3   | 340.1s    | 70,018 | 118        |
+
+**The corruption-fix question is answered cleanly, independent of the
+protocol note above.** All 6 vaults score `problem_count: 0` from `knap
+lint`, and — the check that actually matters, since Trial 6's failure was
+invisible to `knap lint` — a whole-vault scan for unclosed/malformed
+markdown links (`\[[^\]]*\]\([^)]*$`, the same class of corruption Trial 6
+found: e.g. `ddashboard-overview` with no closing `)`) found **zero
+instances in all 6 runs**, not just the 20 seeded-defect files. Combined
+with Trial 7's N=1 tie, that's 7 knap-assisted runs across two trials since
+`defe511` landed with no repeat of Trial 6's silent corruption. This part
+of Trial 7's open item is now closed: the fix holds at N≥3.
+
+**Seeded-fix accuracy surfaced one miss, but it's Trial 4's failure mode,
+not Trial 6's.** `knap-assisted-run1` repointed `reference/billing.md`'s
+"Sync 835" link to `../reference/sync.md` instead of the ground-truth
+`../reference/sync-835.md` — both files exist in the vault, so the link
+resolves cleanly and `knap lint` sees nothing wrong, but it's the wrong
+target (a same-family name collision: `sync.md`, `sync-221.md`, and
+`sync-835.md` all exist, and the link text plainly says "835"). This is
+the wrong-target-repoint pattern Trial 4 first found with `fix --broken-
+link`'s nearest-match ranking, not a malformed-link corruption — and this
+run didn't use `fix`, so it's a new instance of that failure mode via a
+different path (an agent's own file-selection judgment while constructing
+an `apply` plan, not the ranking heuristic). Baseline had zero misses
+across all 3 runs, matching every prior trial.
+
+**The efficiency reversal is real in this run's numbers but shouldn't be
+generalized from, given the protocol note.** Every efficiency metric flipped
+against knap-assisted for the first time across all 8 trials: slower median
+wall time, more median tokens, more median tool calls. The likely
+explanation, visible in the per-run spread, is variance in how much
+self-directed exploration each knap-assisted run did before settling into
+using `knap` (`knap-assisted-run2`'s 106 tool calls and 81,843 tokens look
+like a run that took a slower path to the same correct result), the exact
+cost Trial 6/7's explicit-mention departure was designed to remove from the
+comparison. **This trial does not supersede Trial 6's efficiency finding**
+(42.7% faster, 31.4% fewer tokens, 54.0% fewer tool calls, zero metric
+overlap between conditions) — it answers the corruption-fix question Trial
+7 left open, using a different (and, for efficiency purposes, weaker)
+prompt protocol than Trial 6/7 used. A clean N≥3 efficiency re-check against
+Trial 6's exact explicit-mention protocol is still open if that number needs
+re-confirming.
+
+## Opportunities for improvement surfaced by Trial 8
+
+None new. Two procedural items for whoever runs the next trial:
+
+1. **State explicitly in this doc's Procedure section whether the
+   explicit-knap-mention departure (Trial 6/7) or the default
+   `CLAUDE.md`-only prompt (Trials 3/5/8) is the standing protocol for
+   official (N≥3) runs**, rather than leaving it to be rediscovered per
+   trial which prompt text was actually used. Trial 8 fell back to the
+   script's default without a documented reason to.
+2. If an apples-to-apples efficiency re-check against Trial 6 is wanted,
+   re-run N≥3 with the explicit-mention prompt reproduced exactly (it's
+   currently only described in prose in Trial 6's writeup, not captured as
+   a script flag or template file).
 
 ## Threats to validity (call these out alongside results, don't bury them)
 
