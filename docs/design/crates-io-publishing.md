@@ -26,6 +26,17 @@ Status: plan finalized, not yet implemented.
   crates.io's 10 MB size cap. Confirm the final file list with
   `cargo package --list` before locking it in.
 - **Repository field**: `repository = "https://github.com/sleb/knap"`.
+- **Binary vs library shape**: `knap` publishes as a binary with only `cli`
+  public — that's the one module `main.rs` needs across the crate boundary.
+  Everything else (`config`, `edit`, `handlers`, `index`, `parser`, `server`)
+  is `pub(crate)`; `server::run` is already called in-crate from
+  `src/cli/lsp.rs`/`src/cli/check.rs`, so it never needed to be public for the
+  binary itself. `tests/` and `examples/` (compiled as separate crates) still
+  need `server::run` and `handlers::slug`, so those two are re-exported behind
+  an opt-in `test-support` Cargo feature (`#[doc(hidden)]`, gated), enabled
+  automatically for this crate's own dev builds via a self-referencing
+  `[dev-dependencies]` entry — invisible to a normal `cargo add knap`.
+  Implemented in `4a95d16`.
 
 ## Plan
 
@@ -39,11 +50,7 @@ Status: plan finalized, not yet implemented.
      `command-line-utilities`, `development-tools`)
    - Add `homepage` if there's a docs site, otherwise skip
 
-2. **Decide binary vs library shape**
-   - Confirm `knap` is meant to publish as a binary crate (it's an LSP/CLI
-     tool). Check `src/main.rs` vs `src/lib.rs` — if there's reusable lib
-     code, `cargo publish` publishes both, so it's worth being intentional
-     about what counts as public API.
+2. ~~**Decide binary vs library shape**~~ — done, see Decisions above.
 
 3. **Trim package contents**
    - Add an explicit `exclude` for `tests/`, `docs/`, `examples/` in
