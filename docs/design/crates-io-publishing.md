@@ -73,9 +73,11 @@ Status: plan finalized, not yet implemented.
    now — `cargo owner --add` can happen any time after the first publish if
    that changes later.
 
-6. **Fold into `/knap-release`**
-   - Wire `cargo publish` into the existing release skill/flow so version
-     bump, tag, and publish happen together for this and future releases.
+6. ~~**Fold into `/knap-release`**~~ — done. `.claude/skills/knap-release/SKILL.md`
+   now has a "Publish to crates.io" step right after commit/tag/push:
+   `cargo publish --dry-run` as a safety gate, then real `cargo publish`.
+   Renumbered the old "Post-release" step to 9 and folded in crates.io/docs.rs
+   verification and (first-publish-only) README badge reminders.
 
 7. **Publish**
    - `cargo publish` (real). One-way door — can't delete a version, only

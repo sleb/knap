@@ -131,10 +131,34 @@ git push && git push --tags
 
 Report the commit hash and confirm the tag was pushed.
 
-## Step 8 — Post-release
+## Step 8 — Publish to crates.io
 
-Remind the user to:
+```bash
+cargo publish --dry-run
+```
 
+Confirm it packages and verifies cleanly (warnings about `examples/`/`tests/`
+being excluded are expected — ignore them). Stop and ask the user to fix the
+issue before continuing if the dry run fails for any other reason.
+
+Then publish for real — this is a one-way door, the version can never be
+deleted, only yanked:
+
+```bash
+cargo publish
+```
+
+Report the confirmation and the crate's URL: `https://crates.io/crates/knap`.
+
+## Step 9 — Post-release
+
+- Verify `https://crates.io/crates/knap` shows `{VERSION}` as the latest
+  version.
+- Verify `https://docs.rs/knap` builds cleanly for `{VERSION}` (docs.rs
+  starts the build automatically on publish; it can take a few minutes —
+  check back rather than blocking on it).
+- If `README.md` doesn't yet have crates.io/docs.rs badges (only true before
+  the first-ever publish), add them now.
 - Verify the GitHub release page (notes match CHANGELOG, all binaries attached)
 - Open the next milestone in `docs/ROADMAP.md`
 - Run `knap-design` for the first feature of `v{N+1}` if no feature subfolder
