@@ -305,7 +305,7 @@ own — use `knap lsp`.**
 | `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                                          | v0.12, `move-file` alias added v0.14                                                                           |
 | `rename-heading` | `knap rename-heading <file> <old> <new>`                                                                     | v0.12                                                                                                          |
 | `rename-tag`     | `knap rename-tag <old> <new>`                                                                                | v0.12                                                                                                          |
-| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                              | v0.14, `repoint-link`/`repoint-anchor` ops added v0.15                                                         |
+| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                              | v0.14, `repoint-link`/`repoint-anchor` ops added v0.15, round-trip guard added v0.19                           |
 | `check`          | `knap check`                                                                                                 | v0.2                                                                                                           |
 | `version`        | `knap version`                                                                                               | v0.10.1                                                                                                        |
 
@@ -350,7 +350,15 @@ any operation fails, `run` returns before the sync ever runs and the scratch
 tempdir is discarded — the real workspace was never touched. `repoint-link`/
 `repoint-anchor` apply an agent-picked candidate (e.g. one surfaced by
 `lint --suggest`) at a diagnostic's own `range`, rather than re-deriving a
-target — the caller has already chosen. `--dry-run` runs
+target — the caller has already chosen. Because that `range` comes from the
+caller (typically a diagnostic computed before earlier operations in the
+same batch shifted line offsets), a stale or skewed range can make
+`edit::apply` write text that is no longer valid markdown; `repoint-link`/
+`repoint-anchor` guard against this by re-parsing the file immediately after
+the write and rejecting the operation (`.context("... produced unparseable
+markdown")`) if a well-formed link/anchor no longer sits where it should —
+this re-parse validation is what makes the operation fail loudly instead of
+corrupting the scratch copy silently. `--dry-run` runs
 the same scratch-copy pipeline but calls `diff_and_sync` in count-only mode,
 so the reported plan is exactly what a real run would touch without writing
 anything. `--json` serializes an `ApplyReport { dry_run, operations,

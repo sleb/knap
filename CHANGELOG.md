@@ -5,6 +5,26 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.19.0] — 2026-08-18
+
+### Fixed
+
+- **`knap apply` now rejects `repoint-link`/`repoint-anchor` operations that
+  would corrupt the target file.** A stale or skewed `range` (e.g. computed
+  against an earlier diagnostic, then shifted by another edit earlier in the
+  same batch) could previously make `apply` write text that was no longer
+  valid markdown — a link missing its closing `)`, for instance — with no
+  error. `apply` now re-parses the file immediately after each repoint write
+  and rejects the operation (leaving the batch's all-or-nothing guarantee
+  intact) if a well-formed link/anchor doesn't come back where expected.
+- **Batch errors now name which operation failed.** A failure partway
+  through a `knap apply` batch reports both the 1-based position and the
+  operation kind (e.g. `operation 2 (repoint-link)`), instead of just the
+  kind.
+- **`skill/knap/SKILL.md` now instructs copying a diagnostic's `range`
+  verbatim** into `repoint-link`/`repoint-anchor` ops rather than
+  recomputing it, with a worked example of the new rejection error.
+
 ## [0.18.0] — 2026-08-18
 
 ### Added

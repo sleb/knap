@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.18.0-blue)
+![Version](https://img.shields.io/badge/version-0.19.0-blue)
 [![Crates.io](https://img.shields.io/crates/v/knap.svg)](https://crates.io/crates/knap)
 [![docs.rs](https://img.shields.io/docsrs/knap)](https://docs.rs/knap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -297,6 +297,13 @@ renaming a heading in a file the same batch just renamed). If any operation
 fails, nothing in the real workspace is touched — the same all-or-nothing
 guarantee `rename-*` gives a single operation, extended across the whole
 batch.
+
+`repoint-link`/`repoint-anchor` re-parse the file right after writing it and
+reject the operation (naming its position and kind, e.g.
+`operation 2 (repoint-link)`) if a well-formed link no longer sits where
+expected — a guard against a stale or skewed `range` silently corrupting
+the file. Always copy `range` verbatim from the diagnostic; never
+recompute it.
 
 Usage: `knap apply [--dry-run] [--json]`
 

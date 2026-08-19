@@ -579,6 +579,30 @@ the full design.
 
 ---
 
+## v0.19 — Apply Round-Trip Guard _(released 2026-08-18)_
+
+### Apply Round-Trip Guard
+
+**Goal:** `knap apply` stops silently corrupting a file when a
+`repoint-link`/`repoint-anchor` operation's `range` is stale or skewed (e.g.
+computed against an earlier diagnostic, then shifted by another edit earlier
+in the same batch). Previously `edit::apply` would write whatever the range
+said, even if the result was no longer valid markdown — a link missing its
+closing `)`, for instance — with no error. This release re-parses the file
+immediately after each repoint write and rejects the operation if a
+well-formed link/anchor doesn't come back where expected, and names which
+operation failed (position and kind) in batch errors.
+
+| Story  | Feature                                                                                  |
+| ------ | ---------------------------------------------------------------------------------------- |
+| US-D21 | `knap apply` rejects a `repoint-link`/`repoint-anchor` op producing unparseable markdown |
+| US-D15 | `SKILL.md` instructs copying `range` verbatim, never recomputing it                      |
+
+See `docs/design/releases/archive/v0.19/apply-round-trip-guard/design.md` for
+the full design.
+
+---
+
 ## Backlog
 
 Explicitly deferred — not scheduled:
