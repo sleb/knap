@@ -249,6 +249,7 @@ No index update. The on-disk version was already indexed; closing a file doesn't
 ```
 for each FileEvent in params.changes:
     config.should_index(path)? no → skip this event
+    Deleted && index.is_dir_indexed(path)? → index.remove_dir(path)
     config.is_note(path)?
         note:
             Created | Changed → read file from disk → parse → index.index(note)
@@ -266,6 +267,13 @@ for each FileEvent in params.changes:
 `index::build`'s crawl uses, so a path excluded from the initial index (via
 the hardcoded `.git`/`node_modules`/`target` prune or `knap.toml`'s `exclude`)
 stays excluded across the whole live session, not just on startup.
+
+The directory check (v0.18) comes before the note/attachment split: a
+directory has no extension, so `config.is_note` is always `false` for it,
+and it would otherwise be misrouted through the attachment branch as
+`remove_attachment`. A `Deleted` event leaves nothing on disk left to stat,
+so a directory is identified by still being registered in the index
+(`index.is_dir_indexed`) rather than by filesystem type.
 
 ### `register_ancestor_dirs` (v0.17)
 
