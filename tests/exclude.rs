@@ -20,7 +20,7 @@ fn knap() -> Command {
 fn spawn_server() -> Connection {
     let (server_conn, client_conn) = Connection::memory();
     thread::spawn(move || {
-        knap::server::run(server_conn).expect("server error");
+        knap::server_run(server_conn).expect("server error");
     });
     client_conn
 }

@@ -480,6 +480,7 @@ dependencies = [
  "crossbeam-channel",
  "env_logger",
  "glob",
+ "knap",
  "log",
  "lsp-server",
  "lsp-types",

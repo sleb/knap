@@ -25,5 +25,13 @@ toml        = "1.1"
 tempfile    = "3"
 glob        = "0.3"
 
+[features]
+# Not part of the public API — opt-in only, re-exports test-only internals
+# (see src/lib.rs) so this crate's own tests/examples can reach them without
+# `server`/`handlers` being public. Enabled automatically below for dev
+# builds; never enabled for a normal `cargo add knap`.
+test-support = []
+
 [dev-dependencies]
+knap        = { path = ".", features = ["test-support"] }
 rand        = "0.10"

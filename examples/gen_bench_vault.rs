@@ -18,7 +18,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use clap::Parser;
-use knap::handlers::slug;
+use knap::slug;
 use rand::rngs::StdRng;
 use rand::seq::{IndexedRandom, SliceRandom};
 use rand::{RngExt, SeedableRng};
