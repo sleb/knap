@@ -67,10 +67,11 @@ Status: plan finalized, not yet implemented.
    `.crate` confirmed the same 44 files / ~135 KB seen in step 3, nothing
    unexpected.
 
-5. **crates.io account/auth**
-   - Confirm a crates.io account linked to GitHub, with an API token
-     (`cargo login`)
-   - Decide who else, if anyone, should be an owner (`cargo owner --add`)
+5. ~~**crates.io account/auth**~~ — done. crates.io account confirmed
+   (GitHub OAuth), scoped API token generated, `cargo login` run
+   (`~/.cargo/credentials.toml` present, 0600). Additional owners: none for
+   now — `cargo owner --add` can happen any time after the first publish if
+   that changes later.
 
 6. **Fold into `/knap-release`**
    - Wire `cargo publish` into the existing release skill/flow so version
