@@ -52,11 +52,13 @@ Status: plan finalized, not yet implemented.
 
 2. ~~**Decide binary vs library shape**~~ — done, see Decisions above.
 
-3. **Trim package contents**
-   - Add an explicit `exclude` for `tests/`, `docs/`, `examples/` in
-     `Cargo.toml`
-   - `cargo package --list` to confirm exactly what's included (verify no
-     test fixtures, scratch dirs, or secrets sneak in)
+3. ~~**Trim package contents**~~ — done. Added `exclude = ["tests/", "docs/",
+"examples/"]` to `Cargo.toml`. Confirmed with `cargo package --list`: no
+   test fixtures, scratch dirs, or secrets in the remaining 44 files (source,
+   metadata, `schemas/`, `scripts/`, `skill/`, `.claude/skills/`,
+   `.github/`). `cargo package` produces a 135 KB `.crate` (599.6 KiB
+   uncompressed, 131.8 KiB compressed) and passes verification.
+   Implemented in `4c9d23b`.
 
 4. **Local dry run**
    - `cargo publish --dry-run` to catch metadata/lint errors before
