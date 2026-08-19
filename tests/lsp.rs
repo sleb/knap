@@ -2552,3 +2552,64 @@ fn directory_created_live_resolves_without_restart() {
 
     do_shutdown(&client, 4);
 }
+
+/// Deleting a directory that a note links to breaks that link live, with no
+/// server restart — mirrors `directory_created_live_resolves_without_restart`
+/// but for the DELETED side, exercising `on_did_change_watched_files`'s
+/// directory branch (`NoteIndex::remove_dir`) directly rather than going
+/// through a file-inside-the-directory event.
+#[test]
+fn directory_deleted_live_breaks_link_without_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join("docs/lld")).unwrap();
+    std::fs::write(root.join("docs/lld/note.md"), "# LLD\n").unwrap();
+
+    let client = spawn_server();
+    do_initialize_with_options(&client, &file_uri(&root), json!({}));
+
+    // Note links to the directory, which exists at startup — no diagnostic.
+    did_open(&client, &file_uri(&root.join("a.md")), "[LLDs](docs/lld/)\n");
+    let diags = sync_and_collect_diagnostics(&client, 2);
+    let before = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .last()
+        .expect("no diagnostics published for a.md");
+    assert!(
+        before.diagnostics.is_empty(),
+        "expected no diagnostics for a directory link that exists, got {:?}",
+        before.diagnostics
+    );
+
+    // Delete the directory on disk, then simulate the watcher reporting the
+    // directory itself as DELETED (type 3) — not a file inside it.
+    std::fs::remove_dir_all(root.join("docs/lld")).unwrap();
+    client
+        .sender
+        .send(Message::Notification(Notification {
+            method: "workspace/didChangeWatchedFiles".to_string(),
+            params: json!({
+                "changes": [{
+                    "uri": file_uri(&root.join("docs/lld")),
+                    "type": 3
+                }]
+            }),
+        }))
+        .unwrap();
+
+    let diags = sync_and_collect_diagnostics(&client, 3);
+    let after = diags
+        .iter()
+        .filter(|d| d.uri.as_str().ends_with("a.md"))
+        .last()
+        .expect("no diagnostics for a.md after the directory was deleted");
+    assert_eq!(
+        after.diagnostics.len(),
+        1,
+        "expected broken-link diagnostic once the directory is deleted, got {:?}",
+        after.diagnostics
+    );
+
+    do_shutdown(&client, 4);
+}

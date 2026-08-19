@@ -426,6 +426,19 @@ fn on_did_change_watched_files(
         if !config.should_index(&path) {
             continue;
         }
+
+        // A DELETED event leaves nothing on disk to inspect, so a directory
+        // is identified by still being registered in the index rather than
+        // by stat-ing `path`. Must be checked before the note/attachment
+        // split below: a directory has no extension, so `is_note` is always
+        // false for it and it would otherwise be misrouted through the
+        // attachment branch as `remove_attachment`.
+        if event.typ == FileChangeType::DELETED && index.is_dir_indexed(&path) {
+            let delta = index.remove_dir(&path);
+            handlers::publish_diagnostics(&delta.affected_paths, index, config, sender);
+            continue;
+        }
+
         let is_note = config.is_note(&path);
 
         if is_note {
