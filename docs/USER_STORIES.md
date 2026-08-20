@@ -295,6 +295,17 @@ directory beyond the defaults can be pruned instead. Setting `skipDirs` in
 `initializationOptions` overrides `knap.toml`'s `skip_dirs` entirely, the
 same override precedence as `extensions`, not the union `exclude` uses.
 
+**US-60** — As a workspace owner, I can list `ignore_link_targets` glob
+patterns in my `knap.toml` (e.g. `["../../other-repo/**"]`) so relative
+links that intentionally point outside the workspace — into a sibling
+repo's docs, say — stop being reported as broken by `knap lint`/`knap
+index` across every doc that references them, without excluding anything
+from indexing. Applies the same union precedence as `exclude`:
+`initializationOptions.ignoreLinkTargets` adds to `knap.toml`'s list rather
+than replacing it. I can also pass `--ignore-link-target <pattern>`
+(repeatable) to `knap lint`/`knap index` for one-off exceptions on top of
+whatever `knap.toml` already lists, without editing the config file.
+
 ---
 
 ### Frontmatter
@@ -306,6 +317,16 @@ instead of filenames when inserting a link.
 **US-24** — As a writer, I get completions and validation for frontmatter keys
 and values defined in a schema I provide, so structured metadata stays
 consistent.
+
+**US-59** — As a writer, I can list link targets or target-directory globs
+under an `ignore-link-targets` frontmatter key in a doc (e.g.
+`../../other-repo/docs/thing.md`, or `../../other-repo/**`) so `knap
+lint`/`knap index` stop reporting those specific outbound links in that doc
+as broken, without deleting the link or excluding anything from indexing —
+for the common case of a relative link that intentionally points outside
+the current workspace, into a sibling workspace's docs. Named to match
+`knap.toml`'s `ignore_link_targets` — the doc-scoped and workspace-wide
+forms are the same mechanism, not two different-sounding ones.
 
 ---
 
