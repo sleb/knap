@@ -273,8 +273,11 @@ fn index_json_omits_excluded_notes() {
 #[test]
 fn lsp_initialize_applies_knap_toml_exclude() {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
-    std::fs::write(dir.path().join("knap.toml"), "exclude = [\"fixtures/**\"]\n")
-        .expect("write knap.toml");
+    std::fs::write(
+        dir.path().join("knap.toml"),
+        "exclude = [\"fixtures/**\"]\n",
+    )
+    .expect("write knap.toml");
     std::fs::write(dir.path().join("note.md"), "# Note\n").expect("write note.md");
     std::fs::create_dir(dir.path().join("fixtures")).expect("create fixtures dir");
     std::fs::write(
@@ -391,8 +394,11 @@ fn lsp_did_change_watched_files_on_excluded_path_is_ignored() {
 #[test]
 fn lsp_did_open_on_excluded_file_is_not_indexed() {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
-    std::fs::write(dir.path().join("knap.toml"), "exclude = [\"fixtures/**\"]\n")
-        .expect("write knap.toml");
+    std::fs::write(
+        dir.path().join("knap.toml"),
+        "exclude = [\"fixtures/**\"]\n",
+    )
+    .expect("write knap.toml");
     std::fs::write(dir.path().join("note.md"), "# Note\n").expect("write note.md");
     std::fs::create_dir(dir.path().join("fixtures")).expect("create fixtures dir");
     std::fs::write(
@@ -431,8 +437,11 @@ fn lsp_did_open_on_excluded_file_is_not_indexed() {
 #[test]
 fn lsp_did_change_on_excluded_file_is_not_indexed() {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
-    std::fs::write(dir.path().join("knap.toml"), "exclude = [\"fixtures/**\"]\n")
-        .expect("write knap.toml");
+    std::fs::write(
+        dir.path().join("knap.toml"),
+        "exclude = [\"fixtures/**\"]\n",
+    )
+    .expect("write knap.toml");
     std::fs::write(dir.path().join("note.md"), "# Note\n").expect("write note.md");
     std::fs::create_dir(dir.path().join("fixtures")).expect("create fixtures dir");
     std::fs::write(
@@ -487,11 +496,8 @@ fn lsp_did_change_watched_files_admits_non_excluded_sibling() {
     )
     .expect("write fixtures/broken.md");
     // A new, non-excluded sibling file created after the initial crawl.
-    std::fs::write(
-        dir.join("new-note.md"),
-        "[broken link](also-missing.md)\n",
-    )
-    .expect("write new-note.md");
+    std::fs::write(dir.join("new-note.md"), "[broken link](also-missing.md)\n")
+        .expect("write new-note.md");
 
     let workspace_uri = url::Url::from_file_path(dir)
         .expect("valid file URL")

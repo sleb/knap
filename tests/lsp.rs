@@ -2412,7 +2412,11 @@ fn directory_link_resolves_end_to_end() {
     let client = spawn_server();
     do_initialize_with_options(&client, &file_uri(&root), json!({}));
 
-    did_open(&client, &file_uri(&root.join("a.md")), "[LLDs](docs/lld/)\n");
+    did_open(
+        &client,
+        &file_uri(&root.join("a.md")),
+        "[LLDs](docs/lld/)\n",
+    );
 
     let diags = sync_and_collect_diagnostics(&client, 2);
     let last = diags
@@ -2441,8 +2445,16 @@ fn directory_link_definition_and_references() {
     let client = spawn_server();
     do_initialize_with_options(&client, &file_uri(&root), json!({}));
 
-    did_open(&client, &file_uri(&root.join("a.md")), "[LLDs](docs/lld/)\n");
-    did_open(&client, &file_uri(&root.join("b.md")), "[LLDs](docs/lld/)\n");
+    did_open(
+        &client,
+        &file_uri(&root.join("a.md")),
+        "[LLDs](docs/lld/)\n",
+    );
+    did_open(
+        &client,
+        &file_uri(&root.join("b.md")),
+        "[LLDs](docs/lld/)\n",
+    );
 
     // Go to Definition — cursor inside the link on a.md.
     send_request(
@@ -2569,7 +2581,11 @@ fn directory_deleted_live_breaks_link_without_restart() {
     do_initialize_with_options(&client, &file_uri(&root), json!({}));
 
     // Note links to the directory, which exists at startup — no diagnostic.
-    did_open(&client, &file_uri(&root.join("a.md")), "[LLDs](docs/lld/)\n");
+    did_open(
+        &client,
+        &file_uri(&root.join("a.md")),
+        "[LLDs](docs/lld/)\n",
+    );
     let diags = sync_and_collect_diagnostics(&client, 2);
     let before = diags
         .iter()

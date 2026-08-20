@@ -76,11 +76,8 @@ fn index_custom_skip_dirs_replaces_default() {
     std::fs::write(dir.path().join("vendor").join("pruned.md"), "# Pruned\n")
         .expect("write vendor/pruned.md");
     std::fs::create_dir(dir.path().join("node_modules")).expect("create node_modules dir");
-    std::fs::write(
-        dir.path().join("node_modules").join("kept.md"),
-        "# Kept\n",
-    )
-    .expect("write node_modules/kept.md");
+    std::fs::write(dir.path().join("node_modules").join("kept.md"), "# Kept\n")
+        .expect("write node_modules/kept.md");
 
     let output = knap()
         .args(["index", ".", "--json"])

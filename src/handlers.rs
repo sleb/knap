@@ -1521,9 +1521,7 @@ fn combined_distance(
 ) -> f64 {
     let path_norm = normalized_distance(path_distance, path_a, path_b);
     match text_distance {
-        Some(d) => {
-            PATH_WEIGHT * path_norm + TEXT_WEIGHT * normalized_distance(d, text_a, text_b)
-        }
+        Some(d) => PATH_WEIGHT * path_norm + TEXT_WEIGHT * normalized_distance(d, text_a, text_b),
         None => path_norm,
     }
 }
@@ -4190,10 +4188,7 @@ mod tests {
         let path_a = "docs/guide.md";
         let path_b = "docs/guides.md";
         let result = combined_distance(path_distance, path_a, path_b, None, "", "");
-        assert_eq!(
-            result,
-            normalized_distance(path_distance, path_a, path_b)
-        );
+        assert_eq!(result, normalized_distance(path_distance, path_a, path_b));
     }
 
     #[test]
@@ -4265,10 +4260,7 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/reference/cache.md", ""));
         idx.seed(note("/vault/reference/config-new.md", ""));
-        idx.seed(note(
-            "/vault/a.md",
-            "[Cache](reference/config-old.md)",
-        ));
+        idx.seed(note("/vault/a.md", "[Cache](reference/config-old.md)"));
         let ranked = rank_link_candidates(
             "reference/config-old.md",
             "Cache",
@@ -4315,12 +4307,7 @@ mod tests {
         let mut idx = NoteIndex::default();
         idx.seed(note("/vault/a/b/c/target.md", ""));
         idx.seed(note("/vault/a.md", "[Target](missing.md)"));
-        let ranked = rank_link_candidates(
-            "missing.md",
-            "Target",
-            Path::new("/vault/a.md"),
-            &idx,
-        );
+        let ranked = rank_link_candidates("missing.md", "Target", Path::new("/vault/a.md"), &idx);
         let candidate = ranked
             .iter()
             .find(|c| c.candidate == "a/b/c/target.md")
