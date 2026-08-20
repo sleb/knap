@@ -76,8 +76,9 @@ Make all of these changes:
    Pull the content from every feature subfolder's plan under `v{N}` and the
    git log since the last tag. Use only the sections that apply. Write from
    the user's perspective.
-3. **`README.md`** — update the version badge; update the "What it does"
-   feature list to reflect only shipped features (remove future-milestone items)
+3. **`README.md`** — update the "What it does" feature list to reflect only
+   shipped features (remove future-milestone items). The crates.io/docs.rs
+   badges auto-track the published version, so no badge edit is needed.
 4. **`docs/ROADMAP.md`** — add the release date to the completed version
    heading: `## v{MINOR} — <name> _(released {TODAY})_`. Give the version one
    subsection per feature subfolder (`### <feature title>`), each with its

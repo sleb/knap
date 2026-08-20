@@ -1,6 +1,5 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.20.0-blue)
 [![Crates.io](https://img.shields.io/crates/v/knap.svg)](https://crates.io/crates/knap)
 [![docs.rs](https://img.shields.io/docsrs/knap)](https://docs.rs/knap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
