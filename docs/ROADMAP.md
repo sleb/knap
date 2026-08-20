@@ -33,6 +33,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.18](#v018--publish-to-cratesio-released-2026-08-18)                           | Publish to crates.io                         | Released 2026-08-18 |
 | [v0.19](#v019--apply-round-trip-guard-released-2026-08-18)                        | Apply Round-Trip Guard                       | Released 2026-08-18 |
 | [v0.20](#v020--configurable-skip-dirs--ignore-link-targets-released-2026-08-20)   | Configurable Skip-Dirs & Ignore Link Targets | Released 2026-08-20 |
+| [v0.21](#v021--knap-skill-command-released-2026-08-20)                            | `knap skill` Command                         | Released 2026-08-20 |
 
 ---
 
@@ -645,6 +646,27 @@ still reports an ignored link's true resolution status.
 
 See `docs/design/releases/archive/v0.20/ignore-link-targets/design.md` for
 the full design.
+
+---
+
+## v0.21 — `knap skill` Command _(released 2026-08-20)_
+
+**Goal:** A `cargo install knap`-only setup — no source checkout on disk —
+still gets the shipped skill, and that skill never drifts from the running
+binary's version. Previously the only way to install `skill/knap/SKILL.md`
+was `cp -r skill/knap ...` from a cloned repository, which doesn't exist for
+a `cargo install` user and can silently go stale against an upgraded binary.
+This release embeds `SKILL.md` into the binary at compile time and adds a
+`knap skill` subcommand that writes it to `~/.claude/skills/knap` (
+`--global`) or an arbitrary directory (`--path <dir>`), write-if-different so
+re-running it is a no-op once the installed copy is current.
+
+| Story  | Feature                                                           |
+| ------ | ------------------------------------------------------------------ |
+| US-D22 | `knap skill --global \| --path <dir>` installs/updates `SKILL.md`  |
+
+See `docs/design/releases/v0.21/knap-skill-command/design.md` for the full
+design.
 
 ---
 

@@ -1202,6 +1202,64 @@ fn apply_cli_rejects_corrupt_repoint_anchor_and_exits_nonzero() {
     );
 }
 
+// ── skill ────────────────────────────────────────────────────────────────
+
+#[test]
+fn skill_path_subcommand_writes_skill_md() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let output = knap()
+        .args(["skill", "--path"])
+        .arg(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let written = std::fs::read_to_string(dir.path().join("SKILL.md")).unwrap();
+    let source = std::fs::read_to_string("skill/knap/SKILL.md").unwrap();
+    assert_eq!(written, source);
+}
+
+#[test]
+fn skill_path_subcommand_is_idempotent() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let first = knap()
+        .args(["skill", "--path"])
+        .arg(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        first.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let first_bytes = std::fs::read(dir.path().join("SKILL.md")).unwrap();
+
+    let second = knap()
+        .args(["skill", "--path"])
+        .arg(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        second.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    let second_bytes = std::fs::read(dir.path().join("SKILL.md")).unwrap();
+
+    assert_eq!(first_bytes, second_bytes);
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(
+        stdout.contains("already up to date"),
+        "stdout was: {stdout}"
+    );
+}
+
 #[test]
 fn apply_cli_reports_which_operation_failed_in_stderr() {
     let dir = tempfile::tempdir().unwrap();

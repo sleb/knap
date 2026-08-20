@@ -455,6 +455,11 @@ the lint → fix/rename → lint loop — which flags to pass, how to read `--js
 output, which diagnostic codes each subcommand resolves — so I can pick up
 the intended workflow without reverse-engineering it from `--help` text.
 
+**US-D22** — As an agent or developer, I can run `knap skill --global` or
+`knap skill --path <dir>` to install or update the shipped `SKILL.md`
+without a source checkout, so a `cargo install knap`-only setup still gets
+the skill and it never drifts from the running binary's version.
+
 ---
 
 ## Knap Contributor

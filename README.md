@@ -377,13 +377,13 @@ text, and shouldn't leave broken links behind for the human to find later.
 edit-verify loop for a coding agent working in a workspace that has `knap`
 installed — the six diagnostic `code`s, `--fail-on`/`--since`, and
 `knap index <file> --json` for a fast, scoped read of just the file it
-touched. Copy it into a workspace's skill directory to teach an agent
-knap's conventions directly:
+touched. Install it into a workspace's skill directory with `knap skill` to
+teach an agent knap's conventions directly:
 
 ```
-cp -r skill/knap ~/.claude/skills/
+knap skill --global
 # or, project-scoped:
-cp -r skill/knap <workspace>/.claude/skills/
+knap skill --path <workspace>/.claude/skills/knap
 ```
 
 ## Configuration
