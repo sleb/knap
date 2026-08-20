@@ -56,6 +56,10 @@ pub struct Heading {
 pub struct Frontmatter {
     pub title: Option<String>,
     pub tags: Vec<Tag>,
+    /// Glob-like patterns from the `ignore-link-targets:` key, in document
+    /// order, not deduplicated. Broken links whose target matches one of
+    /// these are suppressed as diagnostics. (v0.20)
+    pub ignore_link_targets: Vec<String>,
     /// All key-value pairs in document order, including `title` and `tags`.
     /// Used by schema-driven completions and diagnostics.
     pub fields: Vec<FrontmatterField>,
@@ -169,6 +173,7 @@ pub fn parse(path: &Path, content: &str) -> Note {
     let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
     let frontmatter = extract_frontmatter(content).map(|mut fm| {
         fm.tags = extract_tags(content, &line_index);
+        fm.ignore_link_targets = extract_ignore_link_targets(content);
         if let Some(block) = frontmatter_block(content) {
             fm.fields = extract_frontmatter_fields(block, 4, &line_index);
         }
@@ -200,23 +205,29 @@ the closing `---\n`. Returns `0` when there is no frontmatter or the opening
 
 ```rust
 pub fn frontmatter_body_offset(content: &str) -> usize {
-    if !content.starts_with("---\n") { return 0; }
-    let rest = &content[4..];
-    if let Some(i) = rest.find("\n---\n") {
-        4 + i + 5 // "---\n"(4) + block + "\n---\n"(5)
-    } else if rest.strip_suffix("\n---").is_some() {
-        content.len() // entire file is frontmatter; body is empty
+    let block = match frontmatter_block(content) {
+        Some(b) => b,
+        None => return 0, // no frontmatter, or malformed / unclosed block
+    };
+    let block_end = 4 + block.len(); // "---\n"(4) + block
+    if block_end + 5 <= content.len() {
+        block_end + 5 // + "\n---\n"(5)
     } else {
-        0 // malformed / unclosed block
+        content.len() // entire file is frontmatter; body is empty
     }
 }
 ```
 
+Shares the `frontmatter_block()` helper with `extract_frontmatter()` and
+`extract_tags()`, so the three agree on exactly what counts as a valid
+frontmatter block.
+
 ### extract_frontmatter()
 
 Returns `None` if no valid `---…---` block is found, or `Some(Frontmatter)`
-with the `title` key parsed (if present). Tags are populated separately by
-`extract_tags` and merged in by `parse()`.
+with the `title` key parsed (if present). Tags and `ignore_link_targets` are
+populated separately, by `extract_tags` and `extract_ignore_link_targets`
+respectively, and merged in by `parse()`.
 
 ### extract_tags()
 
@@ -224,6 +235,21 @@ Supports three forms of the `tags:` key: inline list (`tags: [foo, bar]`),
 block list (`tags:\n  - foo`), and bare scalar (`tags: productivity`). Returns
 `vec![]` when there is no frontmatter, no `tags:` key, or the value is a block
 scalar.
+
+### extract_ignore_link_targets()
+
+Extracts glob-like patterns from the frontmatter `ignore-link-targets:` key
+(v0.20). Supports the same three forms as `extract_tags` — inline list
+(`ignore-link-targets: [../a/**, ../b.md]`), block list
+(`ignore-link-targets:\n  - ../a/**`), and bare scalar
+(`ignore-link-targets: ../a/**`) — minus per-entry ranges, since these
+patterns aren't individually hit-tested the way tags are. Returns `vec![]`
+when there is no frontmatter, no `ignore-link-targets:` key, or the value is
+a block scalar. Entries are not deduplicated.
+
+```rust
+fn extract_ignore_link_targets(content: &str) -> Vec<String>
+```
 
 ### extract_frontmatter_fields()
 

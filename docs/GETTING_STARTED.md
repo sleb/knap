@@ -138,6 +138,8 @@ headless `knap lint` and `knap index` commands — see the
 | `newNoteDir`        | `string`   | —        | Folder path relative to workspace root where Quick Fix "Create note" places new files. When absent, new files are created next to the linking note.                                               |
 | `frontmatterSchema` | `object`   | —        | Defines allowed keys and values for note frontmatter. Enables key/value completions and diagnostics. See below.                                                                                   |
 | `exclude`           | `string[]` | `[]`     | Glob patterns (relative to the workspace root) left out of indexing entirely — no diagnostics, completions, navigation, or backlinks. Unioned with `knap.toml`'s `exclude`, not overridden by it. |
+| `skipDirs`          | `string[]` | `[".*", "node_modules", "target"]` | Glob patterns matched against bare directory names, pruned from the crawl before it descends into them. Replaces the default outright when set, rather than adding to it. |
+| `ignoreLinkTargets` | `string[]` | `[]`     | Glob patterns matched against a link's raw target text; a matching link is never reported as `broken-link` (it's still indexed and resolved normally). Unioned with `knap.toml`'s `ignore_link_targets`, not overridden by it. A note's own `ignore-link-targets:` frontmatter key adds further patterns scoped to just that note. |
 
 **Example — multi-extension vault with inbox:**
 
@@ -304,6 +306,13 @@ knap publishes warnings for:
 
 Diagnostics update as files are opened, saved, created, and deleted — no
 restart needed.
+
+**Suppressing false positives:** set `ignoreLinkTargets` (see
+[Configuration](#3-configuration)) to glob-match link targets that should
+never be reported as `broken-link` — links out to a sibling vault or
+external mount that isn't part of this workspace, for example. A note can
+also list its own patterns under an `ignore-link-targets:` frontmatter key,
+scoped to just that note's links.
 
 **Attachment links:** `![alt](image.png)` resolves against all files in the
 workspace, not just note files. If `image.png` exists anywhere under the

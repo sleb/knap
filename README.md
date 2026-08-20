@@ -1,6 +1,6 @@
 # knap
 
-![Version](https://img.shields.io/badge/version-0.19.0-blue)
+![Version](https://img.shields.io/badge/version-0.20.0-blue)
 [![Crates.io](https://img.shields.io/crates/v/knap.svg)](https://crates.io/crates/knap)
 [![docs.rs](https://img.shields.io/docsrs/knap)](https://docs.rs/knap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -35,7 +35,7 @@ apply`** — for the agent — the same checks and refactors, headlessly from
   verify its own edits, rename with the same guarantees a human gets
   from the LSP, and apply a whole batch of chosen changes in one call.
 
-Both faces share one indexing and configuration core: `src/config.rs` loads
+Both faces share one indexing and configuration core: `src/config/mod.rs` loads
 `initializationOptions` or `knap.toml` the same way for every entry point, and
 the note index — files, headings, links, backlinks, tags — is built once and
 reused across all commands. A human renaming a file in their editor and an

@@ -48,9 +48,22 @@ struct Config {
     /// Glob patterns left out of indexing entirely. Default: []. Raw form,
     /// kept for tests — path_filter is the actual authority.
     exclude: Vec<String>,
+    /// Directory-name glob patterns pruned from the crawl, matched against
+    /// bare directory names. Default: `default_skip_dirs()` (dotfiles/
+    /// dot-directories, `node_modules`, `target`). Raw form, kept for
+    /// tests — path_filter is the actual authority.
+    skip_dirs: Vec<String>,
     /// Compiled exclude/index authority, built once by `finalize` from
-    /// `exclude` and `extensions`. See `should_index`/`is_note` below.
+    /// `exclude`, `extensions`, and `skip_dirs`. See `should_index`/`is_note`
+    /// below.
     path_filter: PathFilter,
+    /// Glob patterns naming link targets to never report as `broken-link`.
+    /// Default: []. Raw form, kept for tests — ignore_link_target_patterns
+    /// is the actual authority.
+    ignore_link_targets: Vec<String>,
+    /// Compiled form of `ignore_link_targets`, built once by `finalize`.
+    /// Consulted by `handlers::is_ignored_link_target`.
+    ignore_link_target_patterns: Vec<glob::Pattern>,
 }
 ```
 
@@ -121,26 +134,36 @@ ServerCapabilities {
 
 ### `initialized` notification
 
-1. Register the file watcher with the client:
+1. Register the file watcher with the client — one `FileSystemWatcher` per
+   `config.index_roots` entry, each watching **all** files under that root
+   (`**/*`, relative to the root's URI), not just note-extension files.
+   Filtering by extension happens later, in the notification handler
+   (`config.should_index`/`config.is_note`), not in the watcher glob itself:
 
 ```rust
+let watchers: Vec<FileSystemWatcher> = config.index_roots.iter().filter_map(|root| {
+    let base_uri: Uri = url::Url::from_file_path(root).ok()?.as_str().parse().ok()?;
+    Some(FileSystemWatcher {
+        glob_pattern: GlobPattern::Relative(RelativePattern {
+            base_uri: OneOf::Right(base_uri),
+            pattern: "**/*".to_string(),
+        }),
+        kind: None, // all events: create, change, delete
+    })
+}).collect();
+
 let registration = Registration {
     id: "file-watcher".to_string(),
-    method: DidChangeWatchedFiles::METHOD.to_string(),
+    method: "workspace/didChangeWatchedFiles".to_string(),
     register_options: Some(serde_json::to_value(
-        DidChangeWatchedFilesRegistrationOptions {
-            watchers: config.extensions.iter().map(|ext| FileSystemWatcher {
-                glob_pattern: GlobPattern::String(format!("**/*.{ext}")),
-                kind: None, // all events: create, change, delete
-            }).collect(),
-        }
+        DidChangeWatchedFilesRegistrationOptions { watchers },
     )?),
 };
-connection.sender.send(Message::Request(Request::new(
-    next_request_id(),
-    RegisterCapability::METHOD.to_string(),
-    RegistrationParams { registrations: vec![registration] },
-)))?;
+connection.sender.send(Message::Request(Request {
+    id: lsp_server::RequestId::from(next_id),
+    method: "client/registerCapability".to_string(),
+    params: serde_json::to_value(RegistrationParams { registrations: vec![registration] })?,
+}))?;
 ```
 
 2. Crawl all files in `config.index_roots`, parse each, populate the `NoteIndex`
@@ -265,7 +288,8 @@ for each FileEvent in params.changes:
 
 `config.should_index`/`config.is_note` are the same `PathFilter`-backed checks
 `index::build`'s crawl uses, so a path excluded from the initial index (via
-the hardcoded `.git`/`node_modules`/`target` prune or `knap.toml`'s `exclude`)
+`skip_dirs` — defaulting to dotfiles/dot-directories, `node_modules`, and
+`target` when unset — or `knap.toml`'s/`initializationOptions`' `exclude`)
 stays excluded across the whole live session, not just on startup.
 
 The directory check (v0.18) comes before the note/attachment split: a

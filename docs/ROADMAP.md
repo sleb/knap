@@ -31,6 +31,8 @@ from v0.1 alone and accumulate more with each release.
 | [v0.16](#v016--exclude-paths-released-2026-08-15)                                 | Exclude Paths                                | Released 2026-08-15 |
 | [v0.17](#v017--drop-knap-fix--directory-links-released-2026-08-17)                | Drop `knap fix` & Directory Links            | Released 2026-08-17 |
 | [v0.18](#v018--publish-to-cratesio-released-2026-08-18)                           | Publish to crates.io                         | Released 2026-08-18 |
+| [v0.19](#v019--apply-round-trip-guard-released-2026-08-18)                        | Apply Round-Trip Guard                       | Released 2026-08-18 |
+| [v0.20](#v020--configurable-skip-dirs--ignore-link-targets-released-2026-08-20)   | Configurable Skip-Dirs & Ignore Link Targets | Released 2026-08-20 |
 
 ---
 
@@ -599,6 +601,49 @@ operation failed (position and kind) in batch errors.
 | US-D15 | `SKILL.md` instructs copying `range` verbatim, never recomputing it                      |
 
 See `docs/design/releases/archive/v0.19/apply-round-trip-guard/design.md` for
+the full design.
+
+---
+
+## v0.20 — Configurable Skip-Dirs & Ignore Link Targets _(released 2026-08-20)_
+
+### Configurable Skip-Dir Defaults
+
+**Goal:** The crawl-prune list — the directory names skipped outright while
+building the index — stops being hardcoded. `knap.toml`'s `skip_dirs`
+replaces the built-in `.*`/`node_modules`/`target` defaults with a
+workspace's own list, matched against bare directory names rather than
+paths, so a directory like `.notes/` that the default dotfile pattern would
+otherwise prune can be opted into indexing, or an additional directory can
+be pruned beyond the defaults. `initializationOptions.skipDirs` overrides
+`knap.toml`'s `skip_dirs` entirely — the same override precedence
+`extensions` uses, not the union `exclude` uses.
+
+| Story | Feature                                                                  |
+| ----- | ------------------------------------------------------------------------- |
+| US-58 | `knap.toml` `skip_dirs` — configurable, overridable crawl-prune defaults |
+
+See `docs/design/releases/archive/v0.20/configurable-skip-dirs/design.md`
+for the full design.
+
+### Ignore Link Targets
+
+**Goal:** A relative link that intentionally points outside the workspace —
+into a sibling repo's docs, say — stops being reported as broken, without
+excluding anything from indexing. `knap.toml`'s `ignore_link_targets` (union
+precedence with `initializationOptions.ignoreLinkTargets`, same as
+`exclude`) sets workspace-wide patterns; a doc-scoped `ignore-link-targets`
+frontmatter key sets per-note ones; a repeatable `--ignore-link-target
+<pattern>` flag on `knap lint`/`knap index` adds one-off exceptions. All
+three suppress only the `broken-link` diagnostic — `knap index --json`
+still reports an ignored link's true resolution status.
+
+| Story | Feature                                                          |
+| ----- | ------------------------------------------------------------------- |
+| US-59 | Doc-scoped `ignore-link-targets` frontmatter key                    |
+| US-60 | `knap.toml` `ignore_link_targets` + `--ignore-link-target` flag     |
+
+See `docs/design/releases/archive/v0.20/ignore-link-targets/design.md` for
 the full design.
 
 ---

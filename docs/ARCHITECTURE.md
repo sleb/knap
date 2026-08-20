@@ -75,7 +75,7 @@ the files stay clean.
 
 ## Configuration
 
-`src/config.rs` is the single config-loading module shared by `knap lsp`,
+`src/config/mod.rs` is the single config-loading module shared by `knap lsp`,
 `knap lint`, and `knap index` — headless commands see the same `Config` the
 LSP would build for the same workspace, rather than diverging on their own
 defaults.
@@ -89,6 +89,8 @@ Config {
   exclude: string[]            // raw glob patterns, default: []; kept for tests, PathFilter is the authority
   skip_dirs: string[]          // raw glob patterns, default: default_skip_dirs() (".*", "node_modules", "target"); kept for tests, PathFilter is the authority
   path_filter: PathFilter      // compiled exclude/index authority, built once by finalize from exclude+extensions+skip_dirs
+  ignore_link_targets: string[]              // raw glob patterns, default: []; kept for tests, ignore_link_target_patterns is the authority
+  ignore_link_target_patterns: glob::Pattern[] // compiled ignore_link_targets, built once by finalize
 }
 ```
 
@@ -112,6 +114,20 @@ fn should_index(&self, path: &Path) -> bool // longest-prefix index_roots match,
 fn is_note(&self, path: &Path) -> bool      // delegates to path_filter.is_note (extension check)
 ```
 
+`ignore_link_targets` is a separate authority, orthogonal to `path_filter`:
+it doesn't affect what gets indexed, only which resolved-but-missing link
+targets are suppressed from `broken-link` diagnostics. `finalize` compiles
+`ignore_link_targets`'s glob strings once into `ignore_link_target_patterns`
+(a `Vec<glob::Pattern>`), the same eager-validation treatment `exclude` and
+`skip_dirs` get. `handlers::is_ignored_link_target` is the sole consumer: it
+checks a link's raw target text against `config.ignore_link_target_patterns`
+first, then against the current note's own frontmatter `ignore-link-targets:`
+key (parsed by the Markdown Parser into `Note::frontmatter`) — a per-note
+override layered on top of the workspace-wide config, with a malformed
+frontmatter pattern logged via `warn!` and skipped rather than failing the
+diagnostic pass, since frontmatter isn't validated ahead of time the way
+`knap.toml`/CLI patterns are.
+
 There are two sources, and two loader entry points that combine them
 differently depending on whether an editor is involved:
 
@@ -126,7 +142,7 @@ differently depending on whether an editor is involved:
 
 ```rust
 fn for_lsp(init_params: &InitializeParams) -> Result<Config>   // knap lsp
-fn for_path(root: &Path, extensions_override: Option<Vec<String>>, exclude_additions: &[String]) -> Result<Config> // knap lint, knap index, knap rename-*
+fn for_path(path: &Path, extensions_override: Option<Vec<String>>, exclude_additions: &[String], ignore_link_target_additions: &[String]) -> Result<Config> // knap lint, knap index, knap rename-*
 ```
 
 - `for_lsp` — `index_roots` from `workspaceFolders` in the `initialize`
@@ -134,10 +150,13 @@ fn for_path(root: &Path, extensions_override: Option<Vec<String>>, exclude_addit
   `knap.toml` in `index_roots[0]`, then layers `initializationOptions` over
   it field-by-field: the editor value wins where present, `knap.toml` fills
   in what's left, and the built-in defaults are the final fallback. `exclude`
-  is the one exception to this layering — `initializationOptions.exclude`
-  (camelCase wire field) and `knap.toml`'s `exclude` are unioned instead of
-  one overriding the other, since both express "leave this out," not
-  conflicting values. A malformed `knap.toml` fails `initialize` outright; a
+  and `ignore_link_targets` are the two exceptions to this layering —
+  `initializationOptions.exclude`/`ignoreLinkTargets` (camelCase wire fields)
+  and `knap.toml`'s `exclude`/`ignore_link_targets` are unioned instead of
+  one overriding the other, since both express "leave this out" / "never
+  flag this," not conflicting values. `skip_dirs` uses ordinary override
+  precedence instead — a source that sets it fully replaces the other's
+  list. A malformed `knap.toml` fails `initialize` outright; a
   malformed `initializationOptions` payload keeps the existing lenient
   behavior — `warn!` and default that field — since it's an editor-side
   concern the user doesn't directly author, unlike a `knap.toml` they wrote
@@ -228,6 +247,8 @@ pure — given the same source text it always returns the same result.
 - Extracting all headings with their level and text _(v0.3)_
 - Extracting YAML frontmatter (title, tags, arbitrary keys) _(v0.1, extended v0.3)_
 - Extracting fenced code block positions as `CodeFence` entries _(v0.9)_
+- Extracting a note's own `ignore-link-targets:` frontmatter patterns (bare
+  scalar, inline list, or block list) _(v0.20)_
 
 **Contract:**
 
@@ -293,7 +314,7 @@ exclusively — they do not touch the filesystem directly.
 ### CLI
 
 `src/cli/` — one module per subcommand (`mod.rs`, `lsp.rs`, `lint.rs`,
-`index.rs`, `parse.rs`, `check.rs`, `version.rs`, `rename.rs`),
+`index.rs`, `parse.rs`, `check.rs`, `version.rs`, `rename.rs`, `apply.rs`),
 wired up with `clap`.
 `main.rs` is just logging setup plus `knap::cli::run()`. There is no
 argument-free fallback: a subcommand is required, and bare `knap` exits
@@ -304,8 +325,8 @@ own — use `knap lsp`.**
 | Subcommand       | Usage                                                                                                        | Available from                                                                                                 |
 | ---------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | `lsp`            | `knap lsp`                                                                                                   | v0.11 (previously the bare-args default, since v0.1)                                                           |
-| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--exclude <glob>]...` | v0.11, `--fail-on`/`--since`/`--suggest` added v0.13, `--exclude` added v0.16                                  |
-| `index`          | `knap index <path> [--json] [--exclude <glob>]...`                                                           | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13; `--exclude` added v0.16 |
+| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--exclude <glob>]... [--ignore-link-target <glob>]...` | v0.11, `--fail-on`/`--since`/`--suggest` added v0.13, `--exclude` added v0.16, `--ignore-link-target` added v0.20 |
+| `index`          | `knap index <path> [--json] [--exclude <glob>]... [--ignore-link-target <glob>]...`                          | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13; `--exclude` added v0.16; `--ignore-link-target` added v0.20 |
 | `parse`          | `knap parse <file>`                                                                                          | v0.1                                                                                                           |
 | `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                                          | v0.12, `move-file` alias added v0.14                                                                           |
 | `rename-heading` | `knap rename-heading <file> <old> <new>`                                                                     | v0.12                                                                                                          |

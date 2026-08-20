@@ -135,7 +135,7 @@ pub fn index(&mut self, note: Note) -> IndexDelta {
         }
         let target = unescape_link_target(&link.target);
         let candidate = normalize_path(
-            &note.path.parent().unwrap().join(target.as_ref())
+            &note.path.parent().expect("note path must have a parent directory").join(target.as_ref())
         );
         if self.target_exists(&candidate) {
             self.links_to.entry(candidate.clone()).or_default().push(LocatedLink {
@@ -178,7 +178,10 @@ in `links_to[P]`.
 ```rust
 fn recheck_incoming(&mut self, new_path: &Path) -> AffectedPaths {
     let mut affected = AffectedPaths::default();
-    let links_to = &mut self.links_to;
+
+    // Collect what we need while borrowing by_path immutably, so the
+    // mutable links_to update below doesn't conflict with it.
+    let mut new_links: Vec<(PathBuf, MarkdownLink)> = Vec::new();
 
     for note in self.by_path.values() {
         for link in &note.md_links {
@@ -187,7 +190,7 @@ fn recheck_incoming(&mut self, new_path: &Path) -> AffectedPaths {
             }
             let target = unescape_link_target(&link.target);
             let candidate = normalize_path(
-                &note.path.parent().unwrap().join(target.as_ref())
+                &note.path.parent().expect("note path must have a parent directory").join(target.as_ref())
             );
             if candidate != new_path { continue; }
 
@@ -197,17 +200,27 @@ fn recheck_incoming(&mut self, new_path: &Path) -> AffectedPaths {
                 .unwrap_or(false);
 
             if !already_tracked {
-                self.links_to.entry(new_path.to_path_buf()).or_default().push(LocatedLink {
-                    source_path: note.path.clone(),
-                    md_link: link.clone(),
-                });
-                affected.insert(note.path.clone());
+                new_links.push((note.path.clone(), link.clone()));
             }
         }
     }
+
+    for (source_path, md_link) in new_links {
+        self.links_to.entry(new_path.to_path_buf()).or_default().push(LocatedLink {
+            source_path: source_path.clone(),
+            md_link,
+        });
+        affected.insert(source_path);
+    }
+
     affected
 }
 ```
+
+Collected into `new_links` first, then applied in a second pass — the first
+pass only needs `self.by_path` immutably while the second only touches
+`self.links_to`, avoiding a borrow conflict between iterating `by_path` and
+mutating `links_to` in the same loop.
 
 ---
 
@@ -291,7 +304,10 @@ impl NoteIndex {
 
     /// All non-note file paths registered in the workspace (attachments).
     pub fn all_attachment_paths(&self) -> impl Iterator<Item = &Path> {
-        self.all_files.iter().filter(|p| !self.by_path.contains_key(*p))
+        self.all_files
+            .iter()
+            .filter(|p| !self.by_path.contains_key(*p))
+            .map(PathBuf::as_path)
     }
 
     /// Register a non-note file (attachment) in `all_files`. Notes that link

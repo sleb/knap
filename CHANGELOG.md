@@ -5,6 +5,31 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.20.0] — 2026-08-20
+
+### Added
+
+- **Configurable crawl-prune list (`skip_dirs`).** `knap.toml` now accepts
+  a `skip_dirs` list (e.g. `["vendor"]`) that replaces the built-in
+  directory-prune defaults — `.*`, `node_modules`, `target` — matched
+  against bare directory names, not paths. This lets a directory the
+  default dotfile pattern would otherwise skip (like `.notes/`) be opted
+  into indexing, or an additional directory be pruned beyond the built-in
+  three. `initializationOptions.skipDirs` overrides `knap.toml`'s
+  `skip_dirs` entirely — the same override precedence `extensions` uses,
+  not the union `exclude` uses.
+- **Ignore specific broken-link targets (`ignore_link_targets`).** Both
+  `knap.toml`'s `ignore_link_targets` (workspace-wide, union precedence
+  with `initializationOptions.ignoreLinkTargets`, same as `exclude`) and a
+  doc-scoped `ignore-link-targets` frontmatter key now suppress
+  `broken-link` diagnostics for relative links that intentionally point
+  outside the workspace — into a sibling repo's docs, say — without
+  excluding anything from indexing. A repeatable `--ignore-link-target
+  <pattern>` flag was also added to `knap lint`/`knap index` for one-off
+  exceptions on top of whatever `knap.toml` already lists. Ignoring is a
+  diagnostics-only concern: `knap index --json` still reports the true
+  resolution status of an ignored link.
+
 ## [0.19.0] — 2026-08-18
 
 ### Fixed

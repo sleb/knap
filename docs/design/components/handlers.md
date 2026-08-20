@@ -269,7 +269,8 @@ For each Markdown link in the note:
 | ------------------------------------------------------ | ------------------------------ | ------------------------------------------ |
 | Bare anchor `[text](#slug)` — slug not in this file    | `link.anchor_range` (or range) | `Heading not found: '#slug'`               |
 | Bare anchor `[text](#)` — empty slug (`anchor = None`) | —                              | No diagnostic                              |
-| Cross-file — `Broken` target                           | `link.target_range`            | `Link target not found: 'path/to/note.md'` |
+| Cross-file — `Broken` target, not an ignored target (see below)     | `link.target_range`            | `Link target not found: 'path/to/note.md'` |
+| Cross-file — `Broken` target, matches an ignored-target pattern (see below) | —                | No diagnostic                              |
 | Cross-file — `Found` + anchor not matching any heading | `link.anchor_range`            | `Heading not found: '#anchor'`             |
 | Cross-file — `Found` + no anchor (or valid anchor)     | —                              | No diagnostic                              |
 
@@ -279,6 +280,41 @@ Bare anchor-only links (`target = ""`) flow through the same
 — `Found`" row above is what actually validates the anchor against the
 current note's headings (via GFM slug comparison). A link `[text](#)` with
 an empty anchor (`link.anchor = None`) produces no diagnostic.
+
+### Ignored link targets (`is_ignored_link_target`, v0.20)
+
+Before a `Broken` link is turned into a `broken-link` diagnostic,
+`compute_diagnostics` calls `is_ignored_link_target(&link.target, note,
+config)` and, if it returns `true`, suppresses the diagnostic (`continue`s
+the loop) instead of pushing it:
+
+```rust
+fn is_ignored_link_target(
+    target: &str,
+    note: &parser::Note,
+    config: &crate::config::Config,
+) -> bool
+```
+
+A target is ignored when it matches any glob pattern from either source,
+**frontmatter patterns checked first**:
+
+1. The note's own frontmatter `ignore-link-targets:` key
+   (`note.frontmatter.ignore_link_targets`, parsed in `src/parser/mod.rs`) —
+   patterns apply only to that note.
+2. `config.ignore_link_target_patterns` (from `knap.toml`/CLI, workspace-wide).
+
+Each frontmatter pattern is compiled on the fly with `glob::Pattern::new`. A
+malformed pattern (invalid glob syntax) does **not** abort the check or
+error out — it is logged via `warn!("invalid ignore-link-targets pattern
+'{raw}' in frontmatter: {err}")` and skipped, so one bad pattern doesn't
+suppress checking the rest of that note's patterns or the config-level
+patterns. Config-level patterns are pre-compiled `glob::Pattern`s already
+validated by `config::finalize`, so no equivalent malformed-pattern path
+exists for them here.
+
+This check applies **only** to the `Broken` / `broken-link` case — it has no
+effect on `broken-anchor`, schema, or any other diagnostic in this function.
 
 ### Schema diagnostics
 
