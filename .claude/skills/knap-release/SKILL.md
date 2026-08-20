@@ -116,7 +116,22 @@ that turn up:
 grep -rn "design/releases/v0\." docs/ --include="*.md" | grep -v /archive/
 ```
 
-## Step 7 — Commit, tag, and push
+## Step 7 — Dry-run the crates.io publish
+
+```bash
+cargo publish --dry-run
+```
+
+Confirm it packages and verifies cleanly (warnings about `examples/`/`tests/`
+being excluded are expected — ignore them). Stop and ask the user to fix the
+issue before continuing if the dry run fails for any other reason.
+
+This is a gate only, run before the tag push so a packaging failure surfaces
+before anything irreversible happens — the real publish happens in CI
+(`publish-crate` job in `.github/workflows/release.yml`), triggered by the
+tag push in step 8.
+
+## Step 8 — Commit, tag, and push
 
 Stage the files changed in steps 3, 5, and 6:
 
@@ -130,19 +145,6 @@ git push && git push --tags
 ```
 
 Report the commit hash and confirm the tag was pushed.
-
-## Step 8 — Dry-run the crates.io publish
-
-```bash
-cargo publish --dry-run
-```
-
-Confirm it packages and verifies cleanly (warnings about `examples/`/`tests/`
-being excluded are expected — ignore them). Stop and ask the user to fix the
-issue before continuing if the dry run fails for any other reason.
-
-This is a gate only — the real publish happens in CI (`publish-crate` job in
-`.github/workflows/release.yml`), triggered by the tag push in step 7.
 
 ## Step 9 — Post-release
 
