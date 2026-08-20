@@ -4,25 +4,31 @@
 [![docs.rs](https://img.shields.io/docsrs/knap)](https://docs.rs/knap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Tooling that keeps linked Markdown docs correct — for the human writing them
-and the agent editing alongside — built on standard Markdown syntax with no
-proprietary extensions.
+Keeps linked Markdown docs correct — for the human writing them and the
+agent editing alongside — without the grep-and-pray that usually goes with
+renaming a file in a big linked workspace. Built on standard Markdown syntax
+with no proprietary extensions.
 
 ## Overview
 
 A workspace of linked Markdown docs breaks quietly: a file gets renamed and
 every link to it goes stale, a heading gets reworded and its anchors dangle,
-a tag gets retired in one file but not the other forty. knap keeps
-`[text](path.md)` links, `#anchor`s, and frontmatter tags correct as both a
+a tag gets retired in one file but not the other forty. Finding and fixing
+that by hand means grepping for every possible spelling of a path, opening
+each hit, and hoping you didn't miss one — for a human, tedious; for a
+coding agent, it burns tool calls and context on work that's mechanical, not
+hard. knap replaces that with a real index: `[text](path.md)` links,
+`#anchor`s, and frontmatter tags are parsed once and kept correct as both a
 human and a coding agent edit the same files — the same index, the same
-diagnostics, the same refactors, whichever one is holding the pen. Docs stay
-plain Markdown that renders correctly anywhere — GitHub, static site
-generators, other editors — without knap present; the tooling supplies the
-correctness, the files stay clean. This works for any workspace of linked
-docs: a wiki, a knowledge base, a docs site, a spec repo, a personal
-note-taking vault — knap doesn't care what you call the files, only that
-they link to each other. See [Architecture](docs/ARCHITECTURE.md) for the
-full design tenets.
+diagnostics, the same atomic refactors, whichever one is holding the pen. A
+rename that would be a multi-file grep-sed-verify loop by hand is one
+command, done exactly once, with nothing missed. Docs stay plain Markdown
+that renders correctly anywhere — GitHub, static site generators, other
+editors — without knap present; the tooling supplies the correctness, the
+files stay clean. This works for any workspace of linked docs: a wiki, a
+knowledge base, a docs site, a spec repo, a personal note-taking vault —
+knap doesn't care what you call the files, only that they link to each
+other. See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
 
 knap ships as a single binary with two faces built on the same engine:
 
@@ -44,6 +50,47 @@ the doc index — files, headings, links, backlinks, tags — is built once and
 reused across all commands. A human renaming a file in their editor and an
 agent running `knap rename-file` get the identical rewrite; a diagnostic the
 LSP would have squiggled is the same one `knap lint` reports.
+
+## Install
+
+```bash
+cargo install knap
+```
+
+Requires Rust stable; installs to `~/.cargo/bin`. Pre-built binaries and
+build-from-source instructions are in [Getting Started](docs/GETTING_STARTED.md#1-install-the-server).
+Zed and VS Code have dedicated extensions ([zed-knap](https://github.com/sleb/zed-knap),
+[vscode-knap](https://github.com/sleb/vscode-knap)) that manage or locate the
+binary for you.
+
+## Performance
+
+The efficiency case in one number: a manual A/B benchmark ([full protocol
+and trial log](docs/design/experiments/agentic-efficiency-benchmark.md))
+compares a coding agent editing a 200-note linked Markdown vault with knap
+against the same agent editing it with only `grep`/`sed`/`Read`/`Edit`, on
+an identical 7-step rename/retag/split/fix task run repeatedly against
+seeded, ground-truth-checked defects. The clearest official (N≥3) run:
+
+| Metric      | Baseline | knap-assisted | Δ                  |
+| ----------- | -------- | -------------- | ------------------ |
+| Wall time   | 348.5s   | 199.6s         | **42.7% faster**   |
+| Tokens      | 66,099   | 45,365         | **31.4% fewer**    |
+| Tool calls  | 113      | 52             | **54.0% fewer**    |
+
+with every knap-assisted run beating every baseline run on every metric
+(zero overlap) — fewer tool calls because a rename is one command instead of
+a grep-sed-verify loop, and fewer tokens because that one command doesn't
+need to paste file contents into context to reason about them. Correctness
+— links/anchors left broken, and whether each seeded fix landed on the
+actual right target, not just something that happened to resolve — is
+checked independently every trial and has mostly tied at zero; two trials
+also caught real regressions this way (a plausible-but-wrong repoint, and a
+range-miscopy that corrupted a link), both since fixed and confirmed closed
+in later trials. Treat the numbers as directional, not a statistically
+powered study — see the doc's
+[Threats to validity](docs/design/experiments/agentic-efficiency-benchmark.md#threats-to-validity-call-these-out-alongside-results-dont-bury-them)
+section for what to discount and why.
 
 ## LSP server
 
@@ -339,31 +386,6 @@ cp -r skill/knap ~/.claude/skills/
 cp -r skill/knap <workspace>/.claude/skills/
 ```
 
-## Performance
-
-A manual A/B benchmark ([full protocol and trial log](docs/design/experiments/agentic-efficiency-benchmark.md))
-compares a coding agent editing a 200-note linked Markdown vault with knap
-against the same agent editing it with only `grep`/`sed`/`Read`/`Edit`, on
-an identical 7-step rename/retag/split/fix task run repeatedly against
-seeded, ground-truth-checked defects. The clearest official (N≥3) run:
-
-| Metric      | Baseline | knap-assisted | Δ                  |
-| ----------- | -------- | -------------- | ------------------ |
-| Wall time   | 348.5s   | 199.6s         | **42.7% faster**   |
-| Tokens      | 66,099   | 45,365         | **31.4% fewer**    |
-| Tool calls  | 113      | 52             | **54.0% fewer**    |
-
-with every knap-assisted run beating every baseline run on every metric
-(zero overlap). Correctness — links/anchors left broken, and whether each
-seeded fix landed on the actual right target, not just something that
-happened to resolve — is checked independently every trial and has mostly
-tied at zero; two trials also caught real regressions this way (a
-plausible-but-wrong repoint, and a range-miscopy that corrupted a link),
-both since fixed and confirmed closed in later trials. Treat the numbers
-as directional, not a statistically powered study — see the doc's
-[Threats to validity](docs/design/experiments/agentic-efficiency-benchmark.md#threats-to-validity-call-these-out-alongside-results-dont-bury-them)
-section for what to discount and why.
-
 ## Configuration
 
 Configuration (doc subdirectory, file extensions, frontmatter schema) comes
@@ -422,18 +444,6 @@ editor's `initializationOptions.ignoreLinkTargets` and `knap.toml`'s
 `skipDirs` follows the same override precedence as `extensions`, not
 `exclude`'s union — when set, `initializationOptions.skipDirs` fully
 replaces `knap.toml`'s `skip_dirs`.
-
-## Status
-
-v0.16.0 — Exclude Paths: `knap.toml` gains an `exclude` glob-pattern list
-(plus a `--exclude` flag on `knap lint`/`knap index`) so paths that are part
-of the repo but not the workspace — most notably test fixtures with
-intentionally broken links — are left out of indexing entirely, not just
-diagnostics. A single `PathFilter` authority is now consulted by the
-initial crawl and all three live-index LSP handlers (`didOpen`/`didChange`/
-`didChangeWatchedFiles`), so a path excluded on startup stays excluded for
-the whole session (#68). See the [roadmap](docs/ROADMAP.md) for planned
-releases.
 
 ## Documentation
 
