@@ -339,6 +339,31 @@ cp -r skill/knap ~/.claude/skills/
 cp -r skill/knap <workspace>/.claude/skills/
 ```
 
+## Performance
+
+A manual A/B benchmark ([full protocol and trial log](docs/design/experiments/agentic-efficiency-benchmark.md))
+compares a coding agent editing a 200-note linked Markdown vault with knap
+against the same agent editing it with only `grep`/`sed`/`Read`/`Edit`, on
+an identical 7-step rename/retag/split/fix task run repeatedly against
+seeded, ground-truth-checked defects. The clearest official (N≥3) run:
+
+| Metric      | Baseline | knap-assisted | Δ                  |
+| ----------- | -------- | -------------- | ------------------ |
+| Wall time   | 348.5s   | 199.6s         | **42.7% faster**   |
+| Tokens      | 66,099   | 45,365         | **31.4% fewer**    |
+| Tool calls  | 113      | 52             | **54.0% fewer**    |
+
+with every knap-assisted run beating every baseline run on every metric
+(zero overlap). Correctness — links/anchors left broken, and whether each
+seeded fix landed on the actual right target, not just something that
+happened to resolve — is checked independently every trial and has mostly
+tied at zero; two trials also caught real regressions this way (a
+plausible-but-wrong repoint, and a range-miscopy that corrupted a link),
+both since fixed and confirmed closed in later trials. Treat the numbers
+as directional, not a statistically powered study — see the doc's
+[Threats to validity](docs/design/experiments/agentic-efficiency-benchmark.md#threats-to-validity-call-these-out-alongside-results-dont-bury-them)
+section for what to discount and why.
+
 ## Configuration
 
 Configuration (doc subdirectory, file extensions, frontmatter schema) comes
