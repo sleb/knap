@@ -10,7 +10,7 @@ fn pb(s: &str) -> PathBuf {
 
 fn filter(extensions: &[&str], exclude: &[String]) -> PathFilter {
     let extensions: Vec<String> = extensions.iter().map(|s| s.to_string()).collect();
-    PathFilter::compile(exclude, &extensions).unwrap()
+    PathFilter::compile(exclude, &extensions, &crate::config::default_skip_dirs()).unwrap()
 }
 
 // ── resolve ──────────────────────────────────────────────────────────────────
@@ -726,7 +726,11 @@ fn build_malformed_pattern_errors() {
     // ignored.
     let exclude = vec!["[".to_string()];
     let extensions = vec!["md".to_string()];
-    let result = crate::config::PathFilter::compile(&exclude, &extensions);
+    let result = crate::config::PathFilter::compile(
+        &exclude,
+        &extensions,
+        &crate::config::default_skip_dirs(),
+    );
 
     assert!(result.is_err());
 }

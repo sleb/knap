@@ -87,15 +87,20 @@ Config {
   new_note_dir: Option<string> // inbox folder for Quick Fix "Create note"; relative to index_roots[0]
   frontmatter_schema: FrontmatterSchema // key/value constraints; default: empty (no validation)
   exclude: string[]            // raw glob patterns, default: []; kept for tests, PathFilter is the authority
-  path_filter: PathFilter      // compiled exclude/index authority, built once by finalize from exclude+extensions
+  skip_dirs: string[]          // raw glob patterns, default: default_skip_dirs() (".*", "node_modules", "target"); kept for tests, PathFilter is the authority
+  path_filter: PathFilter      // compiled exclude/index authority, built once by finalize from exclude+extensions+skip_dirs
 }
 ```
 
 `path_filter` is the single authority for "does this path belong in the
-index" — `PathFilter::compile(exclude, extensions)` compiles `exclude`'s
-glob strings once at config-resolution time (surfacing a malformed pattern
-as an error immediately, rather than at first use) and resolves the
-hardcoded `.git`/`node_modules`/`target` skip-list. `Config` exposes two
+index" — `PathFilter::compile(exclude, extensions, skip_dirs)` compiles
+`exclude`'s glob strings once at config-resolution time (surfacing a
+malformed pattern as an error immediately, rather than at first use) and
+compiles `skip_dirs` the same way: a `Vec<glob::Pattern>` matched against
+bare directory names during the crawl, defaulting to `default_skip_dirs()`
+(`.*`, `node_modules`, `target`) when `knap.toml`/`initializationOptions`
+don't set it, and replacing that default outright when they do. `Config`
+exposes two
 methods that delegate to it and are the only calls the rest of the codebase
 makes — `index::build`'s crawl and the three live-index LSP handlers
 (`didOpen`, `didChange`, `didChangeWatchedFiles`) all consult the same

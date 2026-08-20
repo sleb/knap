@@ -13,10 +13,10 @@ untested code for the next step to build on.
 
 | Step                                             | Status | Notes |
 | ------------------------------------------------- | ------ | ----- |
-| 1 — `PathFilter::skip_dirs`, `default_skip_dirs`   | Todo   |       |
-| 2 — `Config`/`RawConfig` plumbing                  | Todo   |       |
-| 3 — Docs                                           | Todo   |       |
-| 4 — Integration tests                              | Todo   |       |
+| 1 — `PathFilter::skip_dirs`, `default_skip_dirs`   | Done   | `PathFilter` is now data-driven; `is_skip_dir_name` removed |
+| 2 — `Config`/`RawConfig` plumbing                  | Done   | `skip_dirs` wired through `InitOptions`/`KnapToml`/`RawConfig`/`merge`/`finalize`, override precedence |
+| 3 — Docs                                           | Done   | README.md, docs/ARCHITECTURE.md, docs/USER_STORIES.md updated |
+| 4 — Integration tests                              | Done   | `tests/skip_dirs.rs` added; `knap lint`/`knap index` exercised end to end |
 
 ---
 
@@ -159,4 +159,4 @@ the `PathFilter`/`Config` unit level. Always the last step.
 
 | Story | Feature                                                                | Delivered in step |
 | ----- | -------------------------------------------------------------------------- | ------------------ |
-| US-58 | `knap.toml` `skip_dirs` — configurable, overridable crawl-prune defaults   | Step 2 (Step 4 verifies end to end) |
+| US-58 | `knap.toml` `skip_dirs` — configurable, overridable crawl-prune defaults   | Step 2 (Step 4 verifies end to end) — Done |

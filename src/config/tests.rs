@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::{for_lsp, for_path};
+use super::{default_skip_dirs, for_lsp, for_path};
 
 fn write_knap_toml(dir: &Path, content: &str) {
     std::fs::write(dir.join("knap.toml"), content).unwrap();
@@ -251,29 +251,64 @@ fn for_lsp_exclude_default_empty() {
     assert_eq!(config.exclude, Vec::<String>::new());
 }
 
+#[test]
+fn for_path_absent_knap_toml_skip_dirs_defaults_to_builtin() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = for_path(dir.path(), None, &[]).unwrap();
+    assert_eq!(config.skip_dirs, default_skip_dirs());
+}
+
+#[test]
+fn for_path_loads_knap_toml_skip_dirs() {
+    let dir = tempfile::tempdir().unwrap();
+    write_knap_toml(dir.path(), r#"skip_dirs = ["vendor"]"#);
+    let config = for_path(dir.path(), None, &[]).unwrap();
+    assert_eq!(config.skip_dirs, vec!["vendor".to_string()]);
+}
+
+#[test]
+fn for_lsp_skip_dirs_init_options_overrides_knap_toml() {
+    let dir = tempfile::tempdir().unwrap();
+    write_knap_toml(dir.path(), r#"skip_dirs = ["vendor"]"#);
+    let params = params_with(Some(dir.path()), Some(json!({ "skipDirs": ["build"] })));
+    let config = for_lsp(&params).unwrap();
+    assert_eq!(config.skip_dirs, vec!["build".to_string()]);
+}
+
+#[test]
+fn for_lsp_skip_dirs_default_when_unset() {
+    let params = params_with(None, None);
+    let config = for_lsp(&params).unwrap();
+    assert_eq!(config.skip_dirs, default_skip_dirs());
+}
+
 mod path_filter {
     use std::path::Path;
 
-    use super::super::PathFilter;
+    use super::super::{PathFilter, default_skip_dirs};
 
     #[test]
     fn path_filter_should_index_true_for_plain_file() {
-        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        let filter = PathFilter::compile(&[], &["md".to_string()], &default_skip_dirs()).unwrap();
         let root = Path::new("/vault");
         assert!(filter.should_index(root, &root.join("notes/todo.md")));
     }
 
     #[test]
     fn path_filter_should_index_false_for_excluded_glob_match() {
-        let filter =
-            PathFilter::compile(&["fixtures/**".to_string()], &["md".to_string()]).unwrap();
+        let filter = PathFilter::compile(
+            &["fixtures/**".to_string()],
+            &["md".to_string()],
+            &default_skip_dirs(),
+        )
+        .unwrap();
         let root = Path::new("/vault");
         assert!(!filter.should_index(root, &root.join("fixtures/broken.md")));
     }
 
     #[test]
     fn path_filter_should_index_false_under_hardcoded_skip_dir() {
-        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        let filter = PathFilter::compile(&[], &["md".to_string()], &default_skip_dirs()).unwrap();
         let root = Path::new("/vault");
         assert!(!filter.should_index(root, &root.join(".git/HEAD")));
         assert!(!filter.should_index(root, &root.join("node_modules/pkg/index.md")));
@@ -282,14 +317,14 @@ mod path_filter {
 
     #[test]
     fn path_filter_should_index_true_for_leaf_dotfile() {
-        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        let filter = PathFilter::compile(&[], &["md".to_string()], &default_skip_dirs()).unwrap();
         let root = Path::new("/vault");
         assert!(filter.should_index(root, &root.join(".hidden.md")));
     }
 
     #[test]
     fn path_filter_should_skip_dir_true_for_hardcoded_name() {
-        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        let filter = PathFilter::compile(&[], &["md".to_string()], &default_skip_dirs()).unwrap();
         let root = Path::new("/vault");
         assert!(filter.should_skip_dir(root, &root.join(".git"), ".git"));
         assert!(filter.should_skip_dir(root, &root.join("node_modules"), "node_modules"));
@@ -298,28 +333,34 @@ mod path_filter {
 
     #[test]
     fn path_filter_should_skip_dir_true_for_exclude_match() {
+        // `skip_dirs: &[]` isolates the `exclude`-pattern path from skip-dir
+        // defaults — this test is about `exclude`, not the default skip list.
         let filter =
-            PathFilter::compile(&["fixtures/**".to_string()], &["md".to_string()]).unwrap();
+            PathFilter::compile(&["fixtures/**".to_string()], &["md".to_string()], &[]).unwrap();
         let root = Path::new("/vault");
         assert!(filter.should_skip_dir(root, &root.join("fixtures"), "fixtures"));
     }
 
     #[test]
     fn path_filter_is_note_true_for_configured_extension() {
-        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        let filter = PathFilter::compile(&[], &["md".to_string()], &default_skip_dirs()).unwrap();
         assert!(filter.is_note(Path::new("/vault/notes/todo.md")));
     }
 
     #[test]
     fn path_filter_is_note_false_for_other_extension() {
-        let filter = PathFilter::compile(&[], &["md".to_string()]).unwrap();
+        let filter = PathFilter::compile(&[], &["md".to_string()], &default_skip_dirs()).unwrap();
         assert!(!filter.is_note(Path::new("/vault/assets/image.png")));
     }
 
     #[test]
     fn path_filter_compile_dir_form_from_glob_star_star_suffix() {
-        let filter =
-            PathFilter::compile(&["fixtures/**".to_string()], &["md".to_string()]).unwrap();
+        let filter = PathFilter::compile(
+            &["fixtures/**".to_string()],
+            &["md".to_string()],
+            &default_skip_dirs(),
+        )
+        .unwrap();
         let root = Path::new("/vault");
         // `fixtures` itself (not just its contents) must be recognized as
         // excluded, so the crawl never `read_dir`s it.
@@ -328,7 +369,53 @@ mod path_filter {
 
     #[test]
     fn path_filter_compile_rejects_malformed_pattern() {
-        assert!(PathFilter::compile(&["[".to_string()], &["md".to_string()]).is_err());
+        assert!(
+            PathFilter::compile(
+                &["[".to_string()],
+                &["md".to_string()],
+                &default_skip_dirs()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn path_filter_default_skip_dirs_matches_hardcoded_names() {
+        let root = Path::new("/vault");
+        let default_filter = PathFilter::default();
+        let compiled_filter =
+            PathFilter::compile(&[], &["md".to_string()], &default_skip_dirs()).unwrap();
+        for name in [".git", ".obsidian", "node_modules", "target"] {
+            assert!(
+                default_filter.should_skip_dir(root, &root.join(name), name),
+                "PathFilter::default() should skip {name}"
+            );
+            assert!(
+                compiled_filter.should_skip_dir(root, &root.join(name), name),
+                "filter compiled with default_skip_dirs() should skip {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn path_filter_skip_dirs_empty_disables_pruning() {
+        let filter = PathFilter::compile(&[], &["md".to_string()], &[]).unwrap();
+        let root = Path::new("/vault");
+        assert!(!filter.should_skip_dir(root, &root.join(".git"), ".git"));
+    }
+
+    #[test]
+    fn path_filter_skip_dirs_custom_pattern() {
+        let filter =
+            PathFilter::compile(&[], &["md".to_string()], &["vendor".to_string()]).unwrap();
+        let root = Path::new("/vault");
+        assert!(filter.should_skip_dir(root, &root.join("vendor"), "vendor"));
+        assert!(!filter.should_skip_dir(root, &root.join("node_modules"), "node_modules"));
+    }
+
+    #[test]
+    fn path_filter_skip_dirs_malformed_pattern_errors() {
+        assert!(PathFilter::compile(&[], &["md".to_string()], &["[".to_string()]).is_err());
     }
 }
 

@@ -286,6 +286,15 @@ completions, no navigation, in the editor or headless. I can also pass
 exclusions on top of whatever `knap.toml` already lists, without editing the
 config file.
 
+**US-58** — As a workspace owner, I can set `skip_dirs` in my `knap.toml`
+(e.g. `["vendor"]`) to replace the built-in crawl-prune list — `.*`,
+`node_modules`, `target` — with my own, matched against bare directory
+names rather than paths, so a directory like `.notes/` that the default
+dotfile pattern would otherwise prune can be opted into indexing, or a
+directory beyond the defaults can be pruned instead. Setting `skipDirs` in
+`initializationOptions` overrides `knap.toml`'s `skip_dirs` entirely, the
+same override precedence as `extensions`, not the union `exclude` uses.
+
 ---
 
 ### Frontmatter

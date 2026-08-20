@@ -349,6 +349,11 @@ new_note_dir = "inbox"
 # skipped entirely. Don't exclude the root itself (e.g. `"."` or `"**"`) —
 # that produces an empty index rather than an error.
 exclude = ["tests/fixtures/**"]
+# Glob patterns matched against bare directory names (not paths) during the
+# crawl; a matching directory is pruned outright. Replaces rather than
+# unions with the built-in default (`.*`, `node_modules`, `target`) — list
+# everything you want skipped, including any of the defaults you still want.
+skip_dirs = ["vendor"]
 
 [frontmatter_schema]
 require_frontmatter = false
@@ -365,7 +370,10 @@ When running under `knap lsp`, `initializationOptions` from the editor
 layers over `knap.toml` field-by-field — the editor value wins where
 present, `knap.toml` fills in the rest. `exclude` is the exception: instead
 of one source winning, the editor's `initializationOptions.exclude` and
-`knap.toml`'s `exclude` are unioned, so patterns from both apply.
+`knap.toml`'s `exclude` are unioned, so patterns from both apply. `skipDirs`
+follows the same override precedence as `extensions`, not `exclude`'s
+union — when set, `initializationOptions.skipDirs` fully replaces
+`knap.toml`'s `skip_dirs`.
 
 ## Status
 

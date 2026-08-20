@@ -50,8 +50,21 @@ pub(crate) struct Config {
     /// instead.
     #[allow(dead_code)]
     pub(crate) exclude: Vec<String>,
+    /// Directory-name glob patterns pruned from the crawl, matched against
+    /// bare directory names (never paths). Raw, unparsed form — kept for
+    /// existing tests/consumers that inspect it directly. `path_filter` is
+    /// the compiled authority derived from this field; consult that instead
+    /// of re-deriving indexing decisions from this list. Defaults to
+    /// `default_skip_dirs()` when neither `knap.toml` nor
+    /// `initializationOptions` set it.
+    ///
+    /// `allow(dead_code)`: only read by `config/tests.rs`'s merge-precedence
+    /// assertions now that `index::build` and callers consult `path_filter`
+    /// instead.
+    #[allow(dead_code)]
+    pub(crate) skip_dirs: Vec<String>,
     /// The compiled `PathFilter` authority — see its doc comment. Built once
-    /// by `finalize` from `exclude` and `extensions`.
+    /// by `finalize` from `exclude`, `extensions`, and `skip_dirs`.
     pub(crate) path_filter: PathFilter,
 }
 
@@ -84,7 +97,6 @@ impl Config {
 /// mechanism (the crawl's hardcoded skip-dir check, `index::build`'s
 /// `exclude` glob matching, and the watched-files handler's ad hoc extension
 /// filter) was previously deriving its own partial answer from.
-#[derive(Default)]
 pub(crate) struct PathFilter {
     /// Compiled `exclude` patterns, plus the `/**`-stripped directory-equivalent
     /// form for each (see `compile`'s doc comment) — moved here verbatim from
@@ -92,16 +104,42 @@ pub(crate) struct PathFilter {
     excludes: Vec<glob::Pattern>,
     /// Note file extensions (e.g. `["md"]`), for the note-vs-attachment split.
     extensions: Vec<String>,
+    /// Compiled `skip_dirs` patterns, matched against bare directory names
+    /// (never full paths) — see `matches_skip_dir`.
+    skip_dirs: Vec<glob::Pattern>,
+}
+
+/// The built-in skip-dir patterns applied when no `skip_dirs` config is set:
+/// dotfiles/dot-directories, `node_modules`, and `target`.
+pub(crate) fn default_skip_dirs() -> Vec<String> {
+    vec![
+        ".*".to_string(),
+        "node_modules".to_string(),
+        "target".to_string(),
+    ]
+}
+
+impl Default for PathFilter {
+    fn default() -> Self {
+        // `default_skip_dirs()` only ever produces valid glob patterns, so
+        // this can't fail in practice.
+        Self::compile(&[], &[], &default_skip_dirs())
+            .expect("default_skip_dirs() patterns are always valid globs")
+    }
 }
 
 impl PathFilter {
-    /// Compiles `exclude`'s glob patterns once, validated eagerly (`Err` on a
-    /// malformed pattern, never silently ignored). For each pattern ending in
-    /// `/**`, also compiles the suffix-stripped directory-equivalent form, so
-    /// `dir` itself is recognized as excluded (matching `dir/**`'s intent)
-    /// without ever being `read_dir`'d — logic moved verbatim from
-    /// `index::build`.
-    pub(crate) fn compile(exclude: &[String], extensions: &[String]) -> anyhow::Result<Self> {
+    /// Compiles `exclude`'s and `skip_dirs`'s glob patterns once, validated
+    /// eagerly (`Err` on a malformed pattern, never silently ignored). For
+    /// each `exclude` pattern ending in `/**`, also compiles the
+    /// suffix-stripped directory-equivalent form, so `dir` itself is
+    /// recognized as excluded (matching `dir/**`'s intent) without ever
+    /// being `read_dir`'d — logic moved verbatim from `index::build`.
+    pub(crate) fn compile(
+        exclude: &[String],
+        extensions: &[String],
+        skip_dirs: &[String],
+    ) -> anyhow::Result<Self> {
         let mut excludes: Vec<glob::Pattern> = exclude
             .iter()
             .map(|pattern| glob::Pattern::new(pattern).map_err(anyhow::Error::from))
@@ -121,17 +159,24 @@ impl PathFilter {
             }
         }
 
+        let skip_dirs: Vec<glob::Pattern> = skip_dirs
+            .iter()
+            .map(|pattern| glob::Pattern::new(pattern).map_err(anyhow::Error::from))
+            .collect::<anyhow::Result<_>>()?;
+
         Ok(PathFilter {
             excludes,
             extensions: extensions.to_vec(),
+            skip_dirs,
         })
     }
 
-    /// Hardcoded skip-dir names — `.`-prefixed, `node_modules`, `target` —
-    /// pruned from every crawl regardless of `exclude`. Moved verbatim from
-    /// `index::should_skip_dir`.
-    fn is_skip_dir_name(name: &str) -> bool {
-        name.starts_with('.') || matches!(name, "node_modules" | "target")
+    /// Does `name` (a bare directory name, never a path) match one of the
+    /// compiled `skip_dirs` patterns? Replaces the previously hardcoded
+    /// `.`-prefixed/`node_modules`/`target` check — now data-driven, with
+    /// `default_skip_dirs()` reproducing the old hardcoded set.
+    fn matches_skip_dir(&self, name: &str) -> bool {
+        self.skip_dirs.iter().any(|pattern| pattern.matches(name))
     }
 
     // `require_literal_separator: true` keeps `*` from crossing `/` (so a
@@ -154,7 +199,7 @@ impl PathFilter {
     /// scratch-copy walkers, which prune the same way so the batch's staging
     /// copy matches the shape of the index.
     pub(crate) fn should_skip_dir(&self, root: &Path, dir_path: &Path, dir_name: &str) -> bool {
-        Self::is_skip_dir_name(dir_name)
+        self.matches_skip_dir(dir_name)
             || self.matches_exclude(dir_path.strip_prefix(root).unwrap_or(dir_path))
     }
 
@@ -178,7 +223,7 @@ impl PathFilter {
             .into_iter()
             .flat_map(Path::components)
             .any(|c| match c {
-                Component::Normal(name) => Self::is_skip_dir_name(&name.to_string_lossy()),
+                Component::Normal(name) => self.matches_skip_dir(&name.to_string_lossy()),
                 _ => false,
             });
 
@@ -214,6 +259,7 @@ struct InitOptions {
     new_note_dir: Option<String>,
     frontmatter_schema: Option<FrontmatterSchemaJsonOpts>,
     exclude: Option<Vec<String>>,
+    skip_dirs: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -233,6 +279,7 @@ pub(crate) struct KnapToml {
     new_note_dir: Option<String>,
     frontmatter_schema: Option<FrontmatterSchemaTomlOpts>,
     exclude: Option<Vec<String>>,
+    skip_dirs: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -252,6 +299,7 @@ struct RawConfig {
     new_note_dir: Option<String>,
     frontmatter_schema: Option<(HashMap<String, SchemaFieldOpts>, bool, bool)>,
     exclude: Option<Vec<String>>,
+    skip_dirs: Option<Vec<String>>,
 }
 
 impl From<InitOptions> for RawConfig {
@@ -263,6 +311,7 @@ impl From<InitOptions> for RawConfig {
                 .frontmatter_schema
                 .map(|s| (s.fields, s.require_frontmatter, s.warn_on_unknown_keys)),
             exclude: opts.exclude,
+            skip_dirs: opts.skip_dirs,
         }
     }
 }
@@ -276,12 +325,15 @@ impl From<KnapToml> for RawConfig {
                 .frontmatter_schema
                 .map(|s| (s.fields, s.require_frontmatter, s.warn_unknown_keys)),
             exclude: toml.exclude,
+            skip_dirs: toml.skip_dirs,
         }
     }
 }
 
 /// `primary` wins field-by-field; `fallback` fills in what `primary` left
 /// unset. `exclude` is unioned instead: both sources' patterns apply.
+/// `skip_dirs` uses override precedence, not `exclude`'s union: a source
+/// that sets it fully replaces the other's list rather than merging with it.
 fn merge(primary: RawConfig, fallback: RawConfig) -> RawConfig {
     let exclude = match (primary.exclude, fallback.exclude) {
         (Some(mut p), Some(f)) => {
@@ -295,6 +347,7 @@ fn merge(primary: RawConfig, fallback: RawConfig) -> RawConfig {
         new_note_dir: primary.new_note_dir.or(fallback.new_note_dir),
         frontmatter_schema: primary.frontmatter_schema.or(fallback.frontmatter_schema),
         exclude,
+        skip_dirs: primary.skip_dirs.or(fallback.skip_dirs),
     }
 }
 
@@ -333,7 +386,8 @@ fn finalize(raw: RawConfig, index_roots: Vec<PathBuf>) -> Result<Config> {
 
     let extensions = raw.extensions.unwrap_or_else(|| vec!["md".to_string()]);
     let exclude = raw.exclude.unwrap_or_default();
-    let path_filter = PathFilter::compile(&exclude, &extensions)?;
+    let skip_dirs = raw.skip_dirs.unwrap_or_else(default_skip_dirs);
+    let path_filter = PathFilter::compile(&exclude, &extensions, &skip_dirs)?;
 
     Ok(Config {
         index_roots,
@@ -341,6 +395,7 @@ fn finalize(raw: RawConfig, index_roots: Vec<PathBuf>) -> Result<Config> {
         new_note_dir: raw.new_note_dir,
         frontmatter_schema,
         exclude,
+        skip_dirs,
         path_filter,
     })
 }
