@@ -34,8 +34,9 @@ pub fn run(
     since: Option<&str>,
     suggest_n: usize,
     exclude: &[String],
+    ignore_link_target: &[String],
 ) -> anyhow::Result<()> {
-    let config = config::for_path(path, None, exclude)?;
+    let config = config::for_path(path, None, exclude, ignore_link_target)?;
     let (idx, _) = index::build(&config.index_roots, &config.path_filter)?;
 
     let mut targets: Vec<PathBuf> = if path.is_file() {

@@ -331,7 +331,7 @@ pub fn run(dry_run: bool, json: bool) -> anyhow::Result<()> {
         .context("invalid batch: expected a JSON array of change operations")?;
 
     let root = index::normalize_path(&std::env::current_dir()?);
-    let config = config::for_path(&root, None, &[]).context("loading knap.toml")?;
+    let config = config::for_path(&root, None, &[], &[]).context("loading knap.toml")?;
     let scratch = tempfile::tempdir()?;
     copy_tree(&root, scratch.path(), &config.path_filter)?;
 

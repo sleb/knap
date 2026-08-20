@@ -66,6 +66,23 @@ pub(crate) struct Config {
     /// The compiled `PathFilter` authority — see its doc comment. Built once
     /// by `finalize` from `exclude`, `extensions`, and `skip_dirs`.
     pub(crate) path_filter: PathFilter,
+    /// Glob patterns naming link targets to never report as `broken-link`,
+    /// matched against each broken link's raw target text. Raw, unparsed
+    /// form — kept for existing tests/consumers that inspect it directly;
+    /// `ignore_link_target_patterns` is the compiled authority. Populated by
+    /// unioning `knap.toml`'s `ignore_link_targets` field with the CLI's
+    /// `--ignore-link-target` flag (`lint`/`index`) or the LSP's
+    /// `initializationOptions.ignoreLinkTargets` field, whichever applies.
+    ///
+    /// `allow(dead_code)`: only read by `config/tests.rs`'s merge-precedence
+    /// assertions now that `handlers::is_ignored_link_target` consults
+    /// `ignore_link_target_patterns` instead, same as `exclude`/`extensions`/
+    /// `skip_dirs` above.
+    #[allow(dead_code)]
+    pub(crate) ignore_link_targets: Vec<String>,
+    /// Compiled form of `ignore_link_targets`, built once in `finalize`.
+    /// Consulted by `handlers::is_ignored_link_target`.
+    pub(crate) ignore_link_target_patterns: Vec<glob::Pattern>,
 }
 
 impl Config {
@@ -260,6 +277,7 @@ struct InitOptions {
     frontmatter_schema: Option<FrontmatterSchemaJsonOpts>,
     exclude: Option<Vec<String>>,
     skip_dirs: Option<Vec<String>>,
+    ignore_link_targets: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -280,6 +298,7 @@ pub(crate) struct KnapToml {
     frontmatter_schema: Option<FrontmatterSchemaTomlOpts>,
     exclude: Option<Vec<String>>,
     skip_dirs: Option<Vec<String>>,
+    ignore_link_targets: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -300,6 +319,7 @@ struct RawConfig {
     frontmatter_schema: Option<(HashMap<String, SchemaFieldOpts>, bool, bool)>,
     exclude: Option<Vec<String>>,
     skip_dirs: Option<Vec<String>>,
+    ignore_link_targets: Option<Vec<String>>,
 }
 
 impl From<InitOptions> for RawConfig {
@@ -312,6 +332,7 @@ impl From<InitOptions> for RawConfig {
                 .map(|s| (s.fields, s.require_frontmatter, s.warn_on_unknown_keys)),
             exclude: opts.exclude,
             skip_dirs: opts.skip_dirs,
+            ignore_link_targets: opts.ignore_link_targets,
         }
     }
 }
@@ -326,6 +347,7 @@ impl From<KnapToml> for RawConfig {
                 .map(|s| (s.fields, s.require_frontmatter, s.warn_unknown_keys)),
             exclude: toml.exclude,
             skip_dirs: toml.skip_dirs,
+            ignore_link_targets: toml.ignore_link_targets,
         }
     }
 }
@@ -342,12 +364,20 @@ fn merge(primary: RawConfig, fallback: RawConfig) -> RawConfig {
         }
         (p, f) => p.or(f),
     };
+    let ignore_link_targets = match (primary.ignore_link_targets, fallback.ignore_link_targets) {
+        (Some(mut p), Some(f)) => {
+            p.extend(f);
+            Some(p)
+        }
+        (p, f) => p.or(f),
+    };
     RawConfig {
         extensions: primary.extensions.or(fallback.extensions),
         new_note_dir: primary.new_note_dir.or(fallback.new_note_dir),
         frontmatter_schema: primary.frontmatter_schema.or(fallback.frontmatter_schema),
         exclude,
         skip_dirs: primary.skip_dirs.or(fallback.skip_dirs),
+        ignore_link_targets,
     }
 }
 
@@ -389,6 +419,12 @@ fn finalize(raw: RawConfig, index_roots: Vec<PathBuf>) -> Result<Config> {
     let skip_dirs = raw.skip_dirs.unwrap_or_else(default_skip_dirs);
     let path_filter = PathFilter::compile(&exclude, &extensions, &skip_dirs)?;
 
+    let ignore_link_targets = raw.ignore_link_targets.unwrap_or_default();
+    let ignore_link_target_patterns: Vec<glob::Pattern> = ignore_link_targets
+        .iter()
+        .map(|pattern| glob::Pattern::new(pattern).map_err(anyhow::Error::from))
+        .collect::<Result<_>>()?;
+
     Ok(Config {
         index_roots,
         extensions,
@@ -397,6 +433,8 @@ fn finalize(raw: RawConfig, index_roots: Vec<PathBuf>) -> Result<Config> {
         exclude,
         skip_dirs,
         path_filter,
+        ignore_link_targets,
+        ignore_link_target_patterns,
     })
 }
 
@@ -462,11 +500,14 @@ pub(crate) fn for_lsp(params: &InitializeParams) -> Result<Config> {
 /// involved. If `path` is a file, its parent directory is the root.
 /// `extensions_override` is unused today — reserved for a future `--ext`
 /// flag. `exclude_additions` (the `lint`/`index` `--exclude` flag's values)
-/// are appended to `knap.toml`'s `exclude` list.
+/// are appended to `knap.toml`'s `exclude` list. `ignore_link_target_additions`
+/// (the `lint`/`index` `--ignore-link-target` flag's values) are appended to
+/// `knap.toml`'s `ignore_link_targets` list the same way.
 pub(crate) fn for_path(
     path: &Path,
     extensions_override: Option<Vec<String>>,
     exclude_additions: &[String],
+    ignore_link_target_additions: &[String],
 ) -> Result<Config> {
     let root = if path.is_file() {
         path.parent()
@@ -486,6 +527,11 @@ pub(crate) fn for_path(
         raw.exclude
             .get_or_insert_with(Vec::new)
             .extend(exclude_additions.iter().cloned());
+    }
+    if !ignore_link_target_additions.is_empty() {
+        raw.ignore_link_targets
+            .get_or_insert_with(Vec::new)
+            .extend(ignore_link_target_additions.iter().cloned());
     }
 
     finalize(raw, vec![root])

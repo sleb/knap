@@ -34,6 +34,10 @@ pub struct FrontmatterField {
 pub struct Frontmatter {
     pub title: Option<String>,
     pub tags: Vec<Tag>,
+    /// Glob-like patterns from the `ignore-link-targets:` key, in document
+    /// order, not deduplicated. Broken links whose target matches one of
+    /// these are suppressed as diagnostics.
+    pub ignore_link_targets: Vec<String>,
     /// All key-value pairs in document order, including `title` and `tags`.
     pub fields: Vec<FrontmatterField>,
 }
@@ -148,6 +152,7 @@ pub fn parse(path: &Path, content: &str) -> Note {
     let line_index = LineIndex::new(content); // full content — keeps LSP positions correct
     let frontmatter = extract_frontmatter(content).map(|mut fm| {
         fm.tags = extract_tags(content, &line_index);
+        fm.ignore_link_targets = extract_ignore_link_targets(content);
         if let Some(block) = frontmatter_block(content) {
             fm.fields = extract_frontmatter_fields(block, 4, &line_index);
         }
@@ -218,6 +223,7 @@ pub fn extract_frontmatter(content: &str) -> Option<Frontmatter> {
     Some(Frontmatter {
         title,
         tags: vec![],
+        ignore_link_targets: vec![],
         fields: vec![],
     })
 }
@@ -407,6 +413,78 @@ fn extract_tags(content: &str, line_index: &LineIndex) -> Vec<Tag> {
     }
 
     tags
+}
+
+/// Extract patterns from the frontmatter `ignore-link-targets:` key. Supports
+/// the same three forms as `extract_tags`, minus per-entry ranges:
+/// - Inline list: `ignore-link-targets: [../a/**, ../b.md]`
+/// - Block list: `ignore-link-targets:\n  - ../a/**\n  - ../b.md`
+/// - Bare scalar: `ignore-link-targets: ../a/**`
+///
+/// Returns `vec![]` when there is no frontmatter, no `ignore-link-targets:`
+/// key, or the value is a block scalar (`|`, `>`). Entries are not deduped.
+fn extract_ignore_link_targets(content: &str) -> Vec<String> {
+    let block = match frontmatter_block(content) {
+        Some(b) => b,
+        None => return vec![],
+    };
+
+    let mut patterns = vec![];
+    let mut remaining = block;
+
+    while !remaining.is_empty() {
+        let (line, after) = match remaining.find('\n') {
+            Some(nl) => (&remaining[..nl], &remaining[nl + 1..]),
+            None => (remaining, ""),
+        };
+
+        if let Some(after_colon) = line.strip_prefix("ignore-link-targets:") {
+            let value = after_colon.trim_start();
+
+            if value.is_empty() {
+                // Block list: scan subsequent lines for `- pattern`
+                let mut sub_rem = after;
+                while !sub_rem.is_empty() {
+                    let (sub_line, sub_after) = match sub_rem.find('\n') {
+                        Some(nl) => (&sub_rem[..nl], &sub_rem[nl + 1..]),
+                        None => (sub_rem, ""),
+                    };
+                    let stripped = sub_line.trim_start();
+                    if let Some(after_dash) = stripped.strip_prefix('-') {
+                        let pattern = after_dash.trim();
+                        if !pattern.is_empty() {
+                            patterns.push(pattern.to_string());
+                        }
+                        sub_rem = sub_after;
+                    } else {
+                        break;
+                    }
+                }
+            } else if value.starts_with('|') || value.starts_with('>') {
+                // Block scalar — ignored
+            } else if value.starts_with('[') {
+                // Inline list: `ignore-link-targets: [../a/**, ../b.md]`
+                let inner = value
+                    .strip_prefix('[')
+                    .unwrap_or(value)
+                    .trim_end_matches(']');
+                for part in inner.split(',') {
+                    let pattern = part.trim();
+                    if !pattern.is_empty() {
+                        patterns.push(pattern.to_string());
+                    }
+                }
+            } else {
+                // Bare scalar: `ignore-link-targets: ../a/**`
+                patterns.push(value.to_string());
+            }
+            break; // Only the first `ignore-link-targets:` key is processed
+        }
+
+        remaining = after;
+    }
+
+    patterns
 }
 
 /// A bare (non-`<...>`-wrapped) Markdown link destination containing any of

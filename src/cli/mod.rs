@@ -71,6 +71,11 @@ enum Commands {
         /// `exclude` entries in `knap.toml`. Repeatable.
         #[arg(long)]
         exclude: Vec<String>,
+        /// Glob pattern for link targets to never report as `broken-link`,
+        /// in addition to any `ignore_link_targets` entries in `knap.toml`.
+        /// Repeatable.
+        #[arg(long)]
+        ignore_link_target: Vec<String>,
     },
     /// Build and print the note index for a directory.
     Index {
@@ -83,6 +88,11 @@ enum Commands {
         /// `exclude` entries in `knap.toml`. Repeatable.
         #[arg(long)]
         exclude: Vec<String>,
+        /// Glob pattern for link targets to never report as `broken-link`,
+        /// in addition to any `ignore_link_targets` entries in `knap.toml`.
+        /// Repeatable.
+        #[arg(long)]
+        ignore_link_target: Vec<String>,
     },
     /// Parse a single file and print its structure.
     Parse {
@@ -143,6 +153,7 @@ pub fn run() -> anyhow::Result<()> {
             since,
             suggest,
             exclude,
+            ignore_link_target,
         } => lint::run(
             &path,
             json,
@@ -150,12 +161,14 @@ pub fn run() -> anyhow::Result<()> {
             since.as_deref(),
             suggest.unwrap_or(0),
             &exclude,
+            &ignore_link_target,
         ),
         Commands::Index {
             path,
             json,
             exclude,
-        } => index::run(&path, json, &exclude),
+            ignore_link_target,
+        } => index::run(&path, json, &exclude, &ignore_link_target),
         Commands::Parse { path } => parse::run(&path),
         Commands::RenameFile { old, new } => rename::run_file(&old, &new),
         Commands::RenameHeading { file, old, new } => rename::run_heading(&file, &old, &new),

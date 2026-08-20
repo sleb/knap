@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::{
     CodeFence, Frontmatter, FrontmatterField, Heading, LineIndex, MarkdownLink, Tag,
-    extract_frontmatter, parse,
+    extract_frontmatter, extract_ignore_link_targets, parse,
 };
 use lsp_types::{Position, Range};
 
@@ -408,6 +408,7 @@ fn frontmatter_title_absent() {
         Frontmatter {
             title: None,
             tags: vec![],
+            ignore_link_targets: vec![],
             fields: vec![]
         }
     );
@@ -535,6 +536,73 @@ fn tags_block_range() {
     let result = tags("---\ntags:\n  - foo\n  - bar\n---\n");
     assert_eq!(result[0].range, range((2, 4), (2, 7)));
     assert_eq!(result[1].range, range((3, 4), (3, 7)));
+}
+
+// ── ignore-link-targets ──────────────────────────────────────────────────────
+
+#[test]
+fn extract_ignore_link_targets_bare_scalar() {
+    let content = "---\nignore-link-targets: ../a/**\n---\n";
+    assert_eq!(
+        extract_ignore_link_targets(content),
+        vec!["../a/**".to_string()]
+    );
+}
+
+#[test]
+fn extract_ignore_link_targets_inline_list() {
+    let content = "---\nignore-link-targets: [../a/**, ../b.md]\n---\n";
+    assert_eq!(
+        extract_ignore_link_targets(content),
+        vec!["../a/**".to_string(), "../b.md".to_string()]
+    );
+}
+
+#[test]
+fn extract_ignore_link_targets_block_list() {
+    let content = "---\nignore-link-targets:\n  - ../a/**\n  - ../b.md\n---\n";
+    assert_eq!(
+        extract_ignore_link_targets(content),
+        vec!["../a/**".to_string(), "../b.md".to_string()]
+    );
+}
+
+#[test]
+fn extract_ignore_link_targets_absent_key_returns_empty() {
+    let content = "---\ntitle: Note\n---\n";
+    assert!(extract_ignore_link_targets(content).is_empty());
+}
+
+#[test]
+fn extract_ignore_link_targets_no_frontmatter_returns_empty() {
+    let content = "No frontmatter here.\n";
+    assert!(extract_ignore_link_targets(content).is_empty());
+}
+
+#[test]
+fn extract_ignore_link_targets_block_scalar_ignored() {
+    let content = "---\nignore-link-targets: |\n  ../a/**\n---\n";
+    assert!(extract_ignore_link_targets(content).is_empty());
+}
+
+#[test]
+fn extract_ignore_link_targets_duplicate_entries_both_kept() {
+    let content = "---\nignore-link-targets: [a, a]\n---\n";
+    assert_eq!(
+        extract_ignore_link_targets(content),
+        vec!["a".to_string(), "a".to_string()]
+    );
+}
+
+#[test]
+fn parse_populates_frontmatter_ignore_link_targets() {
+    let content = "---\nignore-link-targets: [../a/**, ../b.md]\n---\nBody.\n";
+    let note = parse(Path::new("note.md"), content);
+    let fm = note.frontmatter.expect("should have frontmatter");
+    assert_eq!(
+        fm.ignore_link_targets,
+        vec!["../a/**".to_string(), "../b.md".to_string()]
+    );
 }
 
 // ── FrontmatterField extraction ───────────────────────────────────────────────

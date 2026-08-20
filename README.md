@@ -84,6 +84,11 @@ files change, so there's no restart needed after edits.
   outside the allowed list (exact-case), unknown keys (opt-in via
   `warnOnUnknownKeys`), and notes missing a frontmatter block entirely (opt-in
   via `requireFrontmatter`)
+- **`ignore-link-targets`** — a note's own `ignore-link-targets:` frontmatter
+  key lists glob patterns (bare scalar, inline list, or block list); any of
+  that note's links matching one is never reported as `broken-link`, on top
+  of whatever `knap.toml`'s `ignore_link_targets` and `--ignore-link-target`
+  already suppress
 
 ### Tags
 
@@ -158,11 +163,15 @@ stable `code` (`broken-link`, `broken-anchor`, `missing-frontmatter`,
 on `code`, not on the message text, when scripting against `--json` output.
 Exit code is `0` if no problems were found, `1` otherwise.
 
-Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--exclude <glob>]...`
+Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--exclude <glob>]... [--ignore-link-target <glob>]...`
 
 - `--exclude <glob>` — glob pattern (relative to `path`) to leave out of
   linting entirely; repeatable. Adds to, rather than replaces, any
-  `exclude` patterns already set in `knap.toml`.
+  `exclude` patterns already set in `knap.toml`. `--ignore-link-target
+  <glob>` is the diagnostics-only counterpart — repeatable, and adds to
+  `knap.toml`'s `ignore_link_targets` rather than replacing it — a matching
+  link target is still indexed and still resolved, it just never produces a
+  `broken-link` diagnostic.
 - `--fail-on <severity>` — minimum severity that causes a non-zero exit
   (`error`, `warning` (default), `info`, or `hint`). `blocking_count` in
   `--json` output counts diagnostics at or above this threshold; exit code
@@ -203,11 +212,13 @@ Builds and prints the note index for a directory: notes, headings, links
 structured snapshot — handy for an agent to get a fast structural view of a
 workspace without grepping.
 
-Usage: `knap index <path> [--json] [--exclude <glob>]...`
+Usage: `knap index <path> [--json] [--exclude <glob>]... [--ignore-link-target <glob>]...`
 
 - `--exclude <glob>` — glob pattern (relative to `path`) to leave out of the
   index entirely; repeatable. Adds to, rather than replaces, any `exclude`
-  patterns already set in `knap.toml`.
+  patterns already set in `knap.toml`. `--ignore-link-target <glob>` also
+  accepts here — it doesn't change indexing (a matching link still shows its
+  true `resolved` status), only whether `knap lint` reports it.
 
 When `<path>` is a single file, `knap index` scopes to that one note's
 neighborhood instead: `--json` emits a single note object (`headings`,
@@ -354,6 +365,12 @@ exclude = ["tests/fixtures/**"]
 # unions with the built-in default (`.*`, `node_modules`, `target`) — list
 # everything you want skipped, including any of the defaults you still want.
 skip_dirs = ["vendor"]
+# Glob patterns matched against a link's raw target text. A matching link is
+# still indexed and still resolved normally — this only suppresses the
+# `broken-link` diagnostic knap would otherwise report for it. Unioned with
+# any `--ignore-link-target` flag values and with each note's own
+# `ignore-link-targets:` frontmatter key.
+ignore_link_targets = ["../sibling-vault/**"]
 
 [frontmatter_schema]
 require_frontmatter = false
@@ -370,10 +387,13 @@ When running under `knap lsp`, `initializationOptions` from the editor
 layers over `knap.toml` field-by-field — the editor value wins where
 present, `knap.toml` fills in the rest. `exclude` is the exception: instead
 of one source winning, the editor's `initializationOptions.exclude` and
-`knap.toml`'s `exclude` are unioned, so patterns from both apply. `skipDirs`
-follows the same override precedence as `extensions`, not `exclude`'s
-union — when set, `initializationOptions.skipDirs` fully replaces
-`knap.toml`'s `skip_dirs`.
+`knap.toml`'s `exclude` are unioned, so patterns from both apply.
+`ignore_link_targets` follows the same union rule as `exclude` — the
+editor's `initializationOptions.ignoreLinkTargets` and `knap.toml`'s
+`ignore_link_targets` both apply, rather than one replacing the other.
+`skipDirs` follows the same override precedence as `extensions`, not
+`exclude`'s union — when set, `initializationOptions.skipDirs` fully
+replaces `knap.toml`'s `skip_dirs`.
 
 ## Status
 

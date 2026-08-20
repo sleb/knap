@@ -13,10 +13,10 @@ untested code for the next step to build on.
 
 | Step                                                    | Status | Notes |
 | ---------------------------------------------------------- | ------ | ----- |
-| 1 — Frontmatter `ignore-link-targets` extraction             | Todo   |       |
-| 2 — `knap.toml`/`initializationOptions`/CLI config field      | Todo   |       |
-| 3 — `compute_diagnostics` suppression                        | Todo   |       |
-| 4 — Integration tests                                        | Todo   |       |
+| 1 — Frontmatter `ignore-link-targets` extraction             | Done   |       |
+| 2 — `knap.toml`/`initializationOptions`/CLI config field      | Done   |       |
+| 3 — `compute_diagnostics` suppression                        | Done   |       |
+| 4 — Integration tests                                        | Done   |       |
 
 ---
 

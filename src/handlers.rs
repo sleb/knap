@@ -64,6 +64,40 @@ const CODE_MISSING_REQUIRED_FIELD: &str = "missing-required-field";
 const CODE_INVALID_FIELD_VALUE: &str = "invalid-field-value";
 const CODE_UNKNOWN_FIELD: &str = "unknown-field";
 
+/// Returns `true` if `target` matches one of `note`'s frontmatter
+/// `ignore-link-targets` patterns or one of `config.ignore_link_target_patterns`,
+/// and so should be suppressed from `broken-link` diagnostics.
+///
+/// Frontmatter patterns are checked first. A malformed frontmatter pattern
+/// (invalid glob syntax) is logged via `warn!` and skipped rather than
+/// treated as an error — frontmatter isn't validated ahead of time the way
+/// `knap.toml`/CLI patterns are in `config::finalize`.
+fn is_ignored_link_target(
+    target: &str,
+    note: &parser::Note,
+    config: &crate::config::Config,
+) -> bool {
+    if let Some(fm) = &note.frontmatter {
+        for raw in &fm.ignore_link_targets {
+            match glob::Pattern::new(raw) {
+                Ok(pattern) => {
+                    if pattern.matches(target) {
+                        return true;
+                    }
+                }
+                Err(err) => {
+                    warn!("invalid ignore-link-targets pattern '{raw}' in frontmatter: {err}");
+                }
+            }
+        }
+    }
+
+    config
+        .ignore_link_target_patterns
+        .iter()
+        .any(|pattern| pattern.matches(target))
+}
+
 /// Compute LSP diagnostics for `path` against the current index state.
 pub(crate) fn compute_diagnostics(
     path: &Path,
@@ -79,6 +113,9 @@ pub(crate) fn compute_diagnostics(
     for link in &note.md_links {
         match index.resolve(path, &link.target) {
             ResolvedLink::Broken => {
+                if is_ignored_link_target(&link.target, note, config) {
+                    continue;
+                }
                 diagnostics.push(Diagnostic {
                     range: link.target_range,
                     severity: Some(DiagnosticSeverity::WARNING),
@@ -2587,6 +2624,154 @@ mod tests {
         );
     }
 
+    // ── v0.20 Step 3: ignore-link-targets suppression ─────────────────────────
+
+    #[test]
+    fn compute_diagnostics_broken_link_ignored_by_frontmatter_exact_match() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note(
+            "/vault/a.md",
+            "---\nignore-link-targets: [../out/x.md]\n---\n[text](../out/x.md)",
+        ));
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn compute_diagnostics_broken_link_ignored_by_frontmatter_glob() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note(
+            "/vault/a.md",
+            "---\nignore-link-targets: [../out/**]\n---\n[text](../out/x.md)",
+        ));
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn compute_diagnostics_broken_link_not_ignored_by_other_docs_frontmatter() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note(
+            "/vault/a.md",
+            "---\nignore-link-targets: [../out/x.md]\n---\n[text](../out/x.md)",
+        ));
+        idx.seed(note("/vault/b.md", "[text](../out/x.md)"));
+        let diags = compute_diagnostics(
+            Path::new("/vault/b.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String(CODE_BROKEN_LINK.to_string()))
+        );
+    }
+
+    #[test]
+    fn compute_diagnostics_broken_link_ignored_by_knap_toml_pattern() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/a.md", "[text](../out/x.md)"));
+        let config = crate::config::Config {
+            ignore_link_target_patterns: vec![glob::Pattern::new("../out/**").unwrap()],
+            ..Default::default()
+        };
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn compute_diagnostics_broken_link_still_reported_when_no_pattern_matches() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note(
+            "/vault/a.md",
+            "---\nignore-link-targets: [../out/**]\n---\n[text](missing.md)",
+        ));
+        let config = crate::config::Config {
+            ignore_link_target_patterns: vec![glob::Pattern::new("../unrelated/**").unwrap()],
+            ..Default::default()
+        };
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String(CODE_BROKEN_LINK.to_string()))
+        );
+    }
+
+    #[test]
+    fn compute_diagnostics_found_link_unaffected_by_ignore_patterns() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", ""));
+        idx.seed(note("/vault/a.md", "[text](b.md)"));
+        let config = crate::config::Config {
+            ignore_link_target_patterns: vec![glob::Pattern::new("b.md").unwrap()],
+            ..Default::default()
+        };
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert!(diags.is_empty());
+    }
+
+    #[test]
+    fn compute_diagnostics_broken_anchor_diagnostic_unaffected_by_ignore_patterns() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/b.md", "## Existing\n"));
+        idx.seed(note("/vault/a.md", "[text](b.md#Missing)"));
+        let config = crate::config::Config {
+            ignore_link_target_patterns: vec![glob::Pattern::new("../unrelated/**").unwrap()],
+            ..Default::default()
+        };
+        let diags = compute_diagnostics(Path::new("/vault/a.md"), &idx, &config);
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String(CODE_BROKEN_ANCHOR.to_string()))
+        );
+    }
+
+    #[test]
+    fn compute_diagnostics_malformed_frontmatter_pattern_skipped_not_panicking() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note(
+            "/vault/a.md",
+            "---\nignore-link-targets: [\"[\"]\n---\n[text](missing.md)",
+        ));
+        let diags = compute_diagnostics(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+        );
+        assert_eq!(diags.len(), 1);
+        assert_eq!(
+            diags[0].code,
+            Some(NumberOrString::String(CODE_BROKEN_LINK.to_string()))
+        );
+    }
+
+    #[test]
+    fn compute_diagnostics_with_suggestions_omits_suggestions_for_ignored_target() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note(
+            "/vault/a.md",
+            "---\nignore-link-targets: [../out/x.md]\n---\n[text](../out/x.md)",
+        ));
+        let diags = compute_diagnostics_with_suggestions(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+            3,
+        );
+        assert!(diags.is_empty());
+    }
+
     #[test]
     fn diagnostic_broken_anchor_has_broken_anchor_code() {
         let mut idx = NoteIndex::default();
@@ -3875,6 +4060,8 @@ mod tests {
             exclude: Default::default(),
             skip_dirs: Default::default(),
             path_filter: Default::default(),
+            ignore_link_targets: Default::default(),
+            ignore_link_target_patterns: Default::default(),
         }
     }
 

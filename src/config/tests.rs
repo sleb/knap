@@ -29,7 +29,7 @@ fn params_with(
 #[test]
 fn for_path_absent_knap_toml_uses_defaults() {
     let dir = tempfile::tempdir().unwrap();
-    let config = for_path(dir.path(), None, &[]).unwrap();
+    let config = for_path(dir.path(), None, &[], &[]).unwrap();
     assert_eq!(config.extensions, vec!["md"]);
     assert_eq!(config.new_note_dir, None);
 }
@@ -38,7 +38,7 @@ fn for_path_absent_knap_toml_uses_defaults() {
 fn for_path_loads_knap_toml() {
     let dir = tempfile::tempdir().unwrap();
     write_knap_toml(dir.path(), r#"extensions = ["mdx"]"#);
-    let config = for_path(dir.path(), None, &[]).unwrap();
+    let config = for_path(dir.path(), None, &[], &[]).unwrap();
     assert_eq!(config.extensions, vec!["mdx"]);
 }
 
@@ -46,14 +46,14 @@ fn for_path_loads_knap_toml() {
 fn for_path_malformed_knap_toml_errors() {
     let dir = tempfile::tempdir().unwrap();
     write_knap_toml(dir.path(), "extensions = [");
-    assert!(for_path(dir.path(), None, &[]).is_err());
+    assert!(for_path(dir.path(), None, &[], &[]).is_err());
 }
 
 #[test]
 fn for_path_knap_toml_wrong_type_errors() {
     let dir = tempfile::tempdir().unwrap();
     write_knap_toml(dir.path(), r#"extensions = "md""#);
-    assert!(for_path(dir.path(), None, &[]).is_err());
+    assert!(for_path(dir.path(), None, &[], &[]).is_err());
 }
 
 #[test]
@@ -214,7 +214,7 @@ fn for_lsp_schema_absent_uses_default() {
 #[test]
 fn for_path_absent_knap_toml_exclude_defaults_empty() {
     let dir = tempfile::tempdir().unwrap();
-    let config = for_path(dir.path(), None, &[]).unwrap();
+    let config = for_path(dir.path(), None, &[], &[]).unwrap();
     assert_eq!(config.exclude, Vec::<String>::new());
 }
 
@@ -222,7 +222,7 @@ fn for_path_absent_knap_toml_exclude_defaults_empty() {
 fn for_path_loads_knap_toml_exclude() {
     let dir = tempfile::tempdir().unwrap();
     write_knap_toml(dir.path(), r#"exclude = ["a/**"]"#);
-    let config = for_path(dir.path(), None, &[]).unwrap();
+    let config = for_path(dir.path(), None, &[], &[]).unwrap();
     assert_eq!(config.exclude, vec!["a/**".to_string()]);
 }
 
@@ -230,7 +230,7 @@ fn for_path_loads_knap_toml_exclude() {
 fn for_path_exclude_additions_appended() {
     let dir = tempfile::tempdir().unwrap();
     write_knap_toml(dir.path(), r#"exclude = ["a/**"]"#);
-    let config = for_path(dir.path(), None, &["b/**".to_string()]).unwrap();
+    let config = for_path(dir.path(), None, &["b/**".to_string()], &[]).unwrap();
     assert_eq!(config.exclude, vec!["a/**".to_string(), "b/**".to_string()]);
 }
 
@@ -254,7 +254,7 @@ fn for_lsp_exclude_default_empty() {
 #[test]
 fn for_path_absent_knap_toml_skip_dirs_defaults_to_builtin() {
     let dir = tempfile::tempdir().unwrap();
-    let config = for_path(dir.path(), None, &[]).unwrap();
+    let config = for_path(dir.path(), None, &[], &[]).unwrap();
     assert_eq!(config.skip_dirs, default_skip_dirs());
 }
 
@@ -262,7 +262,7 @@ fn for_path_absent_knap_toml_skip_dirs_defaults_to_builtin() {
 fn for_path_loads_knap_toml_skip_dirs() {
     let dir = tempfile::tempdir().unwrap();
     write_knap_toml(dir.path(), r#"skip_dirs = ["vendor"]"#);
-    let config = for_path(dir.path(), None, &[]).unwrap();
+    let config = for_path(dir.path(), None, &[], &[]).unwrap();
     assert_eq!(config.skip_dirs, vec!["vendor".to_string()]);
 }
 
@@ -422,7 +422,7 @@ mod path_filter {
 #[test]
 fn path_filter_should_index_true_for_path_outside_all_roots() {
     let dir = tempfile::tempdir().unwrap();
-    let config = for_path(dir.path(), None, &[]).unwrap();
+    let config = for_path(dir.path(), None, &[], &[]).unwrap();
     let outside = tempfile::tempdir().unwrap();
     assert!(config.should_index(&outside.path().join("note.md")));
 }
@@ -431,5 +431,51 @@ fn path_filter_should_index_true_for_path_outside_all_roots() {
 fn config_finalize_propagates_path_filter_compile_error() {
     let dir = tempfile::tempdir().unwrap();
     write_knap_toml(dir.path(), r#"exclude = ["["]"#);
-    assert!(for_path(dir.path(), None, &[]).is_err());
+    assert!(for_path(dir.path(), None, &[], &[]).is_err());
+}
+
+#[test]
+fn for_path_absent_knap_toml_ignore_link_targets_defaults_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = for_path(dir.path(), None, &[], &[]).unwrap();
+    assert_eq!(config.ignore_link_targets, Vec::<String>::new());
+}
+
+#[test]
+fn for_path_loads_knap_toml_ignore_link_targets() {
+    let dir = tempfile::tempdir().unwrap();
+    write_knap_toml(dir.path(), r#"ignore_link_targets = ["../a/**"]"#);
+    let config = for_path(dir.path(), None, &[], &[]).unwrap();
+    assert_eq!(config.ignore_link_targets, vec!["../a/**".to_string()]);
+}
+
+#[test]
+fn for_path_ignore_link_target_additions_appended() {
+    let dir = tempfile::tempdir().unwrap();
+    write_knap_toml(dir.path(), r#"ignore_link_targets = ["../a/**"]"#);
+    let config = for_path(dir.path(), None, &[], &["../b/**".to_string()]).unwrap();
+    assert_eq!(
+        config.ignore_link_targets,
+        vec!["../a/**".to_string(), "../b/**".to_string()]
+    );
+}
+
+#[test]
+fn for_lsp_ignore_link_targets_unions_knap_toml_and_init_options() {
+    let dir = tempfile::tempdir().unwrap();
+    write_knap_toml(dir.path(), r#"ignore_link_targets = ["../a/**"]"#);
+    let params = params_with(
+        Some(dir.path()),
+        Some(json!({ "ignoreLinkTargets": ["../b/**"] })),
+    );
+    let config = for_lsp(&params).unwrap();
+    assert!(config.ignore_link_targets.contains(&"../a/**".to_string()));
+    assert!(config.ignore_link_targets.contains(&"../b/**".to_string()));
+}
+
+#[test]
+fn finalize_malformed_ignore_link_targets_pattern_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    write_knap_toml(dir.path(), r#"ignore_link_targets = ["["]"#);
+    assert!(for_path(dir.path(), None, &[], &[]).is_err());
 }
