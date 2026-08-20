@@ -2,8 +2,9 @@
 
 knap is a Markdown language server that makes standard Markdown `[text](path)`
 links fully navigable in any LSP-compatible editor. Install the server binary,
-connect your editor, and your notes become navigable: jump to definitions, find
-backlinks, catch broken links, and rename files without breaking anything.
+connect your editor, and your linked Markdown docs become navigable: jump to
+definitions, find backlinks, catch broken links, and rename files without
+breaking anything.
 
 ---
 
@@ -134,14 +135,14 @@ headless `knap lint` and `knap index` commands — see the
 
 | Option              | Type       | Default  | Description                                                                                                                                                                                       |
 | ------------------- | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `extensions`        | `string[]` | `["md"]` | File extensions treated as notes. Files with other extensions are treated as attachments.                                                                                                         |
-| `newNoteDir`        | `string`   | —        | Folder path relative to workspace root where Quick Fix "Create note" places new files. When absent, new files are created next to the linking note.                                               |
-| `frontmatterSchema` | `object`   | —        | Defines allowed keys and values for note frontmatter. Enables key/value completions and diagnostics. See below.                                                                                   |
+| `extensions`        | `string[]` | `["md"]` | File extensions treated as docs. Files with other extensions are treated as attachments.                                                                                                          |
+| `newNoteDir`        | `string`   | —        | Folder path relative to workspace root where Quick Fix "Create note" places new files. When absent, new files are created next to the linking file.                                               |
+| `frontmatterSchema` | `object`   | —        | Defines allowed keys and values for a doc's frontmatter. Enables key/value completions and diagnostics. See below.                                                                                |
 | `exclude`           | `string[]` | `[]`     | Glob patterns (relative to the workspace root) left out of indexing entirely — no diagnostics, completions, navigation, or backlinks. Unioned with `knap.toml`'s `exclude`, not overridden by it. |
 | `skipDirs`          | `string[]` | `[".*", "node_modules", "target"]` | Glob patterns matched against bare directory names, pruned from the crawl before it descends into them. Replaces the default outright when set, rather than adding to it. |
-| `ignoreLinkTargets` | `string[]` | `[]`     | Glob patterns matched against a link's raw target text; a matching link is never reported as `broken-link` (it's still indexed and resolved normally). Unioned with `knap.toml`'s `ignore_link_targets`, not overridden by it. A note's own `ignore-link-targets:` frontmatter key adds further patterns scoped to just that note. |
+| `ignoreLinkTargets` | `string[]` | `[]`     | Glob patterns matched against a link's raw target text; a matching link is never reported as `broken-link` (it's still indexed and resolved normally). Unioned with `knap.toml`'s `ignore_link_targets`, not overridden by it. A doc's own `ignore-link-targets:` frontmatter key adds further patterns scoped to just that file. |
 
-**Example — multi-extension vault with inbox:**
+**Example — multi-extension workspace with inbox:**
 
 ```json
 {
@@ -153,7 +154,7 @@ headless `knap lint` and `knap index` commands — see the
 
 ### Frontmatter schema
 
-`frontmatterSchema` lets you define the structure of your notes' YAML frontmatter.
+`frontmatterSchema` lets you define the structure of your docs' YAML frontmatter.
 knap uses it to offer key and value completions and to publish diagnostics for
 constraint violations.
 
@@ -168,7 +169,7 @@ constraint violations.
         "values": ["draft", "published", "archived"]
       },
       "type": {
-        "values": ["note", "project", "reference"]
+        "values": ["doc", "project", "reference"]
       }
     }
   }
@@ -177,13 +178,13 @@ constraint violations.
 
 | Field                | Type      | Default | Description                                                                         |
 | -------------------- | --------- | ------- | ----------------------------------------------------------------------------------- |
-| `requireFrontmatter` | `boolean` | `false` | Warn on notes that have no `---` frontmatter block at all when required keys exist. |
+| `requireFrontmatter` | `boolean` | `false` | Warn on docs that have no `---` frontmatter block at all when required keys exist. |
 | `warnOnUnknownKeys`  | `boolean` | `false` | Warn on frontmatter keys not listed in `fields`.                                    |
 | `fields`             | `object`  | `{}`    | Map of key names to field constraints (`required` and/or `values`).                 |
 
 Each field object may have:
 
-- `required` (`boolean`, default `false`) — warn when the key is absent from the note's frontmatter.
+- `required` (`boolean`, default `false`) — warn when the key is absent from the doc's frontmatter.
 - `values` (`string[]`) — warn when the key's value is not in this list (exact-case match). Omit to allow any value.
 
 ### Schema (Zed / JSON-aware editors)
@@ -220,7 +221,7 @@ into a folder, the list also offers that folder itself as a completion item
 (labeled with its name, detail "Link to this folder") — select it to link
 directly to the folder instead of one of its files. Below the directory
 items, the list also shows every file in the workspace, so you can jump directly
-to any note or attachment by typing part of its name or path without navigating
+to any doc or attachment by typing part of its name or path without navigating
 through folders.
 
 ### Anchor completions
@@ -246,10 +247,10 @@ Supported link forms:
 
 | Syntax                       | Behaviour                                                |
 | ---------------------------- | -------------------------------------------------------- |
-| `[text](note.md)`            | Navigate to `note.md`                                    |
-| `[text](note.md#my-section)` | Navigate to the matching heading line in `note.md`       |
+| `[text](doc.md)`             | Navigate to `doc.md`                                     |
+| `[text](doc.md#my-section)`  | Navigate to the matching heading line in `doc.md`        |
 | `[text](#my-section)`        | Navigate to the matching heading in the **current** file |
-| `[text](../folder/note.md)`  | Relative paths resolved from the current file            |
+| `[text](../folder/doc.md)`   | Relative paths resolved from the current file            |
 | `![alt](image.png)`          | Navigate to `image.png` in the workspace                 |
 
 ### Find References
@@ -271,7 +272,7 @@ section of the README.
 ### Rename a heading
 
 Place your cursor on a heading line and trigger Rename Symbol (`F2` in VS Code /
-Zed, `grn` in Neovim). All `[text](note.md#old-slug)` anchor links pointing at
+Zed, `grn` in Neovim). All `[text](doc.md#old-slug)` anchor links pointing at
 that heading — including self-links within the same file — are rewritten to the
 new slug atomically.
 
@@ -286,7 +287,7 @@ a flat list you can jump to directly.
 ### Workspace Symbols
 
 Open Workspace Symbols (usually `Cmd+T` / `Ctrl+T`) and type part of a heading
-name to search headings across all indexed notes. Results also include
+name to search headings across all indexed docs. Results also include
 frontmatter tags, which appear with a distinct icon (`KEY`) so you can
 distinguish them from headings at a glance. Filtering is case-insensitive.
 
@@ -297,7 +298,7 @@ knap publishes warnings for:
 - **Broken links** — `[text](target.md)` where the relative path doesn't
   resolve to an existing file in the workspace.
   Message: `Link target not found: 'target.md'`
-- **Broken cross-file anchors** — `[text](note.md#heading)` where the anchor
+- **Broken cross-file anchors** — `[text](doc.md#heading)` where the anchor
   doesn't match any heading in the target file (compared via GFM slug).
   Message: `Heading not found: '#heading'`
 - **Broken same-file anchors** — `[text](#heading)` where the anchor doesn't
@@ -309,13 +310,13 @@ restart needed.
 
 **Suppressing false positives:** set `ignoreLinkTargets` (see
 [Configuration](#3-configuration)) to glob-match link targets that should
-never be reported as `broken-link` — links out to a sibling vault or
-external mount that isn't part of this workspace, for example. A note can
+never be reported as `broken-link` — links out to a sibling workspace or
+external mount that isn't part of this one, for example. A doc can
 also list its own patterns under an `ignore-link-targets:` frontmatter key,
-scoped to just that note's links.
+scoped to just that doc's links.
 
 **Attachment links:** `![alt](image.png)` resolves against all files in the
-workspace, not just note files. If `image.png` exists anywhere under the
+workspace, not just doc files. If `image.png` exists anywhere under the
 workspace root, the link is considered resolved and no diagnostic is emitted.
 
 ### Tag completions
@@ -330,12 +331,12 @@ tags:
   - writing # block list — cursor on the value after `- `
 ```
 
-Tags already present in the current note's frontmatter are excluded. Typing
+Tags already present in the current doc's frontmatter are excluded. Typing
 narrows the list by prefix.
 
 ### Backlinks code lens
 
-When you open a note that has at least one other note linking to it, a code
+When you open a doc that has at least one other doc linking to it, a code
 lens appears above the first line:
 
 ```
@@ -343,7 +344,7 @@ lens appears above the first line:
 ```
 
 Clicking the lens opens the References panel pre-populated with every file that
-links to the current note — no cursor placement needed. Notes with no incoming
+links to the current doc — no cursor placement needed. Docs with no incoming
 links show no lens.
 
 **Zed:** code lens is disabled by default. Enable it by adding `"code_lens": true`
@@ -358,7 +359,7 @@ to your Zed `settings.json`:
 ### Find References and Go to Definition on tags
 
 Place your cursor on a tag value in frontmatter and trigger Find References or
-Go to Definition. Both return every note in the workspace that carries that tag,
+Go to Definition. Both return every doc in the workspace that carries that tag,
 with each result pointing directly at the tag's range in the file.
 
 When your cursor is on a broken-link diagnostic, trigger your editor's Quick Fix
@@ -381,7 +382,7 @@ Quick Fix keybindings by editor:
 
 By default, **Create note** places new files next to the linking file. Set
 `newNoteDir` in your configuration (see [Configuration](#3-configuration)) to
-route all new notes to an inbox folder instead.
+route all new files to an inbox folder instead.
 
 ---
 

@@ -9,12 +9,12 @@ live in release-level design docs.
 ## Design Tenets
 
 **Standard Markdown first.** Knap uses plain `[text](path/to/file.md)` links
-throughout. No wiki-link extensions, no proprietary syntax. Notes written with
+throughout. No wiki-link extensions, no proprietary syntax. Docs written with
 knap render correctly in any Markdown tool — GitHub, static site generators,
 other editors — without knap present.
 
 **Explicit paths, no ambiguity.** Links use standard relative paths — relative to
-the current file's location (e.g. `[My Note](../projects/foo.md)`). There is no
+the current file's location (e.g. `[My Doc](../projects/foo.md)`). There is no
 stem-based resolution and no concept of an "ambiguous" link. What you write is
 what resolves.
 
@@ -121,8 +121,8 @@ targets are suppressed from `broken-link` diagnostics. `finalize` compiles
 (a `Vec<glob::Pattern>`), the same eager-validation treatment `exclude` and
 `skip_dirs` get. `handlers::is_ignored_link_target` is the sole consumer: it
 checks a link's raw target text against `config.ignore_link_target_patterns`
-first, then against the current note's own frontmatter `ignore-link-targets:`
-key (parsed by the Markdown Parser into `Note::frontmatter`) — a per-note
+first, then against the current doc's own frontmatter `ignore-link-targets:`
+key (parsed by the Markdown Parser into `Note::frontmatter`) — a per-doc
 override layered on top of the workspace-wide config, with a malformed
 frontmatter pattern logged via `warn!` and skipped rather than failing the
 diagnostic pass, since frontmatter isn't validated ahead of time the way
@@ -247,7 +247,7 @@ pure — given the same source text it always returns the same result.
 - Extracting all headings with their level and text _(v0.3)_
 - Extracting YAML frontmatter (title, tags, arbitrary keys) _(v0.1, extended v0.3)_
 - Extracting fenced code block positions as `CodeFence` entries _(v0.9)_
-- Extracting a note's own `ignore-link-targets:` frontmatter patterns (bare
+- Extracting a doc's own `ignore-link-targets:` frontmatter patterns (bare
   scalar, inline list, or block list) _(v0.20)_
 
 **Contract:**
@@ -265,13 +265,13 @@ the file.
 ### Note Index
 
 The server's central knowledge base. Maintains a live, queryable model of all
-notes in the workspace.
+docs in the workspace.
 
 **Responsibilities:**
 
 - Building the initial index by parsing all files under the configured roots on
   startup
-- Accepting incremental updates (note added, changed, deleted) from the Protocol
+- Accepting incremental updates (doc added, changed, deleted) from the Protocol
   Handler
 - Resolving standard Markdown link paths to file or directory paths within
   the workspace
@@ -285,7 +285,7 @@ notes in the workspace.
 ```
 index(note: Note) → IndexDelta             // add or replace; returns affected paths for diagnostics
 remove(path: string) → IndexDelta          // delete; returns affected paths for diagnostics
-add_attachment(path: PathBuf) → IndexDelta // register a non-note file; may clear broken-link diagnostics
+add_attachment(path: PathBuf) → IndexDelta // register a non-doc file; may clear broken-link diagnostics
 remove_attachment(path: PathBuf) → IndexDelta
 add_dir(path: PathBuf) → IndexDelta        // register a directory as a link target; may clear broken-link diagnostics
 remove_dir(path: string) → IndexDelta
@@ -297,7 +297,7 @@ remove_dir(path: string) → IndexDelta
 resolve(source: Path, target: string) → ResolvedLink  // resolves target relative to source file
 get_note(path: string) → Note | null
 all_notes() → Note[]
-links_to(path: string) → LocatedLink[]  // standard links from other notes pointing here
+links_to(path: string) → LocatedLink[]  // standard links from other docs pointing here
 all_tags() → string[]
 notes_by_tag(tag: string) → Note[]
 note_report(path: string) → NoteSummary | null
@@ -326,7 +326,7 @@ own — use `knap lsp`.**
 | ---------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | `lsp`            | `knap lsp`                                                                                                   | v0.11 (previously the bare-args default, since v0.1)                                                           |
 | `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--exclude <glob>]... [--ignore-link-target <glob>]...` | v0.11, `--fail-on`/`--since`/`--suggest` added v0.13, `--exclude` added v0.16, `--ignore-link-target` added v0.20 |
-| `index`          | `knap index <path> [--json] [--exclude <glob>]... [--ignore-link-target <glob>]...`                          | v0.1, rewritten v0.11; a file `<path>` scopes to that note's neighborhood since v0.13; `--exclude` added v0.16; `--ignore-link-target` added v0.20 |
+| `index`          | `knap index <path> [--json] [--exclude <glob>]... [--ignore-link-target <glob>]...`                          | v0.1, rewritten v0.11; a file `<path>` scopes to that doc's neighborhood since v0.13; `--exclude` added v0.16; `--ignore-link-target` added v0.20 |
 | `parse`          | `knap parse <file>`                                                                                          | v0.1                                                                                                           |
 | `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                                          | v0.12, `move-file` alias added v0.14                                                                           |
 | `rename-heading` | `knap rename-heading <file> <old> <new>`                                                                     | v0.12                                                                                                          |
@@ -341,10 +341,10 @@ via `config::for_path` and build the index via `index::build` — this is what
 makes their behavior match the LSP for the same workspace, including
 `knap.toml`; `lint` then calls the existing `handlers::compute_diagnostics`
 per target file, and `index --json` serializes `NoteIndex::report()` for a
-directory target, or `NoteIndex::note_report()` alone for a single note when
+directory target, or `NoteIndex::note_report()` alone for a single doc when
 given a file. `index`'s file-input case resolves config off `cwd`, not the
-file itself, for the same reason `rename-*` does below — a single note's
-`backlinks` still need the whole vault indexed, not just its own directory.
+file itself, for the same reason `rename-*` does below — a single doc's
+`backlinks` still need the whole workspace indexed, not just its own directory.
 `parse` calls `parser::parse` directly; `check` spins up a full in-process
 server and exercises the LSP lifecycle as a smoke test. The three
 `rename-*` subcommands resolve config via `config::for_path(cwd, ..)` — the

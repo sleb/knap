@@ -4,21 +4,25 @@
 [![docs.rs](https://img.shields.io/docsrs/knap)](https://docs.rs/knap)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Tooling that keeps linked Markdown notes correct — for the human writing them
+Tooling that keeps linked Markdown docs correct — for the human writing them
 and the agent editing alongside — built on standard Markdown syntax with no
 proprietary extensions.
 
 ## Overview
 
-A vault of linked notes breaks quietly: a file gets renamed and every link to
-it goes stale, a heading gets reworded and its anchors dangle, a tag gets
-retired in one note but not the other forty. knap keeps `[text](path.md)`
-links, `#anchor`s, and frontmatter tags correct as both a human and a coding
-agent edit the same files — the same index, the same diagnostics, the same
-refactors, whichever one is holding the pen. Notes stay plain Markdown that
-renders correctly anywhere — GitHub, static site generators, other editors —
-without knap present; the tooling supplies the correctness, the files stay
-clean. See [Architecture](docs/ARCHITECTURE.md) for the full design tenets.
+A workspace of linked Markdown docs breaks quietly: a file gets renamed and
+every link to it goes stale, a heading gets reworded and its anchors dangle,
+a tag gets retired in one file but not the other forty. knap keeps
+`[text](path.md)` links, `#anchor`s, and frontmatter tags correct as both a
+human and a coding agent edit the same files — the same index, the same
+diagnostics, the same refactors, whichever one is holding the pen. Docs stay
+plain Markdown that renders correctly anywhere — GitHub, static site
+generators, other editors — without knap present; the tooling supplies the
+correctness, the files stay clean. This works for any workspace of linked
+docs: a wiki, a knowledge base, a docs site, a spec repo, a personal
+note-taking vault — knap doesn't care what you call the files, only that
+they link to each other. See [Architecture](docs/ARCHITECTURE.md) for the
+full design tenets.
 
 knap ships as a single binary with two faces built on the same engine:
 
@@ -36,7 +40,7 @@ apply`** — for the agent — the same checks and refactors, headlessly from
 
 Both faces share one indexing and configuration core: `src/config/mod.rs` loads
 `initializationOptions` or `knap.toml` the same way for every entry point, and
-the note index — files, headings, links, backlinks, tags — is built once and
+the doc index — files, headings, links, backlinks, tags — is built once and
 reused across all commands. A human renaming a file in their editor and an
 agent running `knap rename-file` get the identical rewrite; a diagnostic the
 LSP would have squiggled is the same one `knap lint` reports.
@@ -53,12 +57,12 @@ files change, so there's no restart needed after edits.
 
 - **Path completions** — type `(` inside a Markdown link for a directory
   browser; drill into subfolders one level at a time (including empty ones),
-  or type any filename segment to jump directly to any note or attachment in
+  or type any filename segment to jump directly to any doc or attachment in
   the workspace (images and PDFs included); once drilled into a folder, an
   item lets you link to that folder itself instead of picking a file inside it
 - **Directory links** — link to a folder (`[LLDs](docs/lld/)`) and it
   resolves like a link to a file: no `broken-link` diagnostic, Go to
-  Definition navigates to the folder, Find References tracks every note
+  Definition navigates to the folder, Find References tracks every doc
   linking to it
 - **Anchor completions** — type `#` after a file path to pick from that file's
   headings, or `[text](#` to pick from the current file's headings; inserts the
@@ -66,12 +70,12 @@ files change, so there's no restart needed after edits.
 
 ### Navigation
 
-- **Go to Definition** — jump to the linked note; navigates to the heading line
-  when an anchor is present (`[text](note.md#heading)` or `[text](#heading)` for
+- **Go to Definition** — jump to the linked doc; navigates to the heading line
+  when an anchor is present (`[text](doc.md#heading)` or `[text](#heading)` for
   same-file headings)
 - **Document Symbols** — outline of every heading in the current file, jumpable
   from your editor's symbol panel
-- **Workspace Symbols** — fuzzy-search headings across the entire vault
+- **Workspace Symbols** — fuzzy-search headings across the entire workspace
 
 ### Frontmatter schema
 
@@ -81,11 +85,11 @@ files change, so there's no restart needed after edits.
   offers allowed values as `VALUE` items with prefix filtering
 - **Schema diagnostics** — warnings for required keys that are absent, values
   outside the allowed list (exact-case), unknown keys (opt-in via
-  `warnOnUnknownKeys`), and notes missing a frontmatter block entirely (opt-in
+  `warnOnUnknownKeys`), and docs missing a frontmatter block entirely (opt-in
   via `requireFrontmatter`)
-- **`ignore-link-targets`** — a note's own `ignore-link-targets:` frontmatter
+- **`ignore-link-targets`** — a doc's own `ignore-link-targets:` frontmatter
   key lists glob patterns (bare scalar, inline list, or block list); any of
-  that note's links matching one is never reported as `broken-link`, on top
+  that doc's links matching one is never reported as `broken-link`, on top
   of whatever `knap.toml`'s `ignore_link_targets` and `--ignore-link-target`
   already suppress
 
@@ -94,10 +98,10 @@ files change, so there's no restart needed after edits.
 - **Tag completions** — inside a frontmatter `tags:` value, your workspace tag
   index appears as a pick list; already-used tags are excluded and prefix
   filtering narrows results as you type
-- **Find References on a tag** — shows every note that carries the tag, with
+- **Find References on a tag** — shows every doc that carries the tag, with
   each result pointing directly at the tag range
 - **Go to Definition on a tag** — same set of locations, letting you jump to
-  any note using the tag
+  any doc using the tag
 - **Workspace Symbols includes tags** — tags appear alongside headings in the
   symbol search with `SymbolKind::KEY` so editors can style them distinctly
 
@@ -107,13 +111,13 @@ files change, so there's no restart needed after edits.
   editor that supports `textDocument/foldingRange`
 - **Selection range** — smart expand/contract grows the selection through
   word → link → paragraph → heading section → document
-- **Inlay hints** — linked notes with a `title:` frontmatter field show the
-  title inline next to the link path (e.g. `-> My Note`)
+- **Inlay hints** — linked docs with a `title:` frontmatter field show the
+  title inline next to the link path (e.g. `-> My Doc`)
 
 ### Backlinks & code lens
 
 - **Backlinks code lens** — a `↑ N backlinks` annotation above the first line
-  of any note with incoming links; click to open the References panel in VS Code
+  of any doc with incoming links; click to open the References panel in VS Code
 - **Heading anchor-link lens** — headings that are anchor targets show
   `↑ N anchor link(s)` counting both same-file and cross-file `#slug` references
 
@@ -121,13 +125,13 @@ files change, so there's no restart needed after edits.
 
 - **Find References** — every standard Markdown link pointing to the current
   file; on a heading, collects same-file bare anchors and cross-file anchors to
-  that heading; or every note using a tag when the cursor is on a tag value
+  that heading; or every doc using a tag when the cursor is on a tag value
 
 ### Refactoring
 
 - **Rename a file** — all incoming and outgoing links rewritten atomically via
   `workspace/willRenameFiles`
-- **Rename a heading** — all `[text](note.md#old-slug)` anchor links updated in
+- **Rename a heading** — all `[text](doc.md#old-slug)` anchor links updated in
   place to the new slug
 - **Rename a tag** — every frontmatter occurrence of the tag across the workspace
   updated atomically; rename dialog pre-fills with the current tag text; all
@@ -149,7 +153,7 @@ an agent to check whether its edits broke any links.
 
 ```
 $ knap lint .
-notes/index.md:12:3: warning: broken link to 'notes/missing.md'
+docs/index.md:12:3: warning: broken link to 'docs/missing.md'
 
 1 problem(s) in 1 file(s)
 ```
@@ -206,7 +210,7 @@ Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--
 
 ## Indexer (`knap index`)
 
-Builds and prints the note index for a directory: notes, headings, links
+Builds and prints the doc index for a directory: files, headings, links
 (with resolved/broken status), backlinks, and tags. `--json` emits a
 structured snapshot — handy for an agent to get a fast structural view of a
 workspace without grepping.
@@ -219,11 +223,11 @@ Usage: `knap index <path> [--json] [--exclude <glob>]... [--ignore-link-target <
   accepts here — it doesn't change indexing (a matching link still shows its
   true `resolved` status), only whether `knap lint` reports it.
 
-When `<path>` is a single file, `knap index` scopes to that one note's
-neighborhood instead: `--json` emits a single note object (`headings`,
+When `<path>` is a single file, `knap index` scopes to that one file's
+neighborhood instead: `--json` emits a single doc object (`headings`,
 `links`, `backlinks`, `tags`) rather than the `{ "notes": [...], "tags":
-{...} }` workspace envelope. Useful for an agent to inspect just-edited
-note without paging the full index. A directory `<path>` prints the
+{...} }` workspace envelope. Useful for an agent to inspect a just-edited
+file without paging the full index. A directory `<path>` prints the
 full-workspace listing, unchanged.
 
 ## Headless rename (`knap rename-*`)
@@ -231,15 +235,15 @@ full-workspace listing, unchanged.
 The same rename computations the editor's rename dialog uses
 (`workspace/rename`, `workspace/willRenameFiles`), run against a workspace
 without a client — the edit is computed and written to disk in one step.
-Useful for scripting a rename across a vault, or for an agent that needs to
-retarget links without opening an editor.
+Useful for scripting a rename across a workspace, or for an agent that needs
+to retarget links without opening an editor.
 
 ```
-$ knap rename-file notes/old.md notes/new.md
-notes/old.md → notes/new.md (2 file(s) touched)
+$ knap rename-file docs/old.md docs/new.md
+docs/old.md → docs/new.md (2 file(s) touched)
 
-$ knap rename-heading notes/a.md "Old Section" "New Section"
-"Old Section" → "New Section" in notes/a.md (2 file(s) touched)
+$ knap rename-heading docs/a.md "Old Section" "New Section"
+"Old Section" → "New Section" in docs/a.md (2 file(s) touched)
 
 $ knap rename-tag draft published
 #draft → #published (3 file(s) touched)
@@ -254,7 +258,7 @@ $ knap rename-tag draft published
   in `<file>` matches `<old>`.
 - `knap rename-tag <old> <new>` — rewrites every frontmatter occurrence of
   `<old>` across the workspace, in all three YAML tag forms (bare scalar,
-  inline list, block list). Fails if no note uses `<old>`.
+  inline list, block list). Fails if no file uses `<old>`.
 
 All three scope their index to the current directory (like `knap lint .`),
 apply their edit atomically, and print a summary line on success.
@@ -285,10 +289,10 @@ anchor }` — retarget a broken link or anchor at exactly `range` (a
   Useful for the ambiguous or `text_mismatch` cases `knap lint --suggest`
   surfaces:
   ```
-  $ echo '[{"op":"repoint-link","file":"notes/a.md",
+  $ echo '[{"op":"repoint-link","file":"docs/a.md",
     "range":{"start":{"line":0,"character":7},"end":{"line":0,"character":18}},
     "target":"reference/config.md"}]' | knap apply
-  applied repoint-link: notes/a.md: repoint → 'reference/config.md'
+  applied repoint-link: docs/a.md: repoint → 'reference/config.md'
   1 operation(s), 1 file(s) touched
   ```
 
@@ -319,25 +323,25 @@ Usage: `knap apply [--dry-run] [--json]`
 
 ## Coding agents
 
-This is the other half of the synergy: an agent editing a vault a human also
-writes in shouldn't have to re-derive knap's conventions from `--help` text,
-and shouldn't leave broken links behind for the human to find later.
+This is the other half of the synergy: an agent editing a workspace a human
+also writes in shouldn't have to re-derive knap's conventions from `--help`
+text, and shouldn't leave broken links behind for the human to find later.
 `skill/knap/SKILL.md` documents the `lint` → `rename-*`/`apply` → `lint`
-edit-verify loop for a coding agent working in a vault that has `knap`
+edit-verify loop for a coding agent working in a workspace that has `knap`
 installed — the six diagnostic `code`s, `--fail-on`/`--since`, and
-`knap index <file> --json` for a fast, scoped read of just the note it
-touched. Copy it into a vault's skill directory to teach an agent knap's
-conventions directly:
+`knap index <file> --json` for a fast, scoped read of just the file it
+touched. Copy it into a workspace's skill directory to teach an agent
+knap's conventions directly:
 
 ```
 cp -r skill/knap ~/.claude/skills/
 # or, project-scoped:
-cp -r skill/knap <vault>/.claude/skills/
+cp -r skill/knap <workspace>/.claude/skills/
 ```
 
 ## Configuration
 
-Configuration (note subdirectory, file extensions, frontmatter schema) comes
+Configuration (doc subdirectory, file extensions, frontmatter schema) comes
 from two sources, both read by every command above — `knap lint` and `knap
 index` see the same config an editor session would:
 
@@ -367,9 +371,9 @@ skip_dirs = ["vendor"]
 # Glob patterns matched against a link's raw target text. A matching link is
 # still indexed and still resolved normally — this only suppresses the
 # `broken-link` diagnostic knap would otherwise report for it. Unioned with
-# any `--ignore-link-target` flag values and with each note's own
+# any `--ignore-link-target` flag values and with each file's own
 # `ignore-link-targets:` frontmatter key.
-ignore_link_targets = ["../sibling-vault/**"]
+ignore_link_targets = ["../sibling-workspace/**"]
 
 [frontmatter_schema]
 require_frontmatter = false
@@ -398,7 +402,7 @@ replaces `knap.toml`'s `skip_dirs`.
 
 v0.16.0 — Exclude Paths: `knap.toml` gains an `exclude` glob-pattern list
 (plus a `--exclude` flag on `knap lint`/`knap index`) so paths that are part
-of the repo but not the vault — most notably test fixtures with
+of the repo but not the workspace — most notably test fixtures with
 intentionally broken links — are left out of indexing entirely, not just
 diagnostics. A single `PathFilter` authority is now consulted by the
 initial crawl and all three live-index LSP handlers (`didOpen`/`didChange`/

@@ -655,11 +655,11 @@ Explicitly deferred — not scheduled:
 - **`--fail-on <severity>` threshold on `knap lint`** — let CI/agents treat
   only diagnostics at or above a given severity as a failure, instead of any
   diagnostic at all
-- **Hover Previews** (US-09, US-10, US-23) — hover on a link to preview note contents; `title:` frontmatter as display name
+- **Hover Previews** (US-09, US-10, US-23) — hover on a link to preview doc contents; `title:` frontmatter as display name
 - **Diagnostics & Validation** (US-32, US-34) — duplicate heading warnings; self-link warnings
 - **Inline Tags** (US-40) — `#tag` body syntax included in tag index and completions
-- **Orphan Note Detection** (US-38) — hint-level diagnostic on notes with no incoming links
-- **Note Templates** (US-42) — `templateDir` config; new notes expanded with `{{title}}`, `{{date}}`
+- **Orphan Doc Detection** (US-38) — hint-level diagnostic on docs with no incoming links
+- **Doc Templates** (US-42) — `templateDir` config; new docs expanded with `{{title}}`, `{{date}}`
 - Full Markdown formatting (bold, italic, tables) — handled by other tools
 - Git integration
 - Graph visualization
