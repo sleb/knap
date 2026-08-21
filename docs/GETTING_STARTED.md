@@ -386,7 +386,27 @@ route all new files to an inbox folder instead.
 
 ---
 
-## 5. Troubleshooting
+## 5. Coding agents
+
+If you're working in this workspace alongside a coding agent (Claude Code,
+etc.), teach it knap's conventions directly instead of letting it re-derive
+them from `--help` text:
+
+```bash
+knap skill --global
+# or, scoped to just this workspace:
+knap skill --path <workspace>/.claude/skills/knap
+```
+
+This installs `SKILL.md`, which documents the `lint` → `rename-*`/`apply` →
+`lint` edit-verify loop so the agent catches and fixes broken links as it
+edits docs, the same way `knap lint` would for you. Re-run either command any
+time you upgrade knap to pick up the latest `SKILL.md` — it's a no-op if
+nothing changed.
+
+---
+
+## 6. Troubleshooting
 
 **knap isn't starting.** Confirm the binary is on your `PATH` by running
 `knap check` in a terminal — all checks should pass. Check your editor's LSP
