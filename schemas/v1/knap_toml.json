@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "title": "knap.toml",
+  "description": "Workspace configuration for knap, read by `knap lsp`, `knap lint`, and `knap index` alike. See schemas/README.md for versioning rules.",
+  "type": "object",
+  "properties": {
+    "extensions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["md"],
+      "description": "File extensions treated as notes. Files with other extensions are treated as attachments. Default: [\"md\"]."
+    },
+    "new_note_dir": {
+      "type": "string",
+      "description": "Folder relative to the workspace root where Quick Fix 'Create note' actions create new files (e.g. \"0-Inbox\"). Defaults to the same directory as the current note."
+    },
+    "exclude": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns excluded from indexing, matched against each entry's path relative to its index root."
+    },
+    "skip_dirs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns matched against bare directory names, pruned from the crawl. Replaces the built-in default (\".*\", \"node_modules\", \"target\") outright when set."
+    },
+    "ignore_link_targets": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns matched against a link's raw target text, suppressing broken-link diagnostics."
+    },
+    "frontmatter_schema": {
+      "type": "object",
+      "description": "Defines allowed keys and values for a doc's frontmatter. Enables key/value completions and diagnostics.",
+      "properties": {
+        "require_frontmatter": {
+          "type": "boolean",
+          "default": false,
+          "description": "Warn on docs that have no '---' frontmatter block at all when required keys exist."
+        },
+        "warn_unknown_keys": {
+          "type": "boolean",
+          "default": false,
+          "description": "Warn on frontmatter keys not listed in 'fields'."
+        },
+        "fields": {
+          "type": "object",
+          "description": "Map of frontmatter key names to their constraints.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "required": {
+                "type": "boolean",
+                "default": false,
+                "description": "Warn when the key is absent from the doc's frontmatter."
+              },
+              "values": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Allowed values for this key (exact-case). Omit to allow any value."
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

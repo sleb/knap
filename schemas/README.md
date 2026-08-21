@@ -6,11 +6,21 @@ made to the configuration interface.
 
 ## Current version
 
-`v1` — `schemas/v1/initialization_options.json`
+`v1` — two schema files, one per config surface:
 
-```
-https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/initialization_options.json
-```
+- `schemas/v1/initialization_options.json` — the LSP `initializationOptions`
+
+  ```
+  https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/initialization_options.json
+  ```
+
+- `schemas/v1/knap_toml.json` — `knap.toml`
+
+  ```
+  https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/knap_toml.json
+  ```
+
+Both files share the same versioning discipline described below.
 
 ## Versioning rules
 

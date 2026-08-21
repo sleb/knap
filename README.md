@@ -400,8 +400,11 @@ index` see the same config an editor session would:
 - a `knap.toml` file at your workspace root
 
 `initializationOptions` has a JSON Schema at
-`schemas/v1/initialization_options.json`; see
-[`schemas/README.md`](schemas/README.md) for its versioning rules.
+`schemas/v1/initialization_options.json`, and `knap.toml` has its own at
+`schemas/v1/knap_toml.json` — the quickest way to wire the latter up is a
+`#:schema` directive as the first line of `knap.toml`; see
+[`schemas/README.md`](schemas/README.md) for both schemas' versioning
+rules.
 
 ### `knap.toml`
 

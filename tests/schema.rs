@@ -14,6 +14,13 @@ fn schema_json() -> serde_json::Value {
     serde_json::from_str(&content).unwrap_or_else(|e| panic!("parsing {}: {e}", path.display()))
 }
 
+fn knap_toml_schema_json() -> serde_json::Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("schemas/v1/knap_toml.json");
+    let content =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+    serde_json::from_str(&content).unwrap_or_else(|e| panic!("parsing {}: {e}", path.display()))
+}
+
 /// Returns `value`'s object keys, panicking with `path` (a human-readable
 /// description of where `value` came from) if `value` isn't a JSON object —
 /// e.g. because an expected branch doesn't exist yet in the schema file.
@@ -73,6 +80,53 @@ fn schema_frontmatter_schema_fields_entry_properties_match_wire_contract() {
         &schema["properties"]["frontmatterSchema"]["properties"]["fields"]["additionalProperties"]
             ["properties"],
         "properties.frontmatterSchema.properties.fields.additionalProperties.properties",
+    );
+    let expected: HashSet<&str> = ["required", "values"].into_iter().collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn knap_toml_schema_is_valid_json() {
+    let _ = knap_toml_schema_json();
+}
+
+#[test]
+fn knap_toml_schema_top_level_properties_match_wire_contract() {
+    let schema = knap_toml_schema_json();
+    let actual = object_keys(&schema["properties"], "properties");
+    let expected: HashSet<&str> = [
+        "extensions",
+        "new_note_dir",
+        "exclude",
+        "skip_dirs",
+        "ignore_link_targets",
+        "frontmatter_schema",
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn knap_toml_schema_frontmatter_schema_properties_match_wire_contract() {
+    let schema = knap_toml_schema_json();
+    let actual = object_keys(
+        &schema["properties"]["frontmatter_schema"]["properties"],
+        "properties.frontmatter_schema.properties",
+    );
+    let expected: HashSet<&str> = ["require_frontmatter", "warn_unknown_keys", "fields"]
+        .into_iter()
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn knap_toml_schema_frontmatter_schema_fields_entry_properties_match_wire_contract() {
+    let schema = knap_toml_schema_json();
+    let actual = object_keys(
+        &schema["properties"]["frontmatter_schema"]["properties"]["fields"]["additionalProperties"]
+            ["properties"],
+        "properties.frontmatter_schema.properties.fields.additionalProperties.properties",
     );
     let expected: HashSet<&str> = ["required", "values"].into_iter().collect();
     assert_eq!(actual, expected);

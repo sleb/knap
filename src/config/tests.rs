@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::{InitOptions, default_skip_dirs, for_lsp, for_path};
+use super::{InitOptions, KnapToml, default_skip_dirs, for_lsp, for_path};
 
 fn write_knap_toml(dir: &Path, content: &str) {
     std::fs::write(dir.join("knap.toml"), content).unwrap();
@@ -532,5 +532,66 @@ fn init_options_accepts_getting_started_frontmatter_schema_example() {
             "project".to_string(),
             "reference".to_string()
         ])
+    );
+}
+
+/// Regression test for the `knap.toml` example in `README.md`'s `###
+/// knap.toml` section — guards it against drifting from `KnapToml` in the
+/// future. `KnapToml` is already correct; this test is expected to pass
+/// already.
+#[test]
+fn knap_toml_accepts_readme_example() {
+    let toml_str = r#"
+extensions = ["md"]
+new_note_dir = "inbox"
+# Glob patterns matched against each entry's path relative to the index
+# root; matching directories are never crawled and matching files are
+# skipped entirely. Don't exclude the root itself (e.g. `"."` or `"**"`) —
+# that produces an empty index rather than an error.
+exclude = ["tests/fixtures/**"]
+# Glob patterns matched against bare directory names (not paths) during the
+# crawl; a matching directory is pruned outright. Replaces rather than
+# unions with the built-in default (`.*`, `node_modules`, `target`) — list
+# everything you want skipped, including any of the defaults you still want.
+skip_dirs = ["vendor"]
+# Glob patterns matched against a link's raw target text. A matching link is
+# still indexed and still resolved normally — this only suppresses the
+# `broken-link` diagnostic knap would otherwise report for it. Unioned with
+# any `--ignore-link-target` flag values and with each file's own
+# `ignore-link-targets:` frontmatter key.
+ignore_link_targets = ["../sibling-workspace/**"]
+
+[frontmatter_schema]
+require_frontmatter = false
+warn_unknown_keys = false
+
+[frontmatter_schema.fields.title]
+required = true
+
+[frontmatter_schema.fields.status]
+values = ["draft", "published"]
+"#;
+
+    let knap_toml: KnapToml = toml::from_str(toml_str).unwrap();
+
+    assert_eq!(knap_toml.extensions, Some(vec!["md".to_string()]));
+    assert_eq!(knap_toml.skip_dirs, Some(vec!["vendor".to_string()]));
+
+    let schema = knap_toml
+        .frontmatter_schema
+        .expect("frontmatter_schema should deserialize");
+    assert!(!schema.require_frontmatter);
+    assert!(!schema.warn_unknown_keys);
+    assert_eq!(schema.fields.len(), 2);
+
+    let title = schema.fields.get("title").expect("title field");
+    assert!(title.required);
+    assert_eq!(title.values, None);
+
+    let status = schema.fields.get("status").expect("status field");
+    assert!(!status.required);
+    assert_eq!(
+        status.values,
+        Some(vec!["draft".to_string(), "published".to_string()])
     );
 }

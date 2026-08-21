@@ -306,6 +306,18 @@ than replacing it. I can also pass `--ignore-link-target <pattern>`
 (repeatable) to `knap lint`/`knap index` for one-off exceptions on top of
 whatever `knap.toml` already lists, without editing the config file.
 
+**US-61** — As a workspace owner, I can point a taplo-aware editor (e.g. Zed,
+or VS Code with "Even Better TOML") at knap's published `knap.toml` JSON
+Schema — via an inline `#:schema` directive at the top of the file, or a
+`taplo.toml`/`.taplo.toml` glob association — and get autocompletion and
+inline validation for `knap.toml`'s actual snake_case keys
+(`new_note_dir`, `skip_dirs`, `warn_unknown_keys`, …), so I can configure
+the server without consulting external documentation and the editor flags
+unknown or misspelled keys on the spot. This is `knap.toml`'s equivalent of
+US-31's `initializationOptions` schema — a separate schema file, because
+`knap.toml`'s snake_case shape isn't a pure casing mirror of
+`initializationOptions`' camelCase one.
+
 ---
 
 ### Frontmatter

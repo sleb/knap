@@ -277,6 +277,31 @@ A JSON Schema for `initializationOptions` is provided at
 See [`schemas/README.md`](../schemas/README.md) for the schema's versioning
 rules.
 
+### Schema (taplo / TOML-aware editors)
+
+A JSON Schema for `knap.toml` itself is provided at
+`schemas/v1/knap_toml.json`. Wire it up either of two ways:
+
+Inline directive — first line of `knap.toml`:
+
+```toml
+#:schema https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/knap_toml.json
+
+extensions = ["md", "mdx"]
+```
+
+Or a `taplo.toml`/`.taplo.toml` at the workspace root, associating the
+schema with the `knap.toml` glob without editing `knap.toml` itself:
+
+```toml
+[[schema]]
+path = "https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/knap_toml.json"
+include = ["knap.toml"]
+```
+
+See [`schemas/README.md`](../schemas/README.md) for the schema's versioning
+rules.
+
 ---
 
 ## 4. What you get
