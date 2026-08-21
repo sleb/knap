@@ -5,6 +5,22 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.21.0] — 2026-08-21
+
+### Added
+
+- **`knap skill` command.** `knap skill --global` installs the shipped
+  `SKILL.md` to `~/.claude/skills/knap`, and `knap skill --path <dir>`
+  installs it to an arbitrary directory (e.g. a workspace's
+  `.claude/skills/knap`). The file is embedded in the binary at compile
+  time, so a `cargo install knap`-only setup — with no source checkout —
+  can still get the skill, and re-running the command after a `knap`
+  upgrade re-syncs it (write-if-different, so an unchanged copy is left
+  untouched). This replaces the previous `cp -r skill/knap ...`
+  instructions, which required a source checkout.
+
+---
+
 ## [0.20.0] — 2026-08-20
 
 ### Added

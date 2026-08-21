@@ -649,7 +649,7 @@ the full design.
 
 ---
 
-## v0.21 — `knap skill` Command _(released 2026-08-20)_
+## v0.21 — `knap skill` Command _(released 2026-08-21)_
 
 **Goal:** A `cargo install knap`-only setup — no source checkout on disk —
 still gets the shipped skill, and that skill never drifts from the running
@@ -665,8 +665,8 @@ re-running it is a no-op once the installed copy is current.
 | ------ | ------------------------------------------------------------------ |
 | US-D22 | `knap skill --global \| --path <dir>` installs/updates `SKILL.md`  |
 
-See `docs/design/releases/v0.21/knap-skill-command/design.md` for the full
-design.
+See `docs/design/releases/archive/v0.21/knap-skill-command/design.md` for the
+full design.
 
 ---
 
