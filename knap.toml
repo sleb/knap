@@ -1,4 +1,5 @@
 # Paths that are intentionally broken (test fixtures) or otherwise not part
 # of the real note graph. Glob patterns are relative to the workspace root;
 # see README.md's "Exclude paths" section for the full syntax.
+#:schema https://raw.githubusercontent.com/sleb/knap/main/schemas/v1/knap_toml.json
 exclude = ["tests/fixtures/**"]
