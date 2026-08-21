@@ -5,6 +5,31 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.23.0] — 2026-08-21
+
+### Added
+
+- **`knap.toml` JSON Schema for taplo/TOML-aware editors.** Point a
+  taplo-aware editor (e.g. Zed, or VS Code with "Even Better TOML") at
+  `schemas/v1/knap_toml.json` — via an inline `#:schema` directive at the top
+  of `knap.toml`, or a `taplo.toml`/`.taplo.toml` glob association — to get
+  autocompletion and inline validation for `knap.toml`'s snake_case keys
+  (`new_note_dir`, `skip_dirs`, `warn_unknown_keys`, …). This is `knap.toml`'s
+  equivalent of the existing `initializationOptions` schema, published as a
+  separate file since `knap.toml`'s shape isn't a pure casing mirror of
+  `initializationOptions`'. See `schemas/README.md` and
+  `docs/GETTING_STARTED.md`'s "Schema (taplo / TOML-aware editors)" section.
+
+### Fixed
+
+- **`knap lint --suggest` now prints ranked candidate fixes in text-mode
+  output, not only `--json`.** Previously `--suggest` had no visible effect
+  unless combined with `--json` — text-mode output silently ignored the
+  ranked suggestions attached to each diagnostic. Each candidate now prints
+  as an indented `-> {target} (distance N[, text distance M])` line under its
+  diagnostic, with a `(top match by distance differs from best text match —
+  verify before applying)` note when the two ranking signals disagree.
+
 ## [0.22.0] — 2026-08-21
 
 ### Fixed

@@ -35,6 +35,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.20](#v020--configurable-skip-dirs--ignore-link-targets-released-2026-08-20)   | Configurable Skip-Dirs & Ignore Link Targets | Released 2026-08-20 |
 | [v0.21](#v021--knap-skill-command-released-2026-08-20)                            | `knap skill` Command                         | Released 2026-08-20 |
 | [v0.22](#v022--schema-sync-released-2026-08-21)                                   | Schema Sync                                  | Released 2026-08-21 |
+| [v0.23](#v023--knaptoml-schema--suggest-text-output-released-2026-08-21)          | `knap.toml` Schema & `--suggest` Text Output | Released 2026-08-21 |
 
 ---
 
@@ -692,6 +693,41 @@ reader would look for it.
 
 See `docs/design/releases/archive/v0.22/schema-sync/design.md` for the full
 design.
+
+---
+
+## v0.23 — `knap.toml` Schema & `--suggest` Text Output _(released 2026-08-21)_
+
+### `knap.toml` Schema
+
+**Goal:** A workspace owner can point a taplo-aware editor (e.g. Zed, or VS
+Code with "Even Better TOML") at knap's published `knap.toml` JSON Schema —
+via an inline `#:schema` directive at the top of the file, or a
+`taplo.toml`/`.taplo.toml` glob association — and get autocompletion and
+inline validation for `knap.toml`'s actual snake_case keys. This is
+`knap.toml`'s equivalent of US-31's `initializationOptions` schema — a
+separate schema file, because `knap.toml`'s snake_case shape isn't a pure
+casing mirror of `initializationOptions`' camelCase one.
+
+| Story | Feature                                                                                                  |
+| ----- | --------------------------------------------------------------------------------------------------------- |
+| US-61 | `schemas/v1/knap_toml.json` — autocompletion and validation for `knap.toml` in taplo-aware editors (#75) |
+
+See `docs/design/releases/archive/v0.23/knap-toml-schema/design.md` for the
+full design.
+
+### `--suggest` Text Output
+
+**Goal:** Fix a silent gap where `knap lint --suggest`'s ranked candidate
+fixes had no visible effect in text-mode output — only `--json` reported
+them, even though `--suggest` never documented a `--json` requirement.
+
+| Story | Type | Feature                                                                                     |
+| ----- | ---- | -------------------------------------------------------------------------------------------- |
+| #74   | Bug  | `knap lint --suggest` prints ranked candidate fixes as indented lines under each diagnostic, in text-mode output too |
+
+See `docs/design/releases/archive/v0.23/lint-suggest-text-output/design.md`
+for the full design.
 
 ---
 
