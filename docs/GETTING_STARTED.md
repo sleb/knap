@@ -190,7 +190,7 @@ Each field object may have:
 ### Schema (Zed / JSON-aware editors)
 
 A JSON Schema for `initializationOptions` is provided at
-`schemas/initialization_options.json` in the repository. Reference it with
+`schemas/v1/initialization_options.json` in the repository. Reference it with
 `$schema` to get inline completions and validation:
 
 ```json
@@ -198,13 +198,16 @@ A JSON Schema for `initializationOptions` is provided at
   "lsp": {
     "knap": {
       "initialization_options": {
-        "$schema": "file:///path/to/knap/schemas/initialization_options.json",
+        "$schema": "file:///path/to/knap/schemas/v1/initialization_options.json",
         "extensions": ["md", "txt"]
       }
     }
   }
 }
 ```
+
+See [`schemas/README.md`](../schemas/README.md) for the schema's versioning
+rules.
 
 ---
 

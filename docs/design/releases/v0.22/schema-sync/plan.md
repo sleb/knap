@@ -18,9 +18,9 @@ the content is fixed.
 
 | Step                                        | Status | Notes |
 | -------------------------------------------- | ------ | ----- |
-| 1 — Regression tests for the schema drift    | Todo   |       |
-| 2 — Fix the schema file                      | Todo   |       |
-| 3 — Fix stale schema path, link `schemas/README.md` | Todo   |       |
+| 1 — Regression tests for the schema drift    | Done   |       |
+| 2 — Fix the schema file                      | Done   |       |
+| 3 — Fix stale schema path, link `schemas/README.md` | Done   |       |
 
 ---
 

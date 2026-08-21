@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::json;
 
-use super::{default_skip_dirs, for_lsp, for_path};
+use super::{InitOptions, default_skip_dirs, for_lsp, for_path};
 
 fn write_knap_toml(dir: &Path, content: &str) {
     std::fs::write(dir.join("knap.toml"), content).unwrap();
@@ -478,4 +478,59 @@ fn finalize_malformed_ignore_link_targets_pattern_errors() {
     let dir = tempfile::tempdir().unwrap();
     write_knap_toml(dir.path(), r#"ignore_link_targets = ["["]"#);
     assert!(for_path(dir.path(), None, &[], &[]).is_err());
+}
+
+/// Regression test for the `frontmatterSchema` example in
+/// `docs/GETTING_STARTED.md`'s "Frontmatter schema" section — guards it
+/// against drifting from `InitOptions` in the future. `InitOptions` itself
+/// is already correct; only `schemas/v1/initialization_options.json` and the
+/// docs were stale (GitHub issue #72), so this test is expected to pass
+/// already.
+#[test]
+fn init_options_accepts_getting_started_frontmatter_schema_example() {
+    let value = json!({
+        "frontmatterSchema": {
+            "requireFrontmatter": false,
+            "warnOnUnknownKeys": false,
+            "fields": {
+                "status": {
+                    "required": true,
+                    "values": ["draft", "published", "archived"]
+                },
+                "type": {
+                    "values": ["doc", "project", "reference"]
+                }
+            }
+        }
+    });
+    let opts: InitOptions = serde_json::from_value(value).unwrap();
+    let schema = opts
+        .frontmatter_schema
+        .expect("frontmatterSchema should deserialize");
+
+    assert!(!schema.require_frontmatter);
+    assert!(!schema.warn_on_unknown_keys);
+    assert_eq!(schema.fields.len(), 2);
+
+    let status = schema.fields.get("status").expect("status field");
+    assert!(status.required);
+    assert_eq!(
+        status.values,
+        Some(vec![
+            "draft".to_string(),
+            "published".to_string(),
+            "archived".to_string()
+        ])
+    );
+
+    let doc_type = schema.fields.get("type").expect("type field");
+    assert!(!doc_type.required);
+    assert_eq!(
+        doc_type.values,
+        Some(vec![
+            "doc".to_string(),
+            "project".to_string(),
+            "reference".to_string()
+        ])
+    );
 }

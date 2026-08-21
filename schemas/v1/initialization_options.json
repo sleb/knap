@@ -14,37 +14,58 @@
       "default": ["md"],
       "description": "File extensions treated as notes. Files with other extensions are treated as attachments. Default: [\"md\"]."
     },
-    "attachmentsDir": {
-      "type": "string",
-      "description": "Path to your attachments folder, relative to the workspace root. When set, knap watches this directory so attachment-link diagnostics stay live."
-    },
     "newNoteDir": {
       "type": "string",
       "description": "Folder relative to the workspace root where Quick Fix 'Create note' actions create new files (e.g. \"0-Inbox\"). Defaults to the same directory as the current note."
     },
+    "exclude": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns excluded from indexing."
+    },
+    "skipDirs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns matched against bare directory names, pruned from the crawl."
+    },
+    "ignoreLinkTargets": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns matched against a link's raw target text, suppressing broken-link diagnostics."
+    },
     "frontmatterSchema": {
       "type": "object",
-      "description": "JSON Schema-inspired definition of allowed frontmatter keys and values. Enables key/value completions and publishes warnings for unknown keys, invalid enum values, and missing required keys.",
+      "description": "Defines allowed keys and values for a doc's frontmatter. Enables key/value completions and diagnostics.",
       "properties": {
-        "properties": {
+        "requireFrontmatter": {
+          "type": "boolean",
+          "default": false,
+          "description": "Warn on docs that have no '---' frontmatter block at all when required keys exist."
+        },
+        "warnOnUnknownKeys": {
+          "type": "boolean",
+          "default": false,
+          "description": "Warn on frontmatter keys not listed in 'fields'."
+        },
+        "fields": {
           "type": "object",
-          "description": "Map of frontmatter key names to their definitions.",
+          "description": "Map of frontmatter key names to their constraints.",
           "additionalProperties": {
             "type": "object",
             "properties": {
-              "enum": {
+              "required": {
+                "type": "boolean",
+                "default": false,
+                "description": "Warn when the key is absent from the doc's frontmatter."
+              },
+              "values": {
                 "type": "array",
                 "items": { "type": "string" },
-                "description": "Allowed values for this key. Triggers value completions and enum validation."
+                "description": "Allowed values for this key (exact-case). Omit to allow any value."
               }
             },
             "additionalProperties": false
           }
-        },
-        "required": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Keys that must be present in every note's frontmatter. A missing key produces a Warning diagnostic."
         }
       },
       "additionalProperties": false

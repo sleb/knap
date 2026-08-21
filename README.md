@@ -395,6 +395,10 @@ index` see the same config an editor session would:
 - your editor's native LSP settings via `initializationOptions`, or
 - a `knap.toml` file at your workspace root
 
+`initializationOptions` has a JSON Schema at
+`schemas/v1/initialization_options.json`; see
+[`schemas/README.md`](schemas/README.md) for its versioning rules.
+
 ### `knap.toml`
 
 An optional project config file at a workspace root, read by `knap lsp`,
