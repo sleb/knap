@@ -126,6 +126,10 @@ files change, so there's no restart needed after edits.
 
 ### Frontmatter schema
 
+See [Custom frontmatter schema](docs/GETTING_STARTED.md#custom-frontmatter-schema)
+for a full walkthrough — both config forms, the field reference, and the
+diagnostic codes below, worked through one example end to end.
+
 - **Key completions** — define allowed keys in `frontmatterSchema`; typing in
   a frontmatter key position offers unused schema keys as `FIELD` items
 - **Value completions** — when a key has a `values` list, typing after the `:`
@@ -436,6 +440,10 @@ required = true
 [frontmatter_schema.fields.status]
 values = ["draft", "published"]
 ```
+
+See [Custom frontmatter schema](docs/GETTING_STARTED.md#custom-frontmatter-schema)
+for the `initializationOptions` equivalent, the full field reference, and the
+diagnostic codes `[frontmatter_schema]` produces.
 
 When running under `knap lsp`, `initializationOptions` from the editor
 layers over `knap.toml` field-by-field — the editor value wins where

@@ -152,11 +152,31 @@ headless `knap lint` and `knap index` commands — see the
 }
 ```
 
-### Frontmatter schema
+### Custom frontmatter schema
 
-`frontmatterSchema` lets you define the structure of your docs' YAML frontmatter.
-knap uses it to offer key and value completions and to publish diagnostics for
-constraint violations.
+`frontmatterSchema` (`initializationOptions`) / `[frontmatter_schema]`
+(`knap.toml`) lets you define the structure of your docs' YAML frontmatter —
+which keys exist, whether each is required, and what values it allows. knap
+uses it for two things: editor completions and diagnostics from `knap lint`
+(and the editor, live). You can define it in either config source; both
+forms below are equivalent.
+
+**`knap.toml`** (snake_case):
+
+```toml
+[frontmatter_schema]
+require_frontmatter = false
+warn_unknown_keys = false
+
+[frontmatter_schema.fields.status]
+required = true
+values = ["draft", "published", "archived"]
+
+[frontmatter_schema.fields.type]
+values = ["doc", "project", "reference"]
+```
+
+**`initializationOptions`** (camelCase, passed via your editor's LSP settings):
 
 ```json
 {
@@ -176,16 +196,64 @@ constraint violations.
 }
 ```
 
-| Field                | Type      | Default | Description                                                                         |
-| -------------------- | --------- | ------- | ----------------------------------------------------------------------------------- |
-| `requireFrontmatter` | `boolean` | `false` | Warn on docs that have no `---` frontmatter block at all when required keys exist. |
-| `warnOnUnknownKeys`  | `boolean` | `false` | Warn on frontmatter keys not listed in `fields`.                                    |
-| `fields`             | `object`  | `{}`    | Map of key names to field constraints (`required` and/or `values`).                 |
+**Layering:** when `knap lsp` runs with both sources present, this section
+follows knap's general precedence rule (see the [README](../README.md#knaptoml)) —
+`initializationOptions.frontmatterSchema` wins field-by-field over
+`knap.toml`'s `[frontmatter_schema]`, and `knap.toml` fills in whatever the
+editor didn't set. Headless `knap lint` / `knap index` only ever read
+`knap.toml`, since there's no editor in the loop to supply
+`initializationOptions`.
 
-Each field object may have:
+#### Field reference
 
-- `required` (`boolean`, default `false`) — warn when the key is absent from the doc's frontmatter.
-- `values` (`string[]`) — warn when the key's value is not in this list (exact-case match). Omit to allow any value.
+| `knap.toml` key                            | `initializationOptions` key                     | Type       | Default | Description                                                                        |
+| ------------------------------------------- | ------------------------------------------------ | ---------- | ------- | ------------------------------------------------------------------------------------ |
+| `frontmatter_schema.require_frontmatter`    | `frontmatterSchema.requireFrontmatter`            | `boolean`  | `false` | Warn on docs with no `---` frontmatter block at all, for each required field they're missing. Has no effect unless at least one field is also `required`. |
+| `frontmatter_schema.warn_unknown_keys`      | `frontmatterSchema.warnOnUnknownKeys`             | `boolean`  | `false` | Warn on frontmatter keys present in a doc but not listed in `fields`.               |
+| `frontmatter_schema.fields.<name>.required` | `frontmatterSchema.fields.<name>.required`        | `boolean`  | `false` | Warn when `<name>` is absent from a doc's frontmatter.                             |
+| `frontmatter_schema.fields.<name>.values`   | `frontmatterSchema.fields.<name>.values`          | `string[]` | —       | Warn when `<name>`'s value isn't in this list (exact-case match). Omit to allow any value. |
+
+#### What each setting produces
+
+- **Editor completions** — `fields` keys not yet present in the current doc's
+  frontmatter appear as `FIELD` completion items when you're typing a key.
+  When a key has a `values` list, typing after its `:` offers those values as
+  `VALUE` completion items, prefix-filtered as you type.
+- **`knap lint` / live editor diagnostics** — every violation carries a
+  stable `code` you can branch on in `--json` output or CI, instead of
+  matching on message text:
+
+  | `code`                    | Emitted when                                                                                             |
+  | -------------------------- | --------------------------------------------------------------------------------------------------------- |
+  | `missing-frontmatter`      | The doc has **no** `---` frontmatter block, `requireFrontmatter`/`require_frontmatter` is `true`, and at least one field is `required` — one diagnostic per missing required field. |
+  | `missing-required-field`   | The doc **has** frontmatter, but a `required` field's key isn't in it.                                    |
+  | `invalid-field-value`      | A field is present with a `values` list, and its value isn't in that list (exact-case).                   |
+  | `unknown-field`            | A frontmatter key isn't listed in `fields`, and `warnOnUnknownKeys`/`warn_unknown_keys` is `true`.         |
+
+#### Worked example
+
+Given the `status`/`type` schema above, this note:
+
+```markdown
+---
+type: doc
+---
+
+# Notes
+```
+
+produces two diagnostics from `knap lint` (or live in the editor):
+
+- `missing-required-field` — `status` is `required: true` but absent.
+- No `invalid-field-value` for `type`, since `doc` is in its `values` list.
+
+Add `status: in-review` instead of `status: draft` and the diagnostic
+changes to `invalid-field-value`, since `in-review` isn't in
+`["draft", "published", "archived"]`. Add `status: draft` and both
+diagnostics clear. While editing, typing a new frontmatter key on a blank
+line offers `status` and `type` as `FIELD` completions; typing
+`status: ` offers `draft`, `published`, and `archived` as `VALUE`
+completions.
 
 ### Schema (Zed / JSON-aware editors)
 
