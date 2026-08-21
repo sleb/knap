@@ -147,7 +147,31 @@ git push && git push --tags
 
 Report the commit hash and confirm the tag was pushed.
 
-## Step 9 — Post-release
+## Step 9 — Close issues resolved by this release
+
+Find the previous tag and scan the commits included in this release for
+GitHub issue references:
+
+```bash
+PREV_TAG=$(git describe --tags --abbrev=0 v{VERSION}^)
+git log ${PREV_TAG}..v{VERSION} --format='%H %s%n%b' | \
+  grep -ioE '(close[sd]?|fix(e[sd])?|resolve[sd]?) #[0-9]+'
+```
+
+For each `#N` found this way, confirm the issue is actually open
+(`gh issue view N --json state`), then close it with a comment pointing at
+the release:
+
+```bash
+gh issue close N -c "Fixed in v{VERSION}: https://github.com/{OWNER}/{REPO}/releases/tag/v{VERSION}"
+```
+
+Skip any issue already closed. Report the list of issues closed (or "none
+found" if no commit referenced one). Do not close issues that are merely
+*mentioned* without a closing keyword — those are left for the user to
+triage manually.
+
+## Step 10 — Post-release
 
 - Verify the `publish-crate` job in the `Release` GitHub Actions workflow run
   succeeded.
