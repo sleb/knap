@@ -289,6 +289,57 @@ fn lint_suggest_reports_text_mismatch_for_decoy_and_correct_candidate() {
 }
 
 #[test]
+fn lint_suggest_prints_candidates_in_text_mode() {
+    let dir = copy_fixture("fix_repoint_broken_link");
+    let output = knap()
+        .args(["lint", ".", "--suggest"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout
+            .lines()
+            .any(|line| line.starts_with("    -> config.md (distance")),
+        "stdout was: {stdout}"
+    );
+}
+
+#[test]
+fn lint_suggest_text_mode_notes_text_mismatch() {
+    let dir = copy_fixture("fix_text_mismatch_link");
+    let output = knap()
+        .args(["lint", ".", "--suggest"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line
+            == "    (top match by distance differs from best text match — verify before applying)"),
+        "stdout was: {stdout}"
+    );
+}
+
+#[test]
+fn lint_without_suggest_prints_no_candidate_lines() {
+    let dir = copy_fixture("fix_repoint_broken_link");
+    let output = knap()
+        .args(["lint", "."])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.lines().any(|line| line.starts_with("    -> ")),
+        "stdout was: {stdout}"
+    );
+}
+
+#[test]
 fn lint_fail_on_error_passes_when_only_warnings_present() {
     let output = knap()
         .args(["lint", "tests/fixtures/lint_basic", "--fail-on", "error"])

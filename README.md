@@ -237,8 +237,9 @@ Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--
   (tracked diffs plus untracked new files), instead of the whole workspace.
   Requires a git repository; errors otherwise.
 - `--suggest [N]` — attach up to `N` ranked candidate fixes to each
-  `broken-link`/`broken-anchor` diagnostic's `data` field in `--json` output,
-  bare `--suggest` defaults to 3. Ranking blends two distance signals: how
+  `broken-link`/`broken-anchor` diagnostic, printed as indented lines in text
+  output or as the diagnostic's `data` field in `--json` output, bare
+  `--suggest` defaults to 3. Ranking blends two distance signals: how
   close the broken target/slug is to each candidate's path or heading
   (`distance`), and how close the link's own visible text is to each
   candidate's name (`text_distance`, `null` when the link has no usable
@@ -246,9 +247,18 @@ Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--
   to one answer, so an agent already running `knap lint --json` to verify an
   edit gets every candidate for the ambiguous cases in the same call. When
   the two signals disagree on
-  the top candidate, the diagnostic's `data` also carries
-  `"text_mismatch": true` — a signal that the top-ranked candidate may be
+  the top candidate, a note is printed (and the `data` field carries
+  `"text_mismatch": true`) — a signal that the top-ranked candidate may be
   wrong even though it looks unambiguous by path distance alone:
+  ```
+  $ knap lint . --suggest
+  docs/index.md:12:3: warning: broken link to 'reference/confg.md'
+      -> reference/config.md (distance 8, text distance 0)
+      -> reference/cache.md (distance 11, text distance 6)
+      (top match by distance differs from best text match — verify before applying)
+
+  1 problem(s) in 1 file(s)
+  ```
   ```
   $ knap lint . --json --suggest
   { "...": "...",

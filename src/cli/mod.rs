@@ -64,8 +64,9 @@ enum Commands {
         #[arg(long)]
         since: Option<String>,
         /// Attach up to N ranked candidate fixes to each broken-link or
-        /// broken-anchor diagnostic (as `data.suggestions` in --json output),
-        /// closest match first. Bare `--suggest` defaults to 3; omit to skip.
+        /// broken-anchor diagnostic — printed as indented lines in text
+        /// output, or as `data.suggestions` in --json output. Closest match
+        /// first. Bare `--suggest` defaults to 3; omit to skip.
         #[arg(long, num_args = 0..=1, default_missing_value = "3", value_name = "N")]
         suggest: Option<usize>,
         /// Glob pattern to exclude from linting, in addition to any

@@ -96,6 +96,9 @@ pub fn run(
                     severity_label(d.severity),
                     d.message,
                 );
+                if let Some(data) = &d.data {
+                    print_suggestions(data);
+                }
             }
         }
         println!();
@@ -110,6 +113,37 @@ pub fn run(
     }
 
     Ok(())
+}
+
+/// Prints each ranked suggestion in `data.suggestions` (as attached by
+/// `compute_diagnostics_with_suggestions`) as an indented line under the
+/// diagnostic that owns it, plus a one-line note when `data.text_mismatch`
+/// is set. No-op if `data` has no `suggestions` array — i.e. `--suggest`
+/// wasn't passed, or this diagnostic isn't a broken-link/broken-anchor.
+fn print_suggestions(data: &serde_json::Value) {
+    let Some(suggestions) = data.get("suggestions").and_then(|s| s.as_array()) else {
+        return;
+    };
+    for s in suggestions {
+        let target = s.get("target").and_then(|t| t.as_str()).unwrap_or("?");
+        let distance = s
+            .get("distance")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        match s.get("text_distance").and_then(serde_json::Value::as_u64) {
+            Some(td) => println!("    -> {target} (distance {distance}, text distance {td})"),
+            None => println!("    -> {target} (distance {distance})"),
+        }
+    }
+    if data
+        .get("text_mismatch")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        println!(
+            "    (top match by distance differs from best text match — verify before applying)"
+        );
+    }
 }
 
 fn severity_label(severity: Option<DiagnosticSeverity>) -> &'static str {
