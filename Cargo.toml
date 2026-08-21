@@ -1,6 +1,6 @@
 [package]
 name = "knap"
-version = "0.21.0"
+version = "0.22.0"
 edition = "2024"
 description = "Keeps linked Markdown notes correct — links, anchors, and frontmatter tags — as an LSP server and CLI"
 license = "MIT"

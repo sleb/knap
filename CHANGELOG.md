@@ -5,6 +5,31 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.22.0] — 2026-08-21
+
+### Fixed
+
+- **`schemas/v1/initialization_options.json` no longer drifted from the real
+  `initializationOptions` wire contract.** The schema described a
+  never-shipped `attachmentsDir` property and was missing `exclude`,
+  `skipDirs`, and `ignoreLinkTargets`. It also described `frontmatterSchema`
+  with a stale `properties`/`required` shape instead of the actual
+  `requireFrontmatter`/`warnOnUnknownKeys`/`fields` shape (with each
+  `fields` entry using `required`/`values`). Editors validating
+  `initializationOptions` or `knap.toml` against the schema now see the
+  real, current option set with accurate completions. ([#72])
+- `docs/GETTING_STARTED.md`'s "Schema (Zed / JSON-aware editors)" section
+  pointed at the pre-versioning `schemas/initialization_options.json` path;
+  it now correctly points at `schemas/v1/initialization_options.json`.
+
+### Added
+
+- `docs/GETTING_STARTED.md` and `README.md` now link to
+  `schemas/README.md`, which documents the schema's versioning rules, from
+  the sections where a reader would look for it.
+
+[#72]: https://github.com/sleb/knap/issues/72
+
 ## [0.21.0] — 2026-08-21
 
 ### Added

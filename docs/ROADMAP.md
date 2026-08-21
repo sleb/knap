@@ -34,6 +34,7 @@ from v0.1 alone and accumulate more with each release.
 | [v0.19](#v019--apply-round-trip-guard-released-2026-08-18)                        | Apply Round-Trip Guard                       | Released 2026-08-18 |
 | [v0.20](#v020--configurable-skip-dirs--ignore-link-targets-released-2026-08-20)   | Configurable Skip-Dirs & Ignore Link Targets | Released 2026-08-20 |
 | [v0.21](#v021--knap-skill-command-released-2026-08-20)                            | `knap skill` Command                         | Released 2026-08-20 |
+| [v0.22](#v022--schema-sync-released-2026-08-21)                                   | Schema Sync                                  | Released 2026-08-21 |
 
 ---
 
@@ -667,6 +668,30 @@ re-running it is a no-op once the installed copy is current.
 
 See `docs/design/releases/archive/v0.21/knap-skill-command/design.md` for the
 full design.
+
+---
+
+## v0.22 — Schema Sync _(released 2026-08-21)_
+
+### Schema Sync
+
+**Goal:** `schemas/v1/initialization_options.json` had drifted from the real
+`initializationOptions` wire contract — it described a never-shipped
+`attachmentsDir` property, was missing `exclude`/`skipDirs`/
+`ignoreLinkTargets`, and described `frontmatterSchema` with a stale
+`properties`/`required` shape instead of the actual
+`requireFrontmatter`/`warnOnUnknownKeys`/`fields` shape. This is a
+docs/schema-only bugfix (no Rust production code changes) that rewrites the
+schema file to match `InitOptions`, fixes the stale `schemas/` path in
+`docs/GETTING_STARTED.md`, and links `schemas/README.md` from both places a
+reader would look for it.
+
+| Story | Feature                                                                    |
+| ----- | --------------------------------------------------------------------------- |
+| #72   | `schemas/v1/initialization_options.json` matches the current `initializationOptions` wire contract |
+
+See `docs/design/releases/archive/v0.22/schema-sync/design.md` for the full
+design.
 
 ---
 
