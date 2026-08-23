@@ -6,6 +6,38 @@ connect your editor, and your linked Markdown docs become navigable: jump to
 definitions, find backlinks, catch broken links, and rename files without
 breaking anything.
 
+## Contents
+
+- [1. Install the server](#1-install-the-server)
+  - [Download a pre-built binary](#download-a-pre-built-binary)
+  - [Install with cargo](#install-with-cargo)
+  - [Build from source](#build-from-source)
+  - [Verify](#verify)
+- [2. Connect your editor](#2-connect-your-editor)
+  - [Zed](#zed)
+  - [VS Code](#vs-code)
+  - [Neovim](#neovim)
+  - [Other editors](#other-editors)
+- [3. Configuration](#3-configuration)
+  - [Custom frontmatter schema](#custom-frontmatter-schema)
+  - [Schema (Zed / JSON-aware editors)](#schema-zed--json-aware-editors)
+  - [Schema (taplo / TOML-aware editors)](#schema-taplo--toml-aware-editors)
+- [4. What you get](#4-what-you-get)
+  - [Link completions](#link-completions)
+  - [Anchor completions](#anchor-completions)
+  - [Go to Definition](#go-to-definition)
+  - [Find References](#find-references)
+  - [Rename a file](#rename-a-file)
+  - [Rename a heading](#rename-a-heading)
+  - [Document Symbols](#document-symbols)
+  - [Workspace Symbols](#workspace-symbols)
+  - [Broken link diagnostics](#broken-link-diagnostics)
+  - [Tag completions](#tag-completions)
+  - [Backlinks code lens](#backlinks-code-lens)
+  - [Find References and Go to Definition on tags](#find-references-and-go-to-definition-on-tags)
+- [5. Coding agents](#5-coding-agents)
+- [6. Troubleshooting](#6-troubleshooting)
+
 ---
 
 ## 1. Install the server
