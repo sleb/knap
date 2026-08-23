@@ -113,10 +113,51 @@ add an `initializationOptions` block to your VS Code `settings.json`:
 }
 ```
 
+### Neovim
+
+There's no dedicated `nvim-knap` extension — Neovim's built-in LSP client
+speaks directly to `knap lsp`. Two common setups:
+
+**Native `vim.lsp.config` (Neovim ≥ 0.11):**
+
+```lua
+vim.lsp.config("knap", {
+  cmd = { "knap", "lsp" },
+  filetypes = { "markdown" },
+  root_markers = { ".git", "knap.toml" },
+  init_options = {
+    extensions = { "md", "mdx" },
+  },
+})
+vim.lsp.enable("knap")
+```
+
+**`nvim-lspconfig`:**
+
+```lua
+require("lspconfig").knap.setup({
+  cmd = { "knap", "lsp" },
+  init_options = {
+    extensions = { "md", "mdx" },
+  },
+})
+```
+
+(`knap` isn't a built-in `lspconfig` server, so either setup registers it
+yourself with `cmd` — no separate `configs.knap` step needed.)
+
+In both snippets, `init_options` is the Neovim equivalent of Zed's
+`initialization_options` / VS Code's `initializationOptions` — see
+[Configuration](#3-configuration) below for the full option list.
+
+If `knap` isn't on your `$PATH`, replace `"knap"` in `cmd` with the absolute
+path to the binary (mirroring VS Code's `knap.serverPath`), e.g.
+`{ "/path/to/knap", "lsp" }`.
+
 ### Other editors
 
-For Neovim, Helix, and others, follow your editor's standard procedure for
-adding a custom LSP server, pointing it at the `knap` binary with the `lsp`
+For Helix and others, follow your editor's standard procedure for adding a
+custom LSP server, pointing it at the `knap` binary with the `lsp`
 subcommand: `knap lsp`. The server then speaks the standard Language Server
 Protocol over stdin/stdout. (Bare `knap` with no subcommand no longer starts
 the server — see the [README](../README.md) for the other subcommands.)
