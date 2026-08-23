@@ -171,7 +171,35 @@ found" if no commit referenced one). Do not close issues that are merely
 *mentioned* without a closing keyword — those are left for the user to
 triage manually.
 
-## Step 10 — Post-release
+## Step 10 — Close the release milestone
+
+Find the open GitHub milestone this release shipped against (normally titled
+`Next` — the rolling milestone; see `docs/ROADMAP_MIGRATION.md`):
+
+```bash
+gh api repos/{OWNER}/{REPO}/milestones -q '.[] | select(.state=="open") | "\(.number)\t\(.title)\t\(.open_issues) open"'
+```
+
+Confirm with the user which milestone corresponds to this release if more
+than one is open, or none is obviously named `Next`. Then rename it to the
+shipped version and close it:
+
+```bash
+gh api repos/{OWNER}/{REPO}/milestones/{NUMBER} -X PATCH -f title="v{VERSION}" -f state="closed"
+```
+
+If it still has open issues attached, ask the user whether to move them to
+a new milestone or leave them unscheduled — don't close a milestone with
+open work still silently attached without confirming.
+
+Create the next rolling milestone so there's always one open `Next` to
+attach near-term issues to:
+
+```bash
+gh api repos/{OWNER}/{REPO}/milestones -f title="Next" -f state="open"
+```
+
+## Step 11 — Post-release
 
 - Verify the `publish-crate` job in the `Release` GitHub Actions workflow run
   succeeded.
@@ -183,6 +211,5 @@ triage manually.
 - If `README.md` doesn't yet have crates.io/docs.rs badges (only true before
   the first-ever publish), add them now.
 - Verify the GitHub release page (notes match CHANGELOG, all binaries attached)
-- Open the next milestone in `docs/ROADMAP.md`
 - Run `knap-design` for the first feature of `v{N+1}` if no feature subfolder
   exists under `docs/design/releases/v{N+1}/` yet
