@@ -33,9 +33,9 @@ from v0.1 alone and accumulate more with each release.
 | [v0.18](#v018--publish-to-cratesio-released-2026-08-18)                           | Publish to crates.io                         | Released 2026-08-18 |
 | [v0.19](#v019--apply-round-trip-guard-released-2026-08-18)                        | Apply Round-Trip Guard                       | Released 2026-08-18 |
 | [v0.20](#v020--configurable-skip-dirs--ignore-link-targets-released-2026-08-20)   | Configurable Skip-Dirs & Ignore Link Targets | Released 2026-08-20 |
-| [v0.21](#v021--knap-skill-command-released-2026-08-20)                            | `knap skill` Command                         | Released 2026-08-20 |
+| [v0.21](#v021--knap-skill-command-released-2026-08-21)                            | `knap skill` Command                         | Released 2026-08-21 |
 | [v0.22](#v022--schema-sync-released-2026-08-21)                                   | Schema Sync                                  | Released 2026-08-21 |
-| [v0.23](#v023--knaptoml-schema--suggest-text-output-released-2026-08-21)          | `knap.toml` Schema & `--suggest` Text Output | Released 2026-08-21 |
+| [v0.23](#v023--knaptoml-schema----suggest-text-output-released-2026-08-21)          | `knap.toml` Schema & `--suggest` Text Output | Released 2026-08-21 |
 
 ---
 

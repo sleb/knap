@@ -174,7 +174,7 @@ Step 4's actual CLI output.
 **Deliverables:**
 
 - `skill/knap/SKILL.md`'s round-trip example section updated per the design
-  doc's [Skill Documentation Changes](design.md#skill-documentation-changes)
+  doc's [Skill Documentation Changes](design.md#skill-documentation-changes-skillknapskillmd)
 
 **Unit tests:** none — documentation only.
 

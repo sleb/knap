@@ -8,7 +8,7 @@ Covers the stories in the v0.19 release:
 | US-D15 | `skill/knap/SKILL.md` (amended) — the apply-from-suggestions loop instructs copying `range` verbatim |
 
 Both stories close out the two "proposed" opportunities from
-[Trial 6 of the agentic efficiency benchmark](../../../experiments/agentic-efficiency-benchmark.md#opportunities-for-improvement-surfaced-by-trial-6):
+[Trial 6 of the agentic efficiency benchmark](../../../../experiments/agentic-efficiency-benchmark.md#opportunities-for-improvement-surfaced-by-trial-6):
 a tool-side guardrail (US-D21, opportunity 1) and a skill prompt fix
 (US-D15 amendment, opportunity 2). Opportunity 3 (add a malformed-link check
 to the benchmark's own scoring pass) is benchmark-harness work, not a knap
