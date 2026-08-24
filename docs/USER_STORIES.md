@@ -492,6 +492,12 @@ unresolvable, so I can verify link resolution without a running editor.
 the installed binary, so I can confirm which release is active without starting
 the LSP server.
 
+**US-D23** — As a developer (or an agent) debugging knap itself, I can pass
+`--verbose`/`-v` (repeatable: `-v` for debug, `-vv` for trace) to any `knap`
+subcommand, including `knap lsp`, so I can get more detailed logging without
+knowing to set the `KNAP_LOG` env var first — and `KNAP_LOG` still works as an
+override when I need finer-grained, per-module control than the flag gives me.
+
 ---
 
 ## Deferred / Out of Scope
