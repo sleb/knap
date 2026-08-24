@@ -476,6 +476,8 @@ replaces `knap.toml`'s `skip_dirs`.
   editor, and understand what each feature does
 - [User Stories](docs/USER_STORIES.md) — what knap does, told from the writer's
   perspective
-- [Roadmap](docs/ROADMAP.md) — features grouped into releases, starting with the
-  MVP
+- [Roadmap](docs/ROADMAP.md) — principles and pointers to release history
+  ([GitHub Releases](https://github.com/sleb/knap/releases)) and upcoming work
+  ([Issues](https://github.com/sleb/knap/issues),
+  [`Next` milestone](https://github.com/sleb/knap/milestones))
 - [Architecture](docs/ARCHITECTURE.md) — component design and contracts

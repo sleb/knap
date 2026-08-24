@@ -10,4 +10,5 @@ and the living component docs under `docs/design/components/` (e.g.
 [`parser.md`](../../components/parser.md),
 [`edit-applicator.md`](../../components/edit-applicator.md)). For the release
 history and what shipped in each version, see
-[`docs/ROADMAP.md`](../../../ROADMAP.md).
+[GitHub Releases](https://github.com/sleb/knap/releases) and the `CHANGELOG.md`
+at the repo root.

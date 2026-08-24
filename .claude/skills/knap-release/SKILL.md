@@ -2,7 +2,7 @@
 name: knap-release
 description: >
   Walk through the knap release checklist interactively. Verifies docs are in
-  sync with code, runs quality gates, updates version/CHANGELOG/README/ROADMAP,
+  sync with code, runs quality gates, updates version/CHANGELOG/README,
   commits, tags, and pushes. Invoke with /knap-release.
 ---
 
@@ -24,8 +24,8 @@ the release plan path.
   `docs/design/releases/v{N}/*/plan.md`. A release can bundle multiple
   features or bugfixes, each in its own subfolder.
 - Read each matched `plan.md`. Every step in every one must show ✅ Done.
-- Read `docs/ROADMAP.md` and `docs/USER_STORIES.md`. Confirm all user
-  stories from every feature subfolder are implemented.
+- Read `docs/USER_STORIES.md`. Confirm all user stories from every feature
+  subfolder are implemented.
 
 Report any incomplete items — naming which feature subfolder they're in —
 and stop if any are found; do not proceed to step 3 until the user confirms
@@ -79,12 +79,7 @@ Make all of these changes:
 3. **`README.md`** — update the "What it does" feature list to reflect only
    shipped features (remove future-milestone items). The crates.io/docs.rs
    badges auto-track the published version, so no badge edit is needed.
-4. **`docs/ROADMAP.md`** — add the release date to the completed version
-   heading: `## v{MINOR} — <name> _(released {TODAY})_`. Give the version one
-   subsection per feature subfolder (`### <feature title>`), each with its
-   own short goal paragraph and stories table, in place of a single combined
-   table.
-5. **`docs/design/releases/v{N}/*/plan.md`** — confirm all steps in every
+4. **`docs/design/releases/v{N}/*/plan.md`** — confirm all steps in every
    feature subfolder show ✅ Done (no edit needed if already done in step 2)
 
 ## Step 6 — Archive the release design docs
@@ -100,9 +95,9 @@ mkdir -p docs/design/releases/archive
 git mv docs/design/releases/v{N} docs/design/releases/archive/v{N}
 ```
 
-Then fix any doc that still links to the pre-archive path — most commonly
-`docs/ROADMAP.md`'s "See `docs/design/releases/v{N}/<feature-slug>/design.md`..."
-lines, one per feature subsection for this version:
+Then fix any doc that still links to the pre-archive path, e.g. a
+`design/releases/v{N}/<feature-slug>/design.md` link in
+`docs/design/components/*.md` or elsewhere:
 
 ```bash
 grep -rn "design/releases/v{N}/" docs/ --include="*.md" | grep -v /archive/
@@ -137,7 +132,7 @@ tag push in step 8.
 Stage the files changed in steps 3, 5, and 6:
 
 ```bash
-git add CHANGELOG.md Cargo.toml Cargo.lock README.md docs/ROADMAP.md \
+git add CHANGELOG.md Cargo.toml Cargo.lock README.md \
   docs/design/releases/archive/v{N}/
 # plus any docs/ files updated in steps 3 or 6
 git commit -m "Release v{VERSION}"
