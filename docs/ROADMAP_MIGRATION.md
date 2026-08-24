@@ -23,7 +23,8 @@ itself the roadmap.
    each on release. Update `/knap-release` to close the milestone as part of
    the release checklist. — done (2026-08-23)
 3. **Trim `docs/ROADMAP.md`**: delete the released-history entries and the
-   (now-empty) Backlog section; keep or relocate Principles.
+   (now-empty) Backlog section; keep or relocate Principles. — done
+   (2026-08-23)
 4. **Update cross-links**: README, `docs/GETTING_STARTED.md`, and the
    `/knap-release` skill currently point at `docs/ROADMAP.md` — repoint them
    at Issues/Milestones (and Releases for history) as appropriate.
@@ -71,6 +72,19 @@ Decisions (2026-08-23):
 step 10 closes the release milestone and opens the next `Next` milestone;
 the old "Open the next milestone in `docs/ROADMAP.md`" bullet in the
 post-release step was removed (superseded).
+
+## Step 3 — trim ROADMAP.md, done
+
+`docs/ROADMAP.md` shrank from the full version-by-version history and the
+(already-empty per step 1) Backlog section down to a short pointer file:
+intro paragraph, links to GitHub Releases / design-doc archive / Issues /
+the `Next` milestone, and the Principles section (kept as-is — it's a
+standing repo convention, not tracker content). The old per-version sections
+(v0.1–v0.23) aren't duplicated anywhere else; they remain readable via
+`git log`/`git show` on this file's prior revisions, and the "why" for each
+release is still in `docs/design/releases/archive/vX.Y/**/design.md`. No
+in-repo links pointed at `ROADMAP.md#<anchor>`, so nothing else needed
+updating as part of this step.
 
 ## Not chosen
 
