@@ -30,7 +30,10 @@ itself the roadmap.
    at Issues/Milestones (and Releases for history) as appropriate. — done
    (2026-08-23)
 5. **Automate milestone-close in `/knap-release`**, if step 2's manual
-   process proves worth automating.
+   process proves worth automating. — deferred (2026-08-23): no release has
+   exercised step 10 yet, so there's no signal on whether the `gh api` steps
+   already added there need further automation. Revisit after the first
+   release that runs through it.
 
 ## Step 1 — backlog dedup, done
 
