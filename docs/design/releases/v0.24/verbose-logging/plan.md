@@ -13,9 +13,9 @@ untested code for the next step to build on.
 
 | Step                                          | Status | Notes |
 | ---------------------------------------------- | ------ | ----- |
-| 1 — Verbosity → filter mapping                 | Todo   |       |
-| 2 — `Cli` flag + logger bootstrap move          | Todo   |       |
-| 3 — Integration tests                          | Todo   |       |
+| 1 — Verbosity → filter mapping                 | Done   |       |
+| 2 — `Cli` flag + logger bootstrap move          | Done   |       |
+| 3 — Integration tests                          | Done   |       |
 
 ---
 

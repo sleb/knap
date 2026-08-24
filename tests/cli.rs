@@ -1333,3 +1333,68 @@ fn apply_cli_reports_which_operation_failed_in_stderr() {
         "stderr was: {stderr}"
     );
 }
+
+// ── verbose logging ─────────────────────────────────────────────────────
+
+const LOG_PLUMBING_LINE: &str = "logging initialized";
+
+#[test]
+fn verbose_flag_raises_stderr_log_level() {
+    let verbose_output = knap()
+        .args(["-v", "version"])
+        .env_remove("KNAP_LOG")
+        .output()
+        .expect("failed to run knap");
+    let verbose_stderr = String::from_utf8_lossy(&verbose_output.stderr);
+    assert!(
+        verbose_stderr.contains(LOG_PLUMBING_LINE),
+        "stderr was: {verbose_stderr}"
+    );
+
+    let plain_output = knap()
+        .arg("version")
+        .env_remove("KNAP_LOG")
+        .output()
+        .expect("failed to run knap");
+    let plain_stderr = String::from_utf8_lossy(&plain_output.stderr);
+    assert!(
+        !plain_stderr.contains(LOG_PLUMBING_LINE),
+        "stderr was: {plain_stderr}"
+    );
+}
+
+#[test]
+fn double_verbose_flag_reaches_trace() {
+    let output = knap()
+        .args(["-vv", "version"])
+        .env_remove("KNAP_LOG")
+        .output()
+        .expect("failed to run knap");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains(LOG_PLUMBING_LINE), "stderr was: {stderr}");
+}
+
+#[test]
+fn knap_log_env_var_overrides_verbose_flag() {
+    let output = knap()
+        .args(["-vv", "version"])
+        .env("KNAP_LOG", "error")
+        .output()
+        .expect("failed to run knap");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains(LOG_PLUMBING_LINE), "stderr was: {stderr}");
+}
+
+#[test]
+fn no_verbose_flag_preserves_current_default_output() {
+    let output = knap()
+        .arg("version")
+        .env_remove("KNAP_LOG")
+        .output()
+        .expect("failed to run knap");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("DEBUG") && !stderr.contains("TRACE"),
+        "stderr was: {stderr}"
+    );
+}

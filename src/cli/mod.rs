@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use log::debug;
 
 mod apply;
 mod check;
@@ -21,6 +22,11 @@ mod version;
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// Increase logging verbosity: `-v` for debug, `-vv` for trace. The
+    /// `KNAP_LOG` environment variable, when set, overrides this flag.
+    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
+    verbose: u8,
 }
 
 /// Severity threshold for `knap lint --fail-on`.
@@ -157,8 +163,24 @@ enum Commands {
     },
 }
 
+/// Maps a `-v`/`--verbose` occurrence count to an `env_logger` filter
+/// string: `0` -> `info`, `1` -> `debug`, `2` or more -> `trace`.
+fn default_log_filter(verbose: u8) -> &'static str {
+    match verbose {
+        0 => "info",
+        1 => "debug",
+        _ => "trace",
+    }
+}
+
 pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    env_logger::Builder::from_env(
+        env_logger::Env::default().filter_or("KNAP_LOG", default_log_filter(cli.verbose)),
+    )
+    .init();
+    debug!("logging initialized");
 
     match cli.command {
         Commands::Lsp => lsp::run(),
@@ -237,5 +259,56 @@ mod tests {
         };
         assert!(!global);
         assert_eq!(path, Some(PathBuf::from("x")));
+    }
+
+    #[test]
+    fn default_log_filter_zero_is_info() {
+        assert_eq!(default_log_filter(0), "info");
+    }
+
+    #[test]
+    fn default_log_filter_one_is_debug() {
+        assert_eq!(default_log_filter(1), "debug");
+    }
+
+    #[test]
+    fn default_log_filter_two_or_more_is_trace() {
+        assert_eq!(default_log_filter(2), "trace");
+        assert_eq!(default_log_filter(5), "trace");
+    }
+
+    #[test]
+    fn verbose_defaults_to_zero() {
+        let cli = Cli::try_parse_from(["knap", "version"]).unwrap();
+
+        assert_eq!(cli.verbose, 0);
+    }
+
+    #[test]
+    fn single_v_parses_as_one() {
+        let cli = Cli::try_parse_from(["knap", "-v", "version"]).unwrap();
+
+        assert_eq!(cli.verbose, 1);
+    }
+
+    #[test]
+    fn double_v_parses_as_two() {
+        let cli = Cli::try_parse_from(["knap", "-vv", "version"]).unwrap();
+
+        assert_eq!(cli.verbose, 2);
+    }
+
+    #[test]
+    fn repeated_long_flag_counts() {
+        let cli = Cli::try_parse_from(["knap", "--verbose", "--verbose", "version"]).unwrap();
+
+        assert_eq!(cli.verbose, 2);
+    }
+
+    #[test]
+    fn verbose_flag_is_global_after_subcommand() {
+        let cli = Cli::try_parse_from(["knap", "lint", ".", "-v"]).unwrap();
+
+        assert_eq!(cli.verbose, 1);
     }
 }
