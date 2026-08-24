@@ -23,6 +23,15 @@ shorthand and a format that is legible without tooling, knap chooses legibility.
 The editor integration provides the convenience (completions, quick-fix, rename);
 the files stay clean.
 
+## Release Principles
+
+- **Each release ships a complete loop.** No half-features that only work after
+  the next release.
+- **Configuration grows with features.** Don't expose config knobs until the
+  feature they control exists.
+- **LSP-first.** Avoid editor-specific APIs until a feature genuinely can't be
+  expressed in standard LSP.
+
 ---
 
 ## Overview

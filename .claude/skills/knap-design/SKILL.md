@@ -47,9 +47,10 @@ re-validate their content.
 
 Then read these files to orient yourself:
 
-- `docs/ROADMAP.md` — find the matching milestone and its story list
-- `docs/ARCHITECTURE.md` — refresh on component contracts before writing any
-  signatures
+- The open [`Next` milestone](https://github.com/sleb/knap/milestones) (via
+  `gh`) — find the matching issue and its story list
+- `docs/ARCHITECTURE.md` — refresh on component contracts and release
+  principles before writing any signatures
 
 Don't read component docs yet; you'll read only the ones you need in Phase 2.
 
