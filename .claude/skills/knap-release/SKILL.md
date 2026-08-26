@@ -168,30 +168,30 @@ triage manually.
 
 ## Step 10 — Close the release milestone
 
-Find the open GitHub milestone this release shipped against (normally titled
-`Next` — the rolling milestone; see `docs/ROADMAP_MIGRATION.md`):
+Find the open GitHub milestone this release shipped against — it's named
+after the release version (e.g. `v{VERSION}`), matching
+`docs/design/releases/v{N}/`:
 
 ```bash
 gh api repos/{OWNER}/{REPO}/milestones -q '.[] | select(.state=="open") | "\(.number)\t\(.title)\t\(.open_issues) open"'
 ```
 
 Confirm with the user which milestone corresponds to this release if more
-than one is open, or none is obviously named `Next`. Then rename it to the
-shipped version and close it:
+than one is open, or none is titled `v{VERSION}`. Then close it:
 
 ```bash
-gh api repos/{OWNER}/{REPO}/milestones/{NUMBER} -X PATCH -f title="v{VERSION}" -f state="closed"
+gh api repos/{OWNER}/{REPO}/milestones/{NUMBER} -X PATCH -f state="closed"
 ```
 
 If it still has open issues attached, ask the user whether to move them to
 a new milestone or leave them unscheduled — don't close a milestone with
 open work still silently attached without confirming.
 
-Create the next rolling milestone so there's always one open `Next` to
-attach near-term issues to:
+Create the milestone for the next release so `knap-design` has one to scope
+against when work on `v{N+1}` starts:
 
 ```bash
-gh api repos/{OWNER}/{REPO}/milestones -f title="Next" -f state="open"
+gh api repos/{OWNER}/{REPO}/milestones -f title="v{N+1}" -f state="open"
 ```
 
 ## Step 11 — Post-release
