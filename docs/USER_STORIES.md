@@ -375,6 +375,16 @@ linting to files changed since a git ref — tracked changes plus untracked new
 files — so a check I run after every edit doesn't re-scan the whole workspace
 each time.
 
+**US-D24** — As an agent, `knap lint --json`'s output carries a top-level
+`hints` array naming the workspace as clean when `problem_count` is zero,
+and each diagnostic's own `data.hint` names the next action for that
+diagnostic — `apply` with the top unambiguous `--suggest` candidate,
+`disambiguate` when `text_mismatch` is set or no candidate was found,
+`manual` for the four frontmatter codes, or `lint` prompting a `--suggest`
+re-run when `--suggest` wasn't passed — so I can branch on a fixed `action`
+field instead of re-deriving `SKILL.md`'s code-to-resolution table from raw
+diagnostic data every time.
+
 ---
 
 ### Indexing
@@ -388,6 +398,12 @@ doc's neighborhood (headings, outgoing links, backlinks, tags) instead of
 the full workspace snapshot, so I can inspect a doc I just edited without
 paging through every doc in a large workspace. (`knap index <dir>` keeps
 printing the full workspace snapshot, unchanged.)
+
+**US-D27** — As an agent, `knap index --json`'s output (both the
+whole-workspace and single-file forms) carries a `hints` array naming
+`lint` as the next step whenever any note it reports has an unresolved
+link, so a structural inspection that happens to reveal a broken link
+doesn't require a separate `lint` pass before I notice it needs one.
 
 ---
 
@@ -408,6 +424,12 @@ literal text or its GFM slug.
 **US-D10** — As an agent, I can run `knap rename-tag <old> <new>` to rewrite
 every frontmatter occurrence of a tag across the workspace atomically, so I
 can normalize taxonomy without an editor session.
+
+**US-D26** — As an agent, I can pass `--json` to `knap rename-file`/
+`knap rename-heading`/`knap rename-tag` to get a structured `{op, summary,
+files_touched, hints}` report instead of parsing the existing
+human-readable line, matching the `--json` support every other
+mutating/reporting subcommand already has.
 
 ---
 
@@ -457,6 +479,14 @@ instead of copied from the diagnostic), the batch fails with an error naming
 the operation instead of silently writing a corrupted, unparseable link to
 disk — so a bad range never produces a result that both `knap lint` and I
 would otherwise mistake for a clean fix.
+
+**US-D25** — As an agent, `knap apply --json`'s output carries a `hints`
+array pointing at `lint` to confirm the workspace is clean, present
+whenever the batch actually wrote to disk (empty under `--dry-run`, which
+never does) — and when a `repoint-link`/`repoint-anchor` operation fails
+its round-trip validation (US-D21), the error message itself says to
+re-fetch `range` from a fresh `knap lint --suggest --json` rather than
+adjust it by hand, instead of leaving that advice only in `SKILL.md`.
 
 ---
 
