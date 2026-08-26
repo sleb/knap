@@ -47,8 +47,10 @@ re-validate their content.
 
 Then read these files to orient yourself:
 
-- The open [`Next` milestone](https://github.com/sleb/knap/milestones) (via
-  `gh`) — find the matching issue and its story list
+- The open [milestone](https://github.com/sleb/knap/milestones) (via `gh`) —
+  it's named after the release version (e.g. `v0.24`), matching the
+  `docs/design/releases/vX.Y/` folder; find the matching issue and its story
+  list
 - `docs/ARCHITECTURE.md` — refresh on component contracts and release
   principles before writing any signatures
 
