@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use lsp_types::{Diagnostic, DiagnosticSeverity};
+use lsp_types::{Diagnostic, DiagnosticSeverity, NumberOrString};
 use serde::Serialize;
 
-use crate::cli::FailOn;
+use crate::cli::{FailOn, hint};
 use crate::{config, handlers, index};
 
 #[derive(Serialize)]
@@ -14,6 +14,8 @@ struct LintReport {
     problem_count: usize,
     file_count: usize,
     blocking_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -77,12 +79,15 @@ pub fn run(
         .filter(|d| severity_rank(d.severity) <= fail_on.rank())
         .count();
 
+    let hint = hint_for_files(&files);
+
     if json {
         let report = LintReport {
             diagnostics: files,
             problem_count,
             file_count,
             blocking_count,
+            hint,
         };
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
@@ -103,6 +108,9 @@ pub fn run(
         }
         println!();
         println!("{problem_count} problem(s) in {file_count} file(s)");
+        if let Some(hint) = &hint {
+            println!("hint: {hint}");
+        }
         if blocking_count != problem_count {
             println!("{blocking_count} at or above --fail-on threshold");
         }
@@ -193,6 +201,35 @@ fn git_output(cwd: &Path, args: &[&str]) -> anyhow::Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Computes `LintReport.hint` from the diagnostic `code`s across `files`:
+/// `has_repointable` if any is `broken-link`/`broken-anchor`, `has_manual` if
+/// any is one of the four frontmatter codes.
+fn hint_for_files(files: &[FileDiagnostics]) -> Option<String> {
+    let mut has_repointable = false;
+    let mut has_manual = false;
+    for code in files
+        .iter()
+        .flat_map(|f| &f.diagnostics)
+        .filter_map(|d| d.code.as_ref())
+    {
+        let NumberOrString::String(code) = code else {
+            continue;
+        };
+        match code.as_str() {
+            handlers::CODE_BROKEN_LINK | handlers::CODE_BROKEN_ANCHOR => has_repointable = true,
+            handlers::CODE_MISSING_FRONTMATTER
+            | handlers::CODE_MISSING_REQUIRED_FIELD
+            | handlers::CODE_INVALID_FIELD_VALUE
+            | handlers::CODE_UNKNOWN_FIELD => has_manual = true,
+            _ => {}
+        }
+        if has_repointable && has_manual {
+            break;
+        }
+    }
+    hint::lint(has_repointable, has_manual)
+}
+
 fn severity_rank(severity: Option<DiagnosticSeverity>) -> i32 {
     match severity {
         Some(DiagnosticSeverity::ERROR) => 1,
@@ -226,5 +263,46 @@ mod tests {
         // FailOn::Warning must admit it.
         assert!(severity_rank(Some(DiagnosticSeverity::WARNING)) <= FailOn::Warning.rank());
         assert!(severity_rank(None) <= FailOn::Warning.rank());
+    }
+
+    #[test]
+    fn lint_report_hint_absent_when_clean() {
+        let files: Vec<FileDiagnostics> = Vec::new();
+        let report = LintReport {
+            hint: hint_for_files(&files),
+            diagnostics: files,
+            problem_count: 0,
+            file_count: 0,
+            blocking_count: 0,
+        };
+        let json = serde_json::to_value(&report).expect("serializes");
+        assert!(json.get("hint").is_none());
+    }
+
+    #[test]
+    fn lint_report_hint_present_for_broken_link() {
+        let diagnostic = Diagnostic {
+            code: Some(NumberOrString::String(
+                crate::handlers::CODE_BROKEN_LINK.to_string(),
+            )),
+            ..Diagnostic::new_simple(lsp_types::Range::default(), "broken link".to_string())
+        };
+        let files = vec![FileDiagnostics {
+            path: PathBuf::from("note.md"),
+            diagnostics: vec![diagnostic],
+        }];
+        let report = LintReport {
+            hint: hint_for_files(&files),
+            problem_count: 1,
+            file_count: files.len(),
+            blocking_count: 1,
+            diagnostics: files,
+        };
+        let json = serde_json::to_value(&report).expect("serializes");
+        let hint = json
+            .get("hint")
+            .and_then(|h| h.as_str())
+            .expect("hint key present");
+        assert!(hint.contains("apply"));
     }
 }

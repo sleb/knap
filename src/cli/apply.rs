@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use lsp_types::Range;
 
-use crate::cli::rename;
+use crate::cli::{hint, rename};
 use crate::config::PathFilter;
 use crate::{config, edit, handlers, index, parser};
 
@@ -269,7 +269,10 @@ fn apply_one(root: &Path, op: &ChangeOp) -> anyhow::Result<AppliedOp> {
             validate_link_round_trip(&file_abs, &content, range.start.line, |l| {
                 index::unescape_link_target(&l.target) == *target
             })
-            .context("repoint-link produced unparseable markdown")?;
+            .context(
+                "repoint-link produced unparseable markdown — re-fetch range from a \
+                 fresh `knap lint --suggest --json` rather than adjusting it by hand",
+            )?;
             Ok(AppliedOp {
                 op: op.kind(),
                 summary: format!("{}: repoint → '{target}'", file.display()),
@@ -290,7 +293,10 @@ fn apply_one(root: &Path, op: &ChangeOp) -> anyhow::Result<AppliedOp> {
             validate_link_round_trip(&file_abs, &content, range.start.line, |l| {
                 l.anchor.as_deref() == Some(anchor)
             })
-            .context("repoint-anchor produced unparseable markdown")?;
+            .context(
+                "repoint-anchor produced unparseable markdown — re-fetch range from a \
+                 fresh `knap lint --suggest --json` rather than adjusting it by hand",
+            )?;
             Ok(AppliedOp {
                 op: op.kind(),
                 summary: format!("{}: anchor → '#{anchor}'", file.display()),
@@ -308,6 +314,8 @@ struct ApplyReport {
     dry_run: bool,
     operations: Vec<AppliedOp>,
     files_touched: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<String>,
 }
 
 /// `knap apply [--dry-run] [--json]`: reads a JSON array of `ChangeOp`s from
@@ -347,6 +355,7 @@ pub fn run(dry_run: bool, json: bool) -> anyhow::Result<()> {
         dry_run,
         operations,
         files_touched,
+        hint: hint::apply(dry_run),
     };
 
     if json {
@@ -362,6 +371,10 @@ pub fn run(dry_run: bool, json: bool) -> anyhow::Result<()> {
             report.operations.len(),
             files_touched
         );
+        if let Some(hint) = &report.hint {
+            println!();
+            println!("hint: {hint}");
+        }
     }
 
     Ok(())
@@ -784,6 +797,78 @@ mod tests {
     }
 
     #[test]
+    fn apply_one_repoint_link_error_message_names_lint_suggest_rerun() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.md"), "[text](old.md)\n").unwrap();
+
+        // Same corrupting range as
+        // `apply_one_repoint_link_rejects_range_that_eats_closing_paren`.
+        let op = ChangeOp::RepointLink {
+            file: PathBuf::from("a.md"),
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 7,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 14,
+                },
+            },
+            target: "real.md".to_string(),
+        };
+
+        let result = apply_one(root, &op);
+        let err = match result {
+            Ok(_) => panic!("expected a round-trip validation failure"),
+            Err(err) => err,
+        };
+
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("re-fetch range from a fresh `knap lint --suggest --json`"),
+            "unexpected error message: {message}"
+        );
+    }
+
+    #[test]
+    fn apply_one_repoint_anchor_error_message_names_lint_suggest_rerun() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("a.md"), "[text](#old)\n").unwrap();
+
+        // Same corrupting range as
+        // `apply_one_repoint_anchor_rejects_range_that_eats_closing_paren`.
+        let op = ChangeOp::RepointAnchor {
+            file: PathBuf::from("a.md"),
+            range: Range {
+                start: lsp_types::Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: lsp_types::Position {
+                    line: 0,
+                    character: 12,
+                },
+            },
+            anchor: "new".to_string(),
+        };
+
+        let result = apply_one(root, &op);
+        let err = match result {
+            Ok(_) => panic!("expected a round-trip validation failure"),
+            Err(err) => err,
+        };
+
+        let message = format!("{err:#}");
+        assert!(
+            message.contains("re-fetch range from a fresh `knap lint --suggest --json`"),
+            "unexpected error message: {message}"
+        );
+    }
+
+    #[test]
     fn apply_one_repoint_anchor_rejects_range_that_eats_closing_paren() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
@@ -864,6 +949,34 @@ mod tests {
         };
 
         assert!(apply_one(root.path(), &op).is_err());
+    }
+
+    #[test]
+    fn apply_report_hint_absent_under_dry_run() {
+        let report = ApplyReport {
+            dry_run: true,
+            operations: Vec::new(),
+            files_touched: 0,
+            hint: hint::apply(true),
+        };
+
+        let json = serde_json::to_value(&report).expect("serializes");
+
+        assert!(json.get("hint").is_none());
+    }
+
+    #[test]
+    fn apply_report_hint_present_when_not_dry_run() {
+        let report = ApplyReport {
+            dry_run: false,
+            operations: Vec::new(),
+            files_touched: 0,
+            hint: hint::apply(false),
+        };
+
+        let json = serde_json::to_value(&report).expect("serializes");
+
+        assert!(json.get("hint").is_some());
     }
 
     #[test]

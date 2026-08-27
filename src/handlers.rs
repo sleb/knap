@@ -57,12 +57,12 @@ fn escape_link_target(target: &str) -> String {
 
 const DIAG_SOURCE: &str = "knap";
 
-const CODE_BROKEN_LINK: &str = "broken-link";
-const CODE_BROKEN_ANCHOR: &str = "broken-anchor";
-const CODE_MISSING_FRONTMATTER: &str = "missing-frontmatter";
-const CODE_MISSING_REQUIRED_FIELD: &str = "missing-required-field";
-const CODE_INVALID_FIELD_VALUE: &str = "invalid-field-value";
-const CODE_UNKNOWN_FIELD: &str = "unknown-field";
+pub(crate) const CODE_BROKEN_LINK: &str = "broken-link";
+pub(crate) const CODE_BROKEN_ANCHOR: &str = "broken-anchor";
+pub(crate) const CODE_MISSING_FRONTMATTER: &str = "missing-frontmatter";
+pub(crate) const CODE_MISSING_REQUIRED_FIELD: &str = "missing-required-field";
+pub(crate) const CODE_INVALID_FIELD_VALUE: &str = "invalid-field-value";
+pub(crate) const CODE_UNKNOWN_FIELD: &str = "unknown-field";
 
 /// Returns `true` if `target` matches one of `note`'s frontmatter
 /// `ignore-link-targets` patterns or one of `config.ignore_link_target_patterns`,

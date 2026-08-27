@@ -375,15 +375,14 @@ linting to files changed since a git ref — tracked changes plus untracked new
 files — so a check I run after every edit doesn't re-scan the whole workspace
 each time.
 
-**US-D24** — As an agent, `knap lint --json`'s output carries a top-level
-`hints` array naming the workspace as clean when `problem_count` is zero,
-and each diagnostic's own `data.hint` names the next action for that
-diagnostic — `apply` with the top unambiguous `--suggest` candidate,
-`disambiguate` when `text_mismatch` is set or no candidate was found,
-`manual` for the four frontmatter codes, or `lint` prompting a `--suggest`
-re-run when `--suggest` wasn't passed — so I can branch on a fixed `action`
-field instead of re-deriving `SKILL.md`'s code-to-resolution table from raw
-diagnostic data every time.
+**US-D24** — As an agent or human, `knap lint`'s output (both `--json` and
+text mode) carries a `hint` naming what to do next whenever there are
+problems — pointing at `apply`/`rename-*` for broken-link/broken-anchor
+diagnostics, at a manual edit for frontmatter diagnostics, both when a
+report has each — so the report itself says where to go instead of me
+already knowing `SKILL.md`'s loop before the output means anything. `code`
+stays the thing to branch on for the actual fix; `hint` is a nudge, not a
+second protocol.
 
 ---
 
@@ -399,11 +398,11 @@ the full workspace snapshot, so I can inspect a doc I just edited without
 paging through every doc in a large workspace. (`knap index <dir>` keeps
 printing the full workspace snapshot, unchanged.)
 
-**US-D27** — As an agent, `knap index --json`'s output (both the
-whole-workspace and single-file forms) carries a `hints` array naming
-`lint` as the next step whenever any note it reports has an unresolved
-link, so a structural inspection that happens to reveal a broken link
-doesn't require a separate `lint` pass before I notice it needs one.
+**US-D27** — As an agent or human, `knap index`'s output (both `--json` and
+text mode, whole-workspace and single-file forms) carries a `hint` pointing
+at `lint --suggest` whenever any note it reports has an unresolved link, so
+a structural inspection that happens to reveal a broken link doesn't
+require a separate `lint` pass before I notice it needs one.
 
 ---
 
@@ -427,9 +426,11 @@ can normalize taxonomy without an editor session.
 
 **US-D26** — As an agent, I can pass `--json` to `knap rename-file`/
 `knap rename-heading`/`knap rename-tag` to get a structured `{op, summary,
-files_touched, hints}` report instead of parsing the existing
-human-readable line, matching the `--json` support every other
-mutating/reporting subcommand already has.
+files_touched, hint}` report instead of parsing the existing human-readable
+line, matching the `--json` support every other mutating/reporting
+subcommand already has. Text mode gains the same `hint` as a trailing line
+— a reminder to chain more `rename-*` calls and verify once with `lint` at
+the end, matching the pattern `SKILL.md` already documents.
 
 ---
 
@@ -480,13 +481,14 @@ the operation instead of silently writing a corrupted, unparseable link to
 disk — so a bad range never produces a result that both `knap lint` and I
 would otherwise mistake for a clean fix.
 
-**US-D25** — As an agent, `knap apply --json`'s output carries a `hints`
-array pointing at `lint` to confirm the workspace is clean, present
-whenever the batch actually wrote to disk (empty under `--dry-run`, which
-never does) — and when a `repoint-link`/`repoint-anchor` operation fails
-its round-trip validation (US-D21), the error message itself says to
-re-fetch `range` from a fresh `knap lint --suggest --json` rather than
-adjust it by hand, instead of leaving that advice only in `SKILL.md`.
+**US-D25** — As an agent or human, `knap apply`'s output (both `--json` and
+text mode) carries a `hint` pointing at `lint` to confirm the workspace is
+clean, present whenever the batch actually wrote to disk (absent under
+`--dry-run`, which never does) — and when a `repoint-link`/`repoint-anchor`
+operation fails its round-trip validation (US-D21), the error message
+itself says to re-fetch `range` from a fresh `knap lint --suggest --json`
+rather than adjust it by hand, instead of leaving that advice only in
+`SKILL.md`.
 
 ---
 

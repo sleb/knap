@@ -1334,6 +1334,167 @@ fn apply_cli_reports_which_operation_failed_in_stderr() {
     );
 }
 
+// ── agent hints ──────────────────────────────────────────────────────────
+
+#[test]
+fn lint_json_clean_workspace_has_no_hint() {
+    let output = knap()
+        .args(["lint", "tests/fixtures/lint_clean", "--json"])
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    assert!(value.get("hint").is_none(), "stdout was: {stdout}");
+}
+
+#[test]
+fn lint_json_broken_link_has_hint() {
+    let output = knap()
+        .args(["lint", "tests/fixtures/lint_basic", "--json"])
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    let hint = value["hint"].as_str().expect("hint key present");
+    assert!(hint.contains("apply"), "hint was: {hint}");
+}
+
+#[test]
+fn lint_text_broken_link_prints_hint_line() {
+    let output = knap()
+        .args(["lint", "tests/fixtures/lint_basic"])
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line.starts_with("hint: ")),
+        "stdout was: {stdout}"
+    );
+}
+
+#[test]
+fn apply_json_non_dry_run_has_hint() {
+    let dir = copy_fixture("apply_batch");
+    let batch = r#"[
+        {"op":"rename-file","old":"sub/note.md","new":"note.md"},
+        {"op":"rename-heading","file":"note.md","old":"Old Section","new":"New Section"}
+    ]"#;
+
+    let output = knap_with_stdin(&["apply", "--json"], dir.path(), batch);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    assert!(value.get("hint").is_some(), "stdout was: {stdout}");
+}
+
+#[test]
+fn apply_json_dry_run_has_no_hint() {
+    let dir = copy_fixture("apply_batch");
+    let batch = r#"[
+        {"op":"rename-file","old":"sub/note.md","new":"note.md"},
+        {"op":"rename-heading","file":"note.md","old":"Old Section","new":"New Section"}
+    ]"#;
+
+    let output = knap_with_stdin(&["apply", "--dry-run", "--json"], dir.path(), batch);
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    assert!(value.get("hint").is_none(), "stdout was: {stdout}");
+}
+
+#[test]
+fn apply_stale_range_error_text_mentions_lint_suggest() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.md"), "[text](#old)\n").unwrap();
+
+    // A correct range is 8..11 (just "old"); extending `end` to 12 eats the
+    // closing `)` too, mirroring the existing `apply_one` unit-test fixture.
+    let batch = r#"[
+        {"op":"repoint-anchor","file":"a.md","range":{"start":{"line":0,"character":8},"end":{"line":0,"character":12}},"anchor":"new"}
+    ]"#;
+
+    let output = knap_with_stdin(&["apply"], dir.path(), batch);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("re-fetch range from a fresh `knap lint --suggest --json`"),
+        "stderr was: {stderr}"
+    );
+}
+
+#[test]
+fn rename_file_json_flag_emits_valid_json_with_hint() {
+    let dir = copy_fixture("rename_file");
+
+    let output = knap()
+        .args(["rename-file", "--json", "sub/old.md", "new.md"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    assert_eq!(value["op"], "rename-file", "stdout was: {stdout}");
+    assert!(value.get("hint").is_some(), "stdout was: {stdout}");
+}
+
+#[test]
+fn rename_file_text_prints_hint_line() {
+    let dir = copy_fixture("rename_file");
+
+    let output = knap()
+        .args(["rename-file", "sub/old.md", "new.md"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line.starts_with("hint: ")),
+        "stdout was: {stdout}"
+    );
+}
+
+#[test]
+fn index_json_file_target_broken_link_has_hint() {
+    let output = knap()
+        .args(["index", "note.md", "--json"])
+        .current_dir("tests/fixtures/lint_basic")
+        .output()
+        .expect("failed to run knap");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let value: serde_json::Value = serde_json::from_str(&stdout).expect("stdout was not JSON");
+    assert!(value.get("hint").is_some(), "stdout was: {stdout}");
+}
+
 // ── verbose logging ─────────────────────────────────────────────────────
 
 const LOG_PLUMBING_LINE: &str = "logging initialized";

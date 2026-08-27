@@ -5,6 +5,7 @@ use log::debug;
 
 mod apply;
 mod check;
+mod hint;
 mod index;
 mod lint;
 mod lsp;
@@ -114,6 +115,9 @@ enum Commands {
         old: PathBuf,
         /// New path for the note. Must not already exist.
         new: PathBuf,
+        /// Emit machine-readable JSON instead of text.
+        #[arg(long)]
+        json: bool,
     },
     /// Rename a heading in a note, rewriting its text and every anchor link
     /// that targets it (same-file and cross-file).
@@ -124,6 +128,9 @@ enum Commands {
         old: String,
         /// New heading text.
         new: String,
+        /// Emit machine-readable JSON instead of text.
+        #[arg(long)]
+        json: bool,
     },
     /// Rename a tag, rewriting every frontmatter occurrence across the
     /// workspace.
@@ -132,6 +139,9 @@ enum Commands {
         old: String,
         /// New tag name.
         new: String,
+        /// Emit machine-readable JSON instead of text.
+        #[arg(long)]
+        json: bool,
     },
     /// Run an in-process LSP smoke test.
     Check,
@@ -208,9 +218,14 @@ pub fn run() -> anyhow::Result<()> {
             ignore_link_target,
         } => index::run(&path, json, &exclude, &ignore_link_target),
         Commands::Parse { path } => parse::run(&path),
-        Commands::RenameFile { old, new } => rename::run_file(&old, &new),
-        Commands::RenameHeading { file, old, new } => rename::run_heading(&file, &old, &new),
-        Commands::RenameTag { old, new } => rename::run_tag(&old, &new),
+        Commands::RenameFile { old, new, json } => rename::run_file(&old, &new, json),
+        Commands::RenameHeading {
+            file,
+            old,
+            new,
+            json,
+        } => rename::run_heading(&file, &old, &new, json),
+        Commands::RenameTag { old, new, json } => rename::run_tag(&old, &new, json),
         Commands::Check => check::run(),
         Commands::Version => {
             version::run();

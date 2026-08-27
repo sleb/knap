@@ -5,22 +5,64 @@ use lsp_types::{
     OptionalVersionedTextDocumentIdentifier, RenameFile, RenameFilesParams, ResourceOp,
     TextDocumentEdit, WorkspaceEdit,
 };
+use serde::Serialize;
 
+use crate::cli::hint;
 use crate::handlers::path_to_uri;
 use crate::{config, edit, handlers, index};
+
+/// Output shape for `knap rename-file`/`rename-heading`/`rename-tag --json`,
+/// and the source of the plain-text summary otherwise.
+#[derive(Serialize)]
+struct RenameReport {
+    op: &'static str,
+    summary: String,
+    files_touched: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hint: Option<String>,
+}
+
+/// Builds the exact text `run_file`/`run_heading`/`run_tag` print: a
+/// serialized `RenameReport` under `--json`, or today's `"{summary} (N
+/// file(s) touched)"` text line plus a trailing `hint: ...` line otherwise.
+/// Split out from `print_report` so the content can be asserted on directly
+/// in tests instead of needing to intercept the OS-level stdout fd that
+/// `println!` writes to.
+fn render_report(op: &'static str, summary: String, files_touched: usize, json: bool) -> String {
+    let hint = hint::rename();
+    if json {
+        let report = RenameReport {
+            op,
+            summary,
+            files_touched,
+            hint,
+        };
+        serde_json::to_string_pretty(&report).expect("RenameReport serializes")
+    } else {
+        format!(
+            "{summary} ({files_touched} file(s) touched)\nhint: {}",
+            hint.expect("hint::rename() is unconditionally Some")
+        )
+    }
+}
+
+/// Prints either a `RenameReport` (`--json`) or today's `"{summary} (N
+/// file(s) touched)"` text line plus a trailing `hint: ...` line — shared by
+/// all three `run_*` wrappers below so --json/text handling lives in one
+/// place.
+fn print_report(op: &'static str, summary: String, files_touched: usize, json: bool) {
+    println!("{}", render_report(op, summary, files_touched, json));
+}
 
 /// `knap rename-file <old> <new>`: moves a note on disk and rewrites every
 /// incoming and outgoing Markdown link affected by the move.
 ///
 /// Thin wrapper around `rename_file_at`, scoped to the process's actual cwd.
-pub fn run_file(old: &Path, new: &Path) -> anyhow::Result<()> {
+pub fn run_file(old: &Path, new: &Path, json: bool) -> anyhow::Result<()> {
     let cwd = absolute(Path::new("."))?;
     let touched = rename_file_at(&cwd, old, new)?;
-    println!(
-        "{} → {} ({touched} file(s) touched)",
-        old.display(),
-        new.display()
-    );
+    let summary = format!("{} → {}", old.display(), new.display());
+    print_report("rename-file", summary, touched, json);
 
     Ok(())
 }
@@ -30,13 +72,11 @@ pub fn run_file(old: &Path, new: &Path) -> anyhow::Result<()> {
 ///
 /// Thin wrapper around `rename_heading_at`, scoped to the process's actual
 /// cwd.
-pub fn run_heading(file: &Path, old: &str, new: &str) -> anyhow::Result<()> {
+pub fn run_heading(file: &Path, old: &str, new: &str, json: bool) -> anyhow::Result<()> {
     let cwd = absolute(Path::new("."))?;
     let touched = rename_heading_at(&cwd, file, old, new)?;
-    println!(
-        "{old:?} → {new:?} in {} ({touched} file(s) touched)",
-        file.display()
-    );
+    let summary = format!("{old:?} → {new:?} in {}", file.display());
+    print_report("rename-heading", summary, touched, json);
 
     Ok(())
 }
@@ -45,10 +85,11 @@ pub fn run_heading(file: &Path, old: &str, new: &str) -> anyhow::Result<()> {
 /// tag across the workspace, atomically.
 ///
 /// Thin wrapper around `rename_tag_at`, scoped to the process's actual cwd.
-pub fn run_tag(old: &str, new: &str) -> anyhow::Result<()> {
+pub fn run_tag(old: &str, new: &str, json: bool) -> anyhow::Result<()> {
     let cwd = absolute(Path::new("."))?;
     let touched = rename_tag_at(&cwd, old, new)?;
-    println!("#{old} → #{new} ({touched} file(s) touched)");
+    let summary = format!("#{old} → #{new}");
+    print_report("rename-tag", summary, touched, json);
 
     Ok(())
 }
@@ -367,5 +408,114 @@ mod tests {
         let b = std::fs::read_to_string(root.join("b.md")).unwrap();
         assert!(b.contains("tags: [published, rust]"), "inline list: {b}");
         assert_eq!(touched, 2);
+    }
+
+    #[test]
+    fn rename_report_json_serializes_op_summary_files_touched_and_hint() {
+        for op in ["rename-file", "rename-heading", "rename-tag"] {
+            let report = RenameReport {
+                op,
+                summary: "old → new".to_string(),
+                files_touched: 2,
+                hint: hint::rename(),
+            };
+
+            let json = serde_json::to_value(&report).expect("serializes");
+
+            assert_eq!(json["op"], op);
+            assert_eq!(json["files_touched"], 2);
+            let hint = json
+                .get("hint")
+                .and_then(|h| h.as_str())
+                .expect("hint key present and non-empty");
+            assert!(!hint.is_empty());
+        }
+    }
+
+    // The four tests below exercise `render_report` — the pure function
+    // `run_file`/`run_heading`/`run_tag` delegate all --json/text formatting
+    // to via `print_report` (`print_report` itself is nothing but
+    // `println!("{}", render_report(...))`) — rather than calling `run_file`
+    // et al. and intercepting real process stdout. `println!` writes
+    // straight to the OS-level stdout fd with no in-process `Write` seam, so
+    // observing it means redirecting that fd (e.g. via the `gag` crate).
+    // That was tried and reverted: `cargo test`'s default parallel runner
+    // prints each test's own "test ... ok/FAILED" status line to the same
+    // real fd from unrelated threads at arbitrary times, and a redirect
+    // active on any one thread captures the whole process's fd 1 —
+    // corrupting the captured buffer with interleaved harness output no
+    // matter how tightly this module's own tests serialize themselves.
+    // Asserting on `render_report`'s return value tests the exact same
+    // formatting logic without that race; `run_file`/`run_heading`/
+    // `run_tag`'s own plumbing (right `op` tag, right summary shape, right
+    // side effects) is exercised by the `_at`-level tests above plus the
+    // Step 6 integration tests, which capture the real compiled binary's
+    // stdout as a subprocess instead of fighting the in-process test runner
+    // for the fd.
+
+    #[test]
+    fn run_file_json_true_prints_json_not_text() {
+        let summary = format!(
+            "{} → {}",
+            Path::new("old.md").display(),
+            Path::new("new.md").display()
+        );
+
+        let output = render_report("rename-file", summary, 1, true);
+
+        let json: serde_json::Value = serde_json::from_str(&output)
+            .unwrap_or_else(|e| panic!("not valid JSON: {e}: {output}"));
+        assert_eq!(json["op"], "rename-file");
+        assert!(
+            !output.contains("→ new.md ("),
+            "plain-text line should not be present: {output}"
+        );
+    }
+
+    #[test]
+    fn run_file_json_false_preserves_existing_text_output_plus_hint_line() {
+        let summary = format!(
+            "{} → {}",
+            Path::new("old.md").display(),
+            Path::new("new.md").display()
+        );
+
+        let output = render_report("rename-file", summary, 1, false);
+
+        let mut lines = output.lines();
+        let first = lines.next().expect("at least one line of output");
+        assert_eq!(first, "old.md → new.md (1 file(s) touched)");
+        let hint_line = lines.next().expect("a second line with the hint");
+        assert!(
+            hint_line.starts_with("hint: "),
+            "expected a hint line, got: {hint_line}"
+        );
+    }
+
+    #[test]
+    fn run_heading_json_true_prints_json_not_text() {
+        let summary = format!(
+            "{:?} → {:?} in {}",
+            "Old Section",
+            "New Section",
+            Path::new("a.md").display()
+        );
+
+        let output = render_report("rename-heading", summary, 1, true);
+
+        let json: serde_json::Value = serde_json::from_str(&output)
+            .unwrap_or_else(|e| panic!("not valid JSON: {e}: {output}"));
+        assert_eq!(json["op"], "rename-heading");
+    }
+
+    #[test]
+    fn run_tag_json_true_prints_json_not_text() {
+        let summary = "#draft → #published".to_string();
+
+        let output = render_report("rename-tag", summary, 1, true);
+
+        let json: serde_json::Value = serde_json::from_str(&output)
+            .unwrap_or_else(|e| panic!("not valid JSON: {e}: {output}"));
+        assert_eq!(json["op"], "rename-tag");
     }
 }
