@@ -581,6 +581,13 @@ nothing changed.
 `knap check` in a terminal — all checks should pass. Check your editor's LSP
 log for startup errors.
 
+**Need more detail in the logs.** Pass `-v` (debug) or `-vv` (trace) to any
+`knap` subcommand, including `knap lsp` — e.g. point your editor's LSP
+client at `knap lsp -v` instead of bare `knap lsp` to see per-request debug
+lines in its subprocess log. The `KNAP_LOG` environment variable still works
+for finer-grained, per-module control and overrides the flag when both are
+set.
+
 **Completions show no results.** knap indexes the workspace on startup. If the
 workspace folder wasn't sent in the `initialize` request (check your editor's
 LSP configuration), the index will be empty. Most editors send the open folder

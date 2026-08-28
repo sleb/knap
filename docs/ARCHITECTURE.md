@@ -323,26 +323,33 @@ exclusively — they do not touch the filesystem directly.
 ### CLI
 
 `src/cli/` — one module per subcommand (`mod.rs`, `lsp.rs`, `lint.rs`,
-`index.rs`, `parse.rs`, `check.rs`, `version.rs`, `rename.rs`, `apply.rs`),
-wired up with `clap`.
-`main.rs` is just logging setup plus `knap::cli::run()`. There is no
+`index.rs`, `parse.rs`, `check.rs`, `version.rs`, `rename.rs`, `apply.rs`,
+`skill.rs`, `hint.rs`), wired up with `clap`. `main.rs` is just
+`knap::cli::run()`; `cli::run()` initializes `env_logger` itself (using the
+parsed `--verbose` count) before dispatching to a subcommand. There is no
 argument-free fallback: a subcommand is required, and bare `knap` exits
 non-zero with usage text (clap's built-in behavior for a required
 subcommand). In particular, **`knap` no longer starts the LSP server on its
 own — use `knap lsp`.**
 
+Every subcommand also accepts a global `-v`/`--verbose` flag (repeatable:
+`-v` for `debug`, `-vv` for `trace`), mapped to an `env_logger` filter by
+`default_log_filter`; the `KNAP_LOG` environment variable, when set,
+overrides it.
+
 | Subcommand       | Usage                                                                                                        | Available from                                                                                                 |
 | ---------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | `lsp`            | `knap lsp`                                                                                                   | v0.11 (previously the bare-args default, since v0.1)                                                           |
-| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--exclude <glob>]... [--ignore-link-target <glob>]...` | v0.11, `--fail-on`/`--since`/`--suggest` added v0.13, `--exclude` added v0.16, `--ignore-link-target` added v0.20 |
-| `index`          | `knap index <path> [--json] [--exclude <glob>]... [--ignore-link-target <glob>]...`                          | v0.1, rewritten v0.11; a file `<path>` scopes to that doc's neighborhood since v0.13; `--exclude` added v0.16; `--ignore-link-target` added v0.20 |
+| `lint`           | `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--exclude <glob>]... [--ignore-link-target <glob>]...` | v0.11, `--fail-on`/`--since`/`--suggest` added v0.13, `--exclude` added v0.16, `--ignore-link-target` added v0.20, `hint` field added v0.24 |
+| `index`          | `knap index <path> [--json] [--exclude <glob>]... [--ignore-link-target <glob>]...`                          | v0.1, rewritten v0.11; a file `<path>` scopes to that doc's neighborhood since v0.13; `--exclude` added v0.16; `--ignore-link-target` added v0.20; `hint` field added v0.24 |
 | `parse`          | `knap parse <file>`                                                                                          | v0.1                                                                                                           |
-| `rename-file`    | `knap rename-file <old> <new>` (alias: `move-file`)                                                          | v0.12, `move-file` alias added v0.14                                                                           |
-| `rename-heading` | `knap rename-heading <file> <old> <new>`                                                                     | v0.12                                                                                                          |
-| `rename-tag`     | `knap rename-tag <old> <new>`                                                                                | v0.12                                                                                                          |
-| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                              | v0.14, `repoint-link`/`repoint-anchor` ops added v0.15, round-trip guard added v0.19                           |
+| `rename-file`    | `knap rename-file <old> <new> [--json]` (alias: `move-file`)                                                 | v0.12, `move-file` alias added v0.14, `--json` added v0.24                                                     |
+| `rename-heading` | `knap rename-heading <file> <old> <new> [--json]`                                                            | v0.12, `--json` added v0.24                                                                                    |
+| `rename-tag`     | `knap rename-tag <old> <new> [--json]`                                                                       | v0.12, `--json` added v0.24                                                                                    |
+| `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                              | v0.14, `repoint-link`/`repoint-anchor` ops added v0.15, round-trip guard added v0.19, `hint` field added v0.24  |
 | `check`          | `knap check`                                                                                                 | v0.2                                                                                                           |
 | `version`        | `knap version`                                                                                               | v0.10.1                                                                                                        |
+| `skill`          | `knap skill --global` or `knap skill --path <dir>`                                                           | v0.21                                                                                                          |
 
 The CLI shares the same library crate as the server. `lsp` boots the same
 stdio server the LSP Client talks to. `lint` and `index` both resolve config
@@ -361,7 +368,19 @@ current directory, not the target file, since a file argument would
 otherwise narrow the index to just that file's own directory — reuse the
 same `handlers::` computation the LSP `rename`/`willRenameFiles` handlers
 use, and hand the resulting `WorkspaceEdit` to the Edit Applicator
-(`edit::apply`) to write it to disk.
+(`edit::apply`) to write it to disk. With `--json`, each prints a
+`RenameReport { op, summary, files_touched, hint }` instead of its plain
+text line.
+
+`src/cli/hint.rs` builds the `Option<String>` nudge each of `lint`, `apply`,
+`rename-*`, and `index` attaches as a trailing `hint` field (`--json`) or
+`hint: ...` line (text mode) — pointing at `apply`/`rename-*` from `lint`,
+at `lint` from `apply`/`rename-*`, and at `lint --suggest` from `index`,
+whenever the report has something worth following up on. It's a nudge, not
+a second protocol: `code`/diagnostics stay the thing to branch on
+programmatically, and `hint` is absent (rather than empty) when there's
+nothing to suggest — e.g. `apply --dry-run`, or a `lint`/`index` report with
+no problems.
 
 `lint --suggest [N]` switches diagnostic computation from
 `handlers::compute_diagnostics` to `handlers::compute_diagnostics_with_suggestions`,

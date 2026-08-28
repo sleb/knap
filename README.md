@@ -211,11 +211,14 @@ docs/index.md:12:3: warning: broken link to 'docs/missing.md'
 
 `path` defaults to the current directory; pass a single file to lint just
 that file. `--json` emits a machine-readable report (`diagnostics`,
-`problem_count`, `file_count`, `blocking_count`). Every diagnostic carries a
-stable `code` (`broken-link`, `broken-anchor`, `missing-frontmatter`,
-`missing-required-field`, `invalid-field-value`, `unknown-field`) — branch
-on `code`, not on the message text, when scripting against `--json` output.
-Exit code is `0` if no problems were found, `1` otherwise.
+`problem_count`, `file_count`, `blocking_count`, and a `hint` naming what to
+do next — `apply`/`rename-*` for broken-link/broken-anchor diagnostics, a
+manual edit for frontmatter ones — present only when there's a problem to
+follow up on). Every diagnostic carries a stable `code` (`broken-link`,
+`broken-anchor`, `missing-frontmatter`, `missing-required-field`,
+`invalid-field-value`, `unknown-field`) — branch on `code`, not on the
+message text or the `hint`, when scripting against `--json` output. Exit
+code is `0` if no problems were found, `1` otherwise.
 
 Usage: `knap lint [path] [--json] [--fail-on <severity>] [--since <git-ref>] [--suggest [N]] [--exclude <glob>]... [--ignore-link-target <glob>]...`
 
@@ -289,7 +292,9 @@ neighborhood instead: `--json` emits a single doc object (`headings`,
 `links`, `backlinks`, `tags`) rather than the `{ "notes": [...], "tags":
 {...} }` workspace envelope. Useful for an agent to inspect a just-edited
 file without paging the full index. A directory `<path>` prints the
-full-workspace listing, unchanged.
+full-workspace listing, unchanged. Either form's output — `--json` or text
+— carries a `hint` pointing at `lint --suggest` whenever any note it
+reports has an unresolved link.
 
 ## Headless rename (`knap rename-*`)
 
@@ -322,7 +327,14 @@ $ knap rename-tag draft published
   inline list, block list). Fails if no file uses `<old>`.
 
 All three scope their index to the current directory (like `knap lint .`),
-apply their edit atomically, and print a summary line on success.
+apply their edit atomically, and print a summary line on success. `--json`
+emits `{op, summary, files_touched, hint}` instead; text mode gains the same
+`hint` as a trailing line — a reminder to chain more `rename-*` calls and
+verify once with `lint` at the end.
+
+Usage: `knap rename-file <old> <new> [--json]` /
+`knap rename-heading <file> <old> <new> [--json]` /
+`knap rename-tag <old> <new> [--json]`
 
 ## Batch apply (`knap apply`)
 
@@ -363,8 +375,12 @@ shelling out once per change.
 
 - `--dry-run` — prints the plan without changing anything in the real
   workspace; the reported file count is exactly what a real run would touch.
-- `--json` — emits an `ApplyReport` (`dry_run`, `operations`, `files_touched`)
-  instead of the text summary.
+  No `hint` is emitted under `--dry-run`, since nothing was actually
+  written.
+- `--json` — emits an `ApplyReport` (`dry_run`, `operations`, `files_touched`,
+  `hint`) instead of the text summary. `hint` points at `knap lint` to
+  confirm the workspace is clean, and is present whenever the batch actually
+  wrote to disk.
 
 Operations run in the order given against a scratch copy of the workspace,
 so a later operation in the same batch sees an earlier one's effects (e.g.
@@ -381,6 +397,14 @@ the file. Always copy `range` verbatim from the diagnostic; never
 recompute it.
 
 Usage: `knap apply [--dry-run] [--json]`
+
+## Logging
+
+Every `knap` subcommand, including `knap lsp`, accepts a global `-v`/
+`--verbose` flag for more detailed logging: `-v` raises the level to
+`debug`, `-vv` to `trace`. The `KNAP_LOG` environment variable still works
+and overrides the flag when both are set, for finer-grained per-module
+control than the flag alone gives you.
 
 ## Coding agents
 

@@ -5,6 +5,34 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [0.24.0] — 2026-08-27
+
+### Added
+
+- **`--verbose`/`-v` flag on every `knap` subcommand**, including `knap lsp`.
+  Repeat it for more detail: `-v` raises logging to `debug`, `-vv` to
+  `trace`. The `KNAP_LOG` environment variable still works and overrides the
+  flag when both are set, for finer-grained per-module control.
+- **`hint` field on `lint`, `apply`, `rename-*`, and `index` output** (both
+  `--json` and text mode), naming what to do next whenever there's something
+  worth following up on: `lint` points at `apply`/`rename-*` for
+  broken-link/broken-anchor diagnostics (and at a manual edit for
+  frontmatter diagnostics), `apply`/`rename-*` point back at `lint` to
+  confirm the workspace is clean, and `index` points at `lint --suggest`
+  when it reports a note with an unresolved link. `hint` is a nudge, not a
+  second protocol — `code` stays what to branch on programmatically, and
+  `hint` is simply absent when there's nothing to suggest (e.g.
+  `apply --dry-run`, or a clean `lint`/`index` report).
+- **`--json` flag on `rename-file`, `rename-heading`, and `rename-tag`**,
+  matching the `--json` support every other mutating/reporting subcommand
+  already has. Emits `{op, summary, files_touched, hint}` instead of the
+  existing human-readable line; text mode gains the same `hint` as a new
+  trailing line.
+- `knap apply`'s round-trip-validation error message (for a
+  `repoint-link`/`repoint-anchor` operation with a stale or wrong `range`)
+  now tells you to re-fetch `range` from a fresh `knap lint --suggest --json`
+  rather than adjust it by hand.
+
 ## [0.23.0] — 2026-08-21
 
 ### Added
