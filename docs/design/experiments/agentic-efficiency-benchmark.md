@@ -99,8 +99,8 @@ gets for free.
 
 |                               | Baseline                                               | knap-assisted                                                                          |
 | ----------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| Tools available               | `Read`, `Edit`, `Write`, `Bash` (`grep`, `sed`, `git`) | same, plus `knap` binary on `PATH`, `skill/knap/SKILL.md`, and a `CLAUDE.md` installed |
-| Prompt                        | task list only                                         | task list only — knap is never mentioned in the prompt itself                          |
+| Tools available               | `Read`, `Edit`, `Write`, `Bash` (`grep`, `sed`, `git`) | same, plus `knap` binary on `PATH` and `skills/knap/` installed |
+| Prompt                        | task list only                                         | task list, prefixed with an explicit paragraph naming `knap` and telling the agent to use it |
 | Verification method available | manual (`grep -rn`, reading files)                     | `knap lint --json`, `knap index <file> --json`                                         |
 
 Everything else — model, system prompt, starting repo state — held constant.
@@ -140,6 +140,27 @@ free in `knap-assisted/`. This is a workaround for the subagent-dispatch
 mechanism this protocol is forced to use in this sandbox, not a change to
 what's being measured.
 
+**Standing protocol as of Trial 10: explicit knap mention, no `CLAUDE.md`.**
+The `CLAUDE.md`-plus-discoverability-pre-step mechanism described above (used
+through Trial 9) is superseded, resolving the open item Trials 8 and 9 both
+flagged (whether the explicit-mention departure introduced ad hoc for Trial
+6/7 or the default `CLAUDE.md`-only prompt was the standing protocol for
+official runs) — Trials 8 and 9 both used the `CLAUDE.md`-only prompt and
+both saw knap-assisted's efficiency reverse, most plausibly from the cost of
+self-directed discovery rather than anything about knap itself. Since skill
+discoverability was never the thing this experiment measures (see above),
+`scripts/bench-setup-trial.sh` no longer installs a `CLAUDE.md` in either
+repo, and `knap-assisted/`'s prompt is now permanently prefixed with the
+paragraph Trial 6/7 used ad hoc, stating `knap` is on `PATH` and naming its
+subcommands and skill location directly — captured as the script's
+`knap-mention.txt` template rather than hand-copied prose per trial. This
+removes the harness-specific `find`-but-never-`Read` failure mode entirely
+(nothing to discover) and gives every future trial the clean "does knap help
+once told to use it" read Trial 6/7 got, without needing a per-trial decision
+about which prompt variant to run. Trials 1–9 remain valid as historical
+data points under the protocol that was standing when each ran; re-running
+an old seed under this protocol is a new trial, not a continuation.
+
 ## Metrics
 
 Capture these per run:
@@ -173,8 +194,8 @@ build — a benchmark trial is only meaningful if the agent finds the intended
 build's behavior, and a stale shadowing install fails the script loud rather
 than silently benchmarking the wrong `knap` — generates the seeded vault,
 turns it into `baseline/` and `knap-assisted/` git repos at an identical
-`bench-vault-seed` tag, installs `skill/knap/SKILL.md` and a `CLAUDE.md`
-(see [Conditions](#conditions) above) into `knap-assisted/` only, and renders
+`bench-vault-seed` tag, installs `skills/knap/` (see
+[Conditions](#conditions) above) into `knap-assisted/` only, and renders
 the 7-step [task script](#task-script-typical-agentic-editing-session) with
 that seed's concrete resolved names (hub note, split target, heading, tag,
 step-6 file list) substituted in, so the prompt never needs to be

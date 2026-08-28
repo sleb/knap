@@ -3,11 +3,16 @@
 # in docs/design/experiments/agentic-efficiency-benchmark.md: builds knap,
 # generates a seeded vault, turns it into two git repos (baseline/,
 # knap-assisted/) at an identical bench-vault-seed tag, installs the knap
-# skill (skills/knap/, entrypoint + reference/*.md) plus a CLAUDE.md that
-# names knap explicitly, so skill *discoverability* isn't a variable in
-# trials that aren't specifically testing that) into knap-assisted/ only,
-# and renders the 7-step task prompt with this seed's concrete resolved
-# names substituted in.
+# skill (skills/knap/, entrypoint + reference/*.md) into knap-assisted/ only,
+# and renders the 7-step task prompt with this seed's concrete resolved names
+# substituted in.
+#
+# Skill *discoverability* is deliberately not under test (see the
+# Conditions section of the design doc): rather than relying on an agent to
+# notice and read an installed CLAUDE.md/SKILL.md on its own, the
+# knap-assisted prompt states directly that `knap` is installed and should
+# be used. No CLAUDE.md is installed in either repo — how an agent would
+# discover the skill unprompted isn't part of what this protocol measures.
 #
 # Usage:
 #   scripts/bench-setup-trial.sh --out DIR [--seed N] [--notes N]
@@ -22,11 +27,12 @@
 # Output layout under DIR:
 #   vault-seed/           the generated vault + BENCH_MANIFEST.json
 #   index.json            `knap index --json` over vault-seed
-#   baseline/              git repo, no knap skill/CLAUDE.md
-#   knap-assisted/          git repo, knap skill + CLAUDE.md installed
+#   baseline/              git repo, no knap skill
+#   knap-assisted/          git repo, knap skill installed
 #   task.txt                the rendered 7-step task, no directory appended
 #   prompt.baseline.txt     task.txt + baseline/'s absolute path
-#   prompt.knap.txt         task.txt + knap-assisted/'s absolute path
+#   prompt.knap.txt         explicit knap-mention paragraph + task.txt +
+#                            knap-assisted/'s absolute path
 
 set -euo pipefail
 
@@ -160,13 +166,7 @@ cat > "$OUT/task.txt" <<EOF
 You are editing a Markdown notes vault. Work entirely inside the directory
 given to you below — do not touch any other directory.
 
-Before step 1, check whether that directory has a CLAUDE.md file at its
-root; if it does, read it and follow any project-specific conventions it
-describes for the rest of this session, the same way you would if this
-directory were your actual session root (it isn't, so nothing auto-loads
-it for you — you have to check yourself).
-
-Then perform the following 7 steps, in order, as a single editing session.
+Perform the following 7 steps, in order, as a single editing session.
 When you're done, run a final check yourself to make sure nothing is left
 broken, then report what you changed.
 
@@ -215,25 +215,13 @@ for repo in baseline knap-assisted; do
   )
 done
 
-echo "==> installing knap skill + CLAUDE.md in knap-assisted/ only"
+echo "==> installing knap skill in knap-assisted/ only"
 mkdir -p "$OUT/knap-assisted/.claude/skills/knap"
 cp -r "$REPO_ROOT/skills/knap/." "$OUT/knap-assisted/.claude/skills/knap/"
-cat > "$OUT/knap-assisted/CLAUDE.md" <<'EOF'
-# Working notes
-
-This vault has `knap` — a Markdown link/anchor linter, indexer, and
-refactoring CLI — installed on `PATH`, with its skill at
-`.claude/skills/knap/SKILL.md`. Read that skill and use `knap`
-(`lint`/`rename-*`/`apply`/`index`, per the skill's edit → verify loop) for
-editing and verifying links in this vault, instead of hand-`grep`ing or
-hand-tracking link targets yourself. This is a project convention for this
-repo, not optional tooling — reach for it any time a task edits, moves,
-renames, or fixes Markdown docs here.
-EOF
 (
   cd "$OUT/knap-assisted"
   git add -A
-  git -c user.email=bench@example.com -c user.name=bench commit -q -m "install knap skill + CLAUDE.md"
+  git -c user.email=bench@example.com -c user.name=bench commit -q -m "install knap skill"
 )
 
 for repo in baseline knap-assisted; do
@@ -241,17 +229,28 @@ for repo in baseline knap-assisted; do
 done
 
 echo "==> writing per-condition prompts"
+cat > "$OUT/knap-mention.txt" <<'EOF'
+This vault has the `knap` CLI installed on PATH — a Markdown link/anchor
+linter, indexer, and refactoring tool. Use it (`knap lint`, `knap index`,
+`knap rename-file`/`rename-heading`/`rename-tag`, `knap apply`) for editing
+and verifying links in this vault, rather than hand-`grep`ing or
+hand-tracking link targets yourself. Its skill documentation is at
+`.claude/skills/knap/SKILL.md` (with further reference docs under
+`.claude/skills/knap/reference/`) if you want detail on any subcommand.
+
+EOF
 printf '%s\n%s\n' "$(cat "$OUT/task.txt")" "$OUT/baseline" > "$OUT/prompt.baseline.txt"
-printf '%s\n%s\n' "$(cat "$OUT/task.txt")" "$OUT/knap-assisted" > "$OUT/prompt.knap.txt"
+cat "$OUT/knap-mention.txt" "$OUT/task.txt" > "$OUT/prompt.knap.txt"
+printf '%s\n' "$OUT/knap-assisted" >> "$OUT/prompt.knap.txt"
 
 cat <<EOF
 
 Trial ready under $OUT
 
-  baseline repo:       $OUT/baseline        (bench-vault-seed tag, no knap skill/CLAUDE.md)
-  knap-assisted repo:   $OUT/knap-assisted    (bench-vault-seed tag, knap skill + CLAUDE.md installed)
+  baseline repo:       $OUT/baseline        (bench-vault-seed tag, no knap skill)
+  knap-assisted repo:   $OUT/knap-assisted    (bench-vault-seed tag, knap skill installed)
   task prompt:          $OUT/task.txt
-  per-condition prompts: $OUT/prompt.baseline.txt, $OUT/prompt.knap.txt
+  per-condition prompts: $OUT/prompt.baseline.txt, $OUT/prompt.knap.txt (explicit knap mention prepended)
   ground truth:          $OUT/vault-seed/BENCH_MANIFEST.json
   vault index:           $OUT/index.json
 
