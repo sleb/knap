@@ -126,8 +126,9 @@ pub fn run(
 /// Prints each ranked suggestion in `data.suggestions` (as attached by
 /// `compute_diagnostics_with_suggestions`) as an indented line under the
 /// diagnostic that owns it, plus a one-line note when `data.text_mismatch`
-/// is set. No-op if `data` has no `suggestions` array — i.e. `--suggest`
-/// wasn't passed, or this diagnostic isn't a broken-link/broken-anchor.
+/// is set and another when `data.same_basename` is set. No-op if `data` has
+/// no `suggestions` array — i.e. `--suggest` wasn't passed, or this
+/// diagnostic isn't a broken-link/broken-anchor.
 fn print_suggestions(data: &serde_json::Value) {
     let Some(suggestions) = data.get("suggestions").and_then(|s| s.as_array()) else {
         return;
@@ -150,6 +151,15 @@ fn print_suggestions(data: &serde_json::Value) {
     {
         println!(
             "    (top match by distance differs from best text match — verify before applying)"
+        );
+    }
+    if data
+        .get("same_basename")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        println!(
+            "    (top suggestions share a filename — path ranking alone can't tell them apart; verify by directory or content)"
         );
     }
 }

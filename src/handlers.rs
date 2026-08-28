@@ -457,20 +457,31 @@ fn check_anchor_trigger(content: &str, pos: Position) -> Option<String> {
     Some(path.to_string())
 }
 
-/// Compute the relative path from `from_dir` to `to`, suitable as a Markdown
-/// link target. Both arguments must be absolute paths.
-fn relative_path(from_dir: &Path, to: &Path) -> String {
+/// Directory levels `from_dir` must climb before it can descend to `to`'s
+/// parent — 0 when `to` lives in `from_dir` itself. The same "up" count
+/// `relative_path` needs internally, factored out so ranking can use it as
+/// a signal independent of the string `relative_path` produces.
+fn dir_distance(from_dir: &Path, to: &Path) -> usize {
     let from: Vec<Component> = from_dir.components().collect();
     let to_comps: Vec<Component> = to.components().collect();
-
     let common = from
         .iter()
         .zip(to_comps.iter())
         .take_while(|(a, b)| a == b)
         .count();
+    from.len() - common
+}
+
+/// Compute the relative path from `from_dir` to `to`, suitable as a Markdown
+/// link target. Both arguments must be absolute paths.
+fn relative_path(from_dir: &Path, to: &Path) -> String {
+    let from: Vec<Component> = from_dir.components().collect();
+    let to_comps: Vec<Component> = to.components().collect();
+    let up_count = dir_distance(from_dir, to);
+    let common = from.len() - up_count;
 
     let mut result = PathBuf::new();
-    for _ in 0..(from.len() - common) {
+    for _ in 0..up_count {
         result.push("..");
     }
     for c in &to_comps[common..] {
@@ -1523,15 +1534,22 @@ struct RankedCandidate<T> {
     candidate: T,
     path_distance: usize,
     text_distance: Option<usize>,
+    /// `None` for anchor candidates (headings have no directory to be near
+    /// or far from). `allow(dead_code)`: only read by tests today — exposed
+    /// alongside `path_distance`/`text_distance` for future callers, same as
+    /// this struct's other raw-signal fields.
+    #[allow(dead_code)]
+    dir_distance: Option<usize>,
     combined: f64,
 }
 
-/// Weight given to the path/slug-distance term vs. the link-text-distance
-/// term when blending into `combined`. Equal weight by default — no trial
-/// evidence yet favors one signal over the other; a future trial re-run
-/// is what would justify moving this.
-const PATH_WEIGHT: f64 = 0.5;
-const TEXT_WEIGHT: f64 = 0.5;
+/// Weight given to the path/slug-distance, link-text-distance, and
+/// directory-proximity terms when blending into `combined`. Equal weight by
+/// default — no trial evidence yet favors one signal over the others; a
+/// future trial re-run is what would justify moving these.
+const PATH_WEIGHT: f64 = 1.0 / 3.0;
+const TEXT_WEIGHT: f64 = 1.0 / 3.0;
+const DIR_WEIGHT: f64 = 1.0 / 3.0;
 
 /// Normalize a raw edit distance to roughly `[0, 1]` by dividing by the
 /// longer of the two compared strings' character counts, so a distance of 2
@@ -1544,10 +1562,20 @@ fn normalized_distance(distance: usize, a: &str, b: &str) -> f64 {
     distance as f64 / len as f64
 }
 
-/// Blend a path-distance and an optional text-distance into one score.
-/// Falls back to the path term alone when there's no text signal, so a
-/// link with unusable display text ranks exactly as it would have before
-/// this release.
+/// Normalize a directory-level count to roughly `[0, 1)` — 0 for the same
+/// directory, approaching 1 as the candidate gets further away — so it's
+/// comparable in magnitude to the other two normalized terms regardless of
+/// how deep the vault's directory tree happens to be.
+fn normalized_dir_distance(levels: usize) -> f64 {
+    let levels = levels as f64;
+    levels / (levels + 1.0)
+}
+
+/// Blend a path-distance and optional text- and directory-distance terms
+/// into one score, weighted-averaging over whichever terms are present.
+/// Falls back to fewer terms when a signal is unavailable (no usable link
+/// text, or no directory concept for anchor candidates), so a link or
+/// anchor with a missing signal ranks by the remaining ones alone.
 fn combined_distance(
     path_distance: usize,
     path_a: &str,
@@ -1555,12 +1583,19 @@ fn combined_distance(
     text_distance: Option<usize>,
     text_a: &str,
     text_b: &str,
+    dir_distance: Option<usize>,
 ) -> f64 {
-    let path_norm = normalized_distance(path_distance, path_a, path_b);
-    match text_distance {
-        Some(d) => PATH_WEIGHT * path_norm + TEXT_WEIGHT * normalized_distance(d, text_a, text_b),
-        None => path_norm,
+    let mut weighted_sum = PATH_WEIGHT * normalized_distance(path_distance, path_a, path_b);
+    let mut weight_total = PATH_WEIGHT;
+    if let Some(d) = text_distance {
+        weighted_sum += TEXT_WEIGHT * normalized_distance(d, text_a, text_b);
+        weight_total += TEXT_WEIGHT;
     }
+    if let Some(levels) = dir_distance {
+        weighted_sum += DIR_WEIGHT * normalized_dir_distance(levels);
+        weight_total += DIR_WEIGHT;
+    }
+    weighted_sum / weight_total
 }
 
 /// True when the top-`combined`-ranked candidate isn't also the top
@@ -1579,6 +1614,21 @@ fn text_mismatch<T: PartialEq>(ranked: &[RankedCandidate<T>]) -> bool {
         .iter()
         .min_by_key(|c| c.text_distance.unwrap_or(usize::MAX))
         .is_some_and(|top_text| top_text.candidate != top_combined.candidate)
+}
+
+/// True when at least two of `suggestions` share a file stem (basename
+/// without extension) — e.g. `storage.md` and `../notes/storage.md`. Flags
+/// the case where path-based ranking alone can't disambiguate the top
+/// candidates because they're literally different files with the same name,
+/// so the caller should verify by directory or content rather than trust
+/// rank order blindly. `false` with fewer than two suggestions, since
+/// there's nothing to collide with.
+fn same_basename(suggestions: &[FixSuggestion]) -> bool {
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    suggestions
+        .iter()
+        .map(|s| file_stem(Path::new(&s.target)))
+        .any(|stem| !seen.insert(stem))
 }
 
 /// Every heading in `target_note`, ranked by GFM-slug edit distance to
@@ -1607,11 +1657,13 @@ fn rank_anchor_candidates<'a>(
                 text_distance,
                 text_slug.as_str(),
                 &heading_slug,
+                None,
             );
             RankedCandidate {
                 candidate: h,
                 path_distance,
                 text_distance,
+                dir_distance: None,
                 combined,
             }
         })
@@ -1647,6 +1699,7 @@ fn rank_link_candidates(
             let path_distance = edit_distance(&clean_target, &rel);
             let stem_slug = slug(file_stem(&n.path));
             let text_distance = text_signal.map(|t| edit_distance(t, &stem_slug));
+            let dir_dist = dir_distance(source_dir, &n.path);
             let combined = combined_distance(
                 path_distance,
                 &clean_target,
@@ -1654,11 +1707,13 @@ fn rank_link_candidates(
                 text_distance,
                 text_slug.as_str(),
                 &stem_slug,
+                Some(dir_dist),
             );
             RankedCandidate {
                 candidate: rel,
                 path_distance,
                 text_distance,
+                dir_distance: Some(dir_dist),
                 combined,
             }
         })
@@ -1713,7 +1768,7 @@ pub(crate) fn compute_diagnostics_with_suggestions(
         let Some(NumberOrString::String(code)) = &d.code else {
             continue;
         };
-        let (suggestions, mismatch) = if code == CODE_BROKEN_LINK {
+        let (suggestions, mismatch, same_basename) = if code == CODE_BROKEN_LINK {
             let Some(link) = note.md_links.iter().find(|l| l.target_range == d.range) else {
                 continue;
             };
@@ -1728,7 +1783,8 @@ pub(crate) fn compute_diagnostics_with_suggestions(
                     text_distance: c.text_distance,
                 })
                 .collect();
-            (suggestions, mismatch)
+            let same_basename = same_basename(&suggestions);
+            (suggestions, mismatch, same_basename)
         } else if code == CODE_BROKEN_ANCHOR {
             let range = d.range;
             let Some(link) = note.md_links.iter().find(|l| {
@@ -1755,7 +1811,7 @@ pub(crate) fn compute_diagnostics_with_suggestions(
                     text_distance: c.text_distance,
                 })
                 .collect();
-            (suggestions, mismatch)
+            (suggestions, mismatch, false)
         } else {
             continue;
         };
@@ -1764,6 +1820,9 @@ pub(crate) fn compute_diagnostics_with_suggestions(
             let mut data = serde_json::json!({ "suggestions": suggestions });
             if mismatch {
                 data["text_mismatch"] = serde_json::json!(true);
+            }
+            if same_basename {
+                data["same_basename"] = serde_json::json!(true);
             }
             d.data = Some(data);
         }
@@ -2463,6 +2522,24 @@ mod tests {
             GotoDefinitionResponse::Scalar(loc) => loc,
             other => panic!("expected Scalar, got {:?}", other),
         }
+    }
+
+    // ── dir_distance ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn dir_distance_same_directory_is_zero() {
+        let from = Path::new("/vault/notes");
+        let to = Path::new("/vault/notes/b.md");
+        assert_eq!(dir_distance(from, to), 0);
+    }
+
+    #[test]
+    fn dir_distance_counts_up_levels() {
+        let from = Path::new("/vault/notes/sub");
+        let one_up = Path::new("/vault/notes/b.md");
+        let two_up = Path::new("/vault/b.md");
+        assert_eq!(dir_distance(from, one_up), 1);
+        assert_eq!(dir_distance(from, two_up), 2);
     }
 
     // ── relative_path ─────────────────────────────────────────────────────────
@@ -4374,7 +4451,7 @@ mod tests {
         let path_distance = 3;
         let path_a = "docs/guide.md";
         let path_b = "docs/guides.md";
-        let result = combined_distance(path_distance, path_a, path_b, None, "", "");
+        let result = combined_distance(path_distance, path_a, path_b, None, "", "", None);
         assert_eq!(result, normalized_distance(path_distance, path_a, path_b));
     }
 
@@ -4393,10 +4470,87 @@ mod tests {
             Some(text_distance),
             text_a,
             text_b,
+            None,
         );
         let path_norm = normalized_distance(path_distance, path_a, path_b);
         let text_norm = normalized_distance(text_distance, text_a, text_b);
-        let expected = PATH_WEIGHT * path_norm + TEXT_WEIGHT * text_norm;
+        // With dir_distance absent, this collapses to a plain 50/50
+        // path/text blend regardless of the underlying (now-equal-thirds)
+        // PATH_WEIGHT/TEXT_WEIGHT constants.
+        let expected = 0.5 * path_norm + 0.5 * text_norm;
+        assert!((result - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn combined_distance_with_all_three_terms_averages_equally() {
+        let path_distance = 3;
+        let path_a = "docs/guide.md";
+        let path_b = "docs/guides.md";
+        let text_distance = 1;
+        let text_a = "Guide";
+        let text_b = "Guides";
+        let dir_levels = 2;
+        let result = combined_distance(
+            path_distance,
+            path_a,
+            path_b,
+            Some(text_distance),
+            text_a,
+            text_b,
+            Some(dir_levels),
+        );
+        let path_norm = normalized_distance(path_distance, path_a, path_b);
+        let text_norm = normalized_distance(text_distance, text_a, text_b);
+        let dir_norm = normalized_dir_distance(dir_levels);
+        let expected = (path_norm + text_norm + dir_norm) / 3.0;
+        assert!((result - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn combined_distance_falls_back_to_path_and_text_when_dir_distance_is_none() {
+        let path_distance = 3;
+        let path_a = "docs/guide.md";
+        let path_b = "docs/guides.md";
+        let text_distance = 1;
+        let text_a = "Guide";
+        let text_b = "Guides";
+        let result = combined_distance(
+            path_distance,
+            path_a,
+            path_b,
+            Some(text_distance),
+            text_a,
+            text_b,
+            None,
+        );
+        let path_norm = normalized_distance(path_distance, path_a, path_b);
+        let text_norm = normalized_distance(text_distance, text_a, text_b);
+        // Reproduces the exact pre-change 50/50 path/text blend (the anchor
+        // case), independent of the underlying equal-thirds constants.
+        let expected = 0.5 * path_norm + 0.5 * text_norm;
+        assert!((result - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn combined_distance_falls_back_to_path_and_dir_when_text_distance_is_none() {
+        let path_distance = 3;
+        let path_a = "docs/guide.md";
+        let path_b = "docs/guides.md";
+        let dir_levels = 2;
+        let result = combined_distance(
+            path_distance,
+            path_a,
+            path_b,
+            None,
+            "",
+            "",
+            Some(dir_levels),
+        );
+        let path_norm = normalized_distance(path_distance, path_a, path_b);
+        let dir_norm = normalized_dir_distance(dir_levels);
+        // Blends path+dir 50/50, not path alone — text being absent doesn't
+        // mean falling all the way back to a single term when dir is present.
+        let expected = 0.5 * path_norm + 0.5 * dir_norm;
         assert!((result - expected).abs() < 1e-9);
     }
 
@@ -4410,6 +4564,7 @@ mod tests {
             candidate: candidate.to_string(),
             path_distance,
             text_distance,
+            dir_distance: None,
             combined,
         }
     }
@@ -4436,6 +4591,38 @@ mod tests {
     fn text_mismatch_false_on_empty_ranked() {
         let ranked: Vec<RankedCandidate<String>> = vec![];
         assert!(!text_mismatch(&ranked));
+    }
+
+    fn fix_suggestion(target: &str) -> FixSuggestion {
+        FixSuggestion {
+            target: target.to_string(),
+            distance: 0,
+            text_distance: None,
+        }
+    }
+
+    #[test]
+    fn same_basename_true_when_two_suggestions_share_a_stem() {
+        let suggestions = vec![
+            fix_suggestion("../notes/storage.md"),
+            fix_suggestion("storage.md"),
+        ];
+        assert!(same_basename(&suggestions));
+    }
+
+    #[test]
+    fn same_basename_false_when_all_targets_distinct() {
+        let suggestions = vec![
+            fix_suggestion("reference/config.md"),
+            fix_suggestion("reference/cache.md"),
+        ];
+        assert!(!same_basename(&suggestions));
+    }
+
+    #[test]
+    fn same_basename_false_for_single_suggestion() {
+        let suggestions = vec![fix_suggestion("storage.md")];
+        assert!(!same_basename(&suggestions));
     }
 
     #[test]
@@ -4500,6 +4687,56 @@ mod tests {
             .find(|c| c.candidate == "a/b/c/target.md")
             .expect("expected the nested candidate");
         assert_eq!(candidate.text_distance, Some(0));
+    }
+
+    #[test]
+    fn rank_link_candidates_prefers_same_directory_over_closer_raw_path_distance() {
+        // Mirrors Trial 10's gateway.md failure shape: the broken link's raw
+        // target text keeps a "../projects/" prefix that string edit
+        // distance alone rewards in the wrong-directory decoys
+        // ("../notes/storage.md", "../topics/storage.md"), even though the
+        // correct candidate ("storage.md") lives in the same directory as
+        // the linking note and has a worse raw path_distance.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/projects/storage.md", ""));
+        idx.seed(note("/vault/notes/storage.md", ""));
+        idx.seed(note("/vault/topics/storage.md", ""));
+        idx.seed(note(
+            "/vault/projects/gateway.md",
+            "[Storage](../projects/storage-removed.md)",
+        ));
+        let ranked = rank_link_candidates(
+            "../projects/storage-removed.md",
+            "",
+            Path::new("/vault/projects/gateway.md"),
+            &idx,
+        );
+        assert_eq!(ranked[0].candidate, "storage.md");
+    }
+
+    #[test]
+    fn rank_anchor_candidates_unaffected_by_dir_distance_signal() {
+        // Anchors have no directory concept, so dir_distance is always
+        // None and the combined score must reduce to the exact pre-change
+        // path/text 50/50 blend — unaffected by the new third term.
+        let target = note("/vault/b.md", "## Installation\n## Configuration\n");
+        let ranked = rank_anchor_candidates("instalaton", "Configuration", &target);
+        assert_eq!(ranked[0].candidate.text, "Configuration");
+        assert!(ranked.iter().all(|c| c.dir_distance.is_none()));
+
+        let broken_slug = slug("instalaton");
+        let text_slug = slug("Configuration");
+        for c in &ranked {
+            let heading_slug = slug(&c.candidate.text);
+            let path_norm = normalized_distance(c.path_distance, &broken_slug, &heading_slug);
+            let expected = match c.text_distance {
+                Some(d) => {
+                    0.5 * path_norm + 0.5 * normalized_distance(d, &text_slug, &heading_slug)
+                }
+                None => path_norm,
+            };
+            assert!((c.combined - expected).abs() < 1e-9);
+        }
     }
 
     #[test]
@@ -4624,6 +4861,71 @@ mod tests {
         assert!(
             data.get("text_mismatch").is_none(),
             "expected no text_mismatch key, got {data:?}"
+        );
+    }
+
+    #[test]
+    fn compute_diagnostics_with_suggestions_sets_same_basename_flag() {
+        // Trial 10's gateway.md shape: three same-basename storage.md
+        // candidates at different directory depths.
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/projects/storage.md", ""));
+        idx.seed(note("/vault/notes/storage.md", ""));
+        idx.seed(note("/vault/topics/storage.md", ""));
+        idx.seed(note(
+            "/vault/projects/gateway.md",
+            "[Storage](../projects/storage-removed.md)",
+        ));
+        let diags = compute_diagnostics_with_suggestions(
+            Path::new("/vault/projects/gateway.md"),
+            &idx,
+            &crate::config::Config::default(),
+            3,
+        );
+        assert_eq!(diags.len(), 1);
+        let data = diags[0].data.as_ref().expect("expected suggestions data");
+        assert_eq!(data["same_basename"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn compute_diagnostics_with_suggestions_omits_same_basename_when_absent() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note("/vault/reference/config.md", ""));
+        idx.seed(note("/vault/reference/cache.md", ""));
+        idx.seed(note("/vault/a.md", "[Config](reference/config-removed.md)"));
+        let diags = compute_diagnostics_with_suggestions(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+            3,
+        );
+        assert_eq!(diags.len(), 1);
+        let data = diags[0].data.as_ref().expect("expected suggestions data");
+        assert!(
+            data.get("same_basename").is_none(),
+            "expected no same_basename key, got {data:?}"
+        );
+    }
+
+    #[test]
+    fn compute_diagnostics_with_suggestions_never_sets_same_basename_for_anchors() {
+        let mut idx = NoteIndex::default();
+        idx.seed(note(
+            "/vault/b.md",
+            "## Storage\n## Storage\n## Storage Notes\n",
+        ));
+        idx.seed(note("/vault/a.md", "[Storage](b.md#storag)"));
+        let diags = compute_diagnostics_with_suggestions(
+            Path::new("/vault/a.md"),
+            &idx,
+            &crate::config::Config::default(),
+            3,
+        );
+        assert_eq!(diags.len(), 1);
+        let data = diags[0].data.as_ref().expect("expected suggestions data");
+        assert!(
+            data.get("same_basename").is_none(),
+            "expected no same_basename key for broken-anchor, got {data:?}"
         );
     }
 

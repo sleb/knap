@@ -324,6 +324,25 @@ fn lint_suggest_text_mode_notes_text_mismatch() {
 }
 
 #[test]
+fn lint_suggest_text_mode_notes_same_basename() {
+    // Trial 10's gateway.md shape: three same-basename storage.md
+    // candidates at different directory depths.
+    let dir = copy_fixture("fix_same_basename_link");
+    let output = knap()
+        .args(["lint", ".", "--suggest"])
+        .current_dir(dir.path())
+        .output()
+        .expect("failed to run knap");
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.lines().any(|line| line
+            == "    (top suggestions share a filename — path ranking alone can't tell them apart; verify by directory or content)"),
+        "stdout was: {stdout}"
+    );
+}
+
+#[test]
 fn lint_without_suggest_prints_no_candidate_lines() {
     let dir = copy_fixture("fix_repoint_broken_link");
     let output = knap()

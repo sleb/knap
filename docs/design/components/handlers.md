@@ -602,51 +602,91 @@ pub(crate) fn compute_anchor_fix(
   once per candidate heading (a human picks); it's also the execution side
   of `knap apply`'s `repoint-anchor` op (`src/cli/apply.rs`).
 
-### Text-aware ranking: `RankedCandidate`, `combined_distance()`, `unambiguous_winner()`, `text_mismatch()` (v0.16)
+### Text-aware ranking: `RankedCandidate`, `combined_distance()`, `unambiguous_winner()`, `text_mismatch()` (v0.16), `dir_distance()`/`same_basename()` (v0.25)
 
 Added to stop `rank_link_candidates`/`rank_anchor_candidates` from being
 fooled by a broken target/slug that happens to be textually close to the
 _wrong_ note when the link's own visible text names the _right_ one (e.g.
 `[Sync 835](sync-800.md)` — the raw target is one edit from `sync-800.md`
 but the link text names `sync-835.md`). Every ranked candidate now carries
-two distance signals blended into one sort key, and
+distance signals blended into one sort key, and
 `compute_diagnostics_with_suggestions` reports the disagreement via
 `text_mismatch` rather than picking a winner, instead of trusting the
 blended score alone.
 
+v0.25 added a third signal, directory proximity, after Trial 10 of the
+[agentic efficiency
+benchmark](../../experiments/agentic-efficiency-benchmark.md) found that
+when several candidates share a file's basename, raw path-edit-distance
+rewards a candidate that keeps the broken link's `../<dir>/` prefix shape
+over the correct same-directory candidate that drops it, and every
+same-basename candidate ties on `text_distance` too — nothing broke the tie
+correctly. `same_basename` makes that tie visible to the caller instead of
+silently indistinguishable, the same shift `text_mismatch` made for the
+text-disagreement case in v0.16.
+
 ```rust
 fn edit_distance(a: &str, b: &str) -> usize
+fn dir_distance(from_dir: &Path, to: &Path) -> usize
 struct RankedCandidate<T> {
     candidate: T,
     path_distance: usize,
     text_distance: Option<usize>, // None when the link has no usable display text
+    dir_distance: Option<usize>,  // None for anchor candidates (no directory concept)
     combined: f64,
 }
-const PATH_WEIGHT: f64 = 0.5;
-const TEXT_WEIGHT: f64 = 0.5;
+const PATH_WEIGHT: f64 = 1.0 / 3.0;
+const TEXT_WEIGHT: f64 = 1.0 / 3.0;
+const DIR_WEIGHT: f64 = 1.0 / 3.0;
 fn normalized_distance(distance: usize, a: &str, b: &str) -> f64
+fn normalized_dir_distance(levels: usize) -> f64
 fn combined_distance(
     path_distance: usize, path_a: &str, path_b: &str,
     text_distance: Option<usize>, text_a: &str, text_b: &str,
+    dir_distance: Option<usize>,
 ) -> f64
 fn text_mismatch<T: PartialEq>(ranked: &[RankedCandidate<T>]) -> bool
+fn same_basename(suggestions: &[FixSuggestion]) -> bool
 ```
 
 - `edit_distance` — byte-wise Levenshtein distance. GFM slugs are already
   lowercase ASCII alphanumerics and hyphens, so byte-wise is equivalent to
   char-wise here.
+- `dir_distance` — directory levels `from_dir` must climb before it can
+  descend to `to`'s parent (`0` when `to` lives in `from_dir` itself).
+  Factored out of `relative_path`'s existing "how many `..` levels"
+  arithmetic (`relative_path` now calls `dir_distance` for its own up-count)
+  so ranking can use it as a signal independent of the string
+  `relative_path` builds.
 - `normalized_distance` — a raw edit distance divided by the longer of the
   two compared strings' character counts, so short link text isn't swamped
   by (or doesn't swamp) full relative paths regardless of the weights.
-- `combined_distance` — `PATH_WEIGHT * normalized(path_distance) +
-TEXT_WEIGHT * normalized(text_distance)`, falling back to the path term
-  alone when there's no text signal (empty link text, or text identical to
-  its own target) — a link with no usable display text ranks exactly as it
-  did before v0.16.
+- `normalized_dir_distance` — `levels / (levels + 1.0)`, mapping a raw
+  directory-level count to roughly `[0, 1)` (`0` for the same directory,
+  approaching `1` as the candidate gets further away) so it's comparable in
+  magnitude to the other two normalized terms regardless of how deep the
+  vault's directory tree happens to be.
+- `combined_distance` — a weighted average over whichever of the path/text/
+  dir terms are present (`PATH_WEIGHT`/`TEXT_WEIGHT`/`DIR_WEIGHT`, all
+  `1.0 / 3.0`), falling back to fewer terms when a signal is unavailable.
+  `dir_distance: None` (the anchor case — headings have no directory
+  concept) collapses back to the pre-v0.25 path/text 50/50 blend;
+  `text_distance: None` (no usable link text) collapses to path+dir 50/50,
+  not path alone; both absent falls back to path alone, exactly as before
+  v0.16.
 - `text_mismatch` — `true` when the top-`combined` candidate isn't also the
   top candidate by `text_distance` alone, i.e. the link's own visible text
   points somewhere the blended ranking didn't land. Always `false` when no
   candidate has a text signal — nothing to disagree with.
+- `same_basename` — `true` when at least two of a `broken-link`
+  diagnostic's returned suggestions (the `top_n` the caller can actually
+  see, not the full ranked list) share a file stem, e.g. `storage.md` and
+  `../notes/storage.md`. Flags the case where path-based ranking alone
+  can't disambiguate the top candidates because they're literally different
+  files with the same name — `text_distance` and `dir_distance` are both
+  tied across them too — so the caller should verify by directory or
+  content rather than trust rank order blindly. `false` with fewer than two
+  suggestions.
 
 `rank_anchor_candidates(broken_slug, link_text, target_note) ->
 Vec<RankedCandidate<&Heading>>` and `rank_link_candidates(broken_target,
@@ -654,8 +694,13 @@ link_text, source, index) -> Vec<RankedCandidate<String>>` (both private)
 compute `path_distance` as before (slug-to-slug / target-to-relative-path)
 and `text_distance` as the edit distance between the link text's GFM slug
 and the candidate's own slug (heading text, or file stem for links), then
-sort by `combined`. Both are used by `knap lint --suggest` (which wants the
-whole ranked list, `text_distance` included, to show the agent).
+sort by `combined`. `rank_link_candidates` additionally computes
+`dir_distance(source_dir, &n.path)` per candidate and passes it through;
+`rank_anchor_candidates` always passes `dir_distance: None` — headings
+within one file have no directory to be near or far from, so its output is
+unaffected by the v0.25 change. Both are used by `knap lint --suggest`
+(which wants the whole ranked list, `text_distance`/`dir_distance`
+included, to show the agent).
 
 ### `compute_link_fix()` (v0.13, text-aware since v0.16)
 
@@ -676,7 +721,7 @@ pub(crate) fn compute_link_fix(source: &Path, target_range: Range, new_target: &
 The execution side of `knap apply`'s `repoint-link` op
 (`src/cli/apply.rs`) — the caller supplies the already-chosen `new_target`.
 
-### `compute_diagnostics_with_suggestions()` (v0.13, `text_distance`/`text_mismatch` since v0.16)
+### `compute_diagnostics_with_suggestions()` (v0.13, `text_distance`/`text_mismatch` since v0.16, `same_basename` since v0.25)
 
 ```rust
 pub(crate) fn compute_diagnostics_with_suggestions(
@@ -699,6 +744,16 @@ for a `broken-link` candidate, or `"#slug"` for a `broken-anchor` candidate;
 output verbatim, no `data` field added — this is what lets `knap lint`
 without `--suggest` stay byte-for-byte identical to before this function
 existed.
+
+In the `broken-link` branch only, also computes `same_basename(&suggestions)`
+over the already-built `suggestions` (the `top_n` actually returned) and sets
+`"same_basename": true` alongside `text_mismatch` when it returns `true`
+(omitted, like `text_mismatch`, when `false`). Both flags are independent
+and can both be present on the same diagnostic — a same-basename tie can
+still have a text-signal disagreement layered on top. The `broken-anchor`
+branch never sets `same_basename` — Trial 10's failure shape is
+link-target-specific (multiple files sharing a name), not something
+headings exhibit the same way.
 
 Used only by `knap lint --suggest` (`src/cli/lint.rs`) — the LSP server
 keeps calling plain `compute_diagnostics` for `textDocument/publishDiagnostics`,

@@ -7,6 +7,18 @@ All notable changes to knap are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **`knap lint --suggest`'s link ranking now weighs directory proximity to
+  the linking file as a third signal**, alongside path/text distance, so a
+  same-basename decoy that keeps a broken link's `../<dir>/` prefix shape no
+  longer outranks the correct same-directory candidate that drops it.
+- **`same_basename` flag on `--suggest` diagnostics.** A `broken-link`
+  diagnostic's `data` now carries `"same_basename": true` when its returned
+  suggestions share a filename (e.g. `storage.md` and `../notes/storage.md`)
+  — a signal that path-based ranking alone can't disambiguate them, so pick
+  by directory or content instead of rank order alone.
+
 ### Changed
 
 - **Shipped skill moved to `skills/knap/`** (was `skill/knap/`), the

@@ -13,11 +13,11 @@ down untested code for the next step to build on.
 
 | Step                                                     | Status | Notes |
 | ---------------------------------------------------------- | ------ | ----- |
-| 1 — Directory-proximity ranking signal                  | Todo   |       |
-| 2 — `same_basename` diagnostic flag                     | Todo   |       |
-| 3 — CLI output for `same_basename`                       | Todo   |       |
-| 4 — Update docs                                          | Todo   |       |
-| 5 — Full verification + Trial 11 re-run                  | Todo   |       |
+| 1 — Directory-proximity ranking signal                  | Done   |       |
+| 2 — `same_basename` diagnostic flag                     | Done   |       |
+| 3 — CLI output for `same_basename`                       | Done   |       |
+| 4 — Update docs                                          | Done   |       |
+| 5 — Full verification + Trial 11 re-run                  | Partial | Quality gate (test/clippy/fmt/release build) done; Trial 11 benchmark re-run deferred at user's request |
 
 ---
 

@@ -459,6 +459,21 @@ also carries a `text_mismatch` flag when the two signals disagree on which
 candidate is best, so I get an explicit warning instead of a silently
 plausible top pick.
 
+**US-D28** — As an agent, `knap lint --suggest`'s ranking for `broken-link`
+candidates also weighs directory proximity to the linking file, not just
+raw path-string distance and link text, so a same-basename decoy that keeps
+the broken link's `../<dir>/` prefix shape doesn't outrank the correct
+same-directory candidate that drops it. `broken-anchor` candidates are
+unaffected — headings within one file have no directory to be near or far
+from.
+
+**US-D29** — As an agent, when `knap lint --suggest`'s returned candidates
+for a `broken-link` diagnostic share a filename (e.g. `storage.md` and
+`../notes/storage.md`), the diagnostic's `data` carries a `same_basename`
+flag, so I know path-based ranking alone can't disambiguate them and know to
+verify by directory or content instead of trusting rank order on a tie the
+ranking itself can't break.
+
 ---
 
 ### Batch Apply
