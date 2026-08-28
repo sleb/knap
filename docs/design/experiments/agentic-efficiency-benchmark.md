@@ -1339,6 +1339,118 @@ None new. Two procedural items for whoever runs the next trial:
    currently only described in prose in Trial 6's writeup, not captured as
    a script flag or template file).
 
+### Trial 9 — 2026-08-27, N=1 per condition, Haiku 4.5, 200-note vault (dry run, v0.24 hints + v0.25 skill restructure)
+
+A dry run to check two things landed since Trial 8: v0.24's `hint` field
+(`knap lint`/`apply`/`rename-*`/`index` each now nudge an agent toward its
+next command, in both text and `--json` output) and v0.25's skill restructure
+(`skill/knap/SKILL.md` moved to `skills/knap/SKILL.md` + split into an
+entrypoint plus `skills/knap/reference/{lint,apply,rename,index}.md`). Also
+the first trial run since `scripts/bench-setup-trial.sh` needed a fix: it
+still installed the pre-restructure single-file `skill/knap/SKILL.md`, which
+no longer exists at that path — fixed to copy the whole `skills/knap/` tree
+(entrypoint + `reference/*.md`) into `knap-assisted/.claude/skills/knap/`
+before this trial could run at all.
+
+Setup: `scripts/bench-setup-trial.sh --seed 1 --notes 200` (defaults for
+`--broken-links`/`--broken-anchors`) against `knap` 0.24.0 (this branch,
+carrying both changes), installed on `PATH` via `cargo install --path .
+--force`, verified by the script's own PATH-version check. Confirmed
+byte-identical to Trials 3–8: hub `topics/release.md` (17 backlinks), split
+target `reference/cache.md` (14 backlinks), tag `archived`, `knap lint
+--json` reporting exactly 20/20 seeded problems pre-run. Two fresh git repos
+seeded at the identical `bench-vault-seed` tag, each dispatched as an
+isolated Agent-tool subagent pinned to Haiku 4.5. Following Trial 8 (not
+Trial 6/7), this used the script's default rendered prompt — task list only,
+relying on the installed `CLAUDE.md` plus the check-for-`CLAUDE.md`
+pre-step, no explicit knap mention — since Trial 8's open procedural item
+(state which protocol is standing) is still unresolved and this trial's own
+purpose was validating the new skill layout works at all, not an
+apples-to-apples efficiency comparison against Trial 6.
+
+| Metric                                    | Baseline | knap-assisted | Δ                        |
+| ------------------------------------------ | -------- | -------------- | ------------------------ |
+| Wall time (harness `duration_ms`)         | 274.5s   | 309.6s         | knap **12.8% slower**    |
+| Tokens (harness `subagent_tokens`)        | 57,916   | 67,301         | knap **16.2% more**      |
+| Tool calls (harness `tool_uses`)          | 82       | 83             | knap +1                  |
+| Files changed (`git diff --stat`)         | 97       | 95†            | ~tie                     |
+| Broken links/anchors left (`knap lint`)   | 0        | 0              | tie                      |
+| Malformed/unparseable links (whole vault) | 0        | 0              | tie                      |
+| Seeded-fix accuracy (vs. ground truth)    | **20/20**| **20/20**      | tie                      |
+| Tasks fully completed (of 7)              | 7/7      | 7/7            | tie                      |
+
+† excludes `.claude/skills/knap/`, which was pre-installed setup, not an
+agent edit.
+
+**Correctness is clean, and that's the headline this trial actually needed.**
+Both the new multi-file skill layout and the `hint` field went through their
+first real benchmark exercise here with no regression: `knap lint` reports
+zero problems in both vaults, an independent whole-vault malformed-link scan
+(the check Trial 6's corruption fix added) found nothing in either, and — the
+strictest check — every one of the 20 seeded defects resolves to the correct
+ground-truth target in both conditions, verified by resolving each actual
+link relative to its containing file and comparing against
+`BENCH_MANIFEST.json`'s `original_target` (not a raw string match, per the
+scoring note from Trial 5). The knap-assisted transcript's own summary
+confirms it drove the tool as intended: `rename-file`/`rename-heading`/
+`rename-tag` for steps 1–3, then 21 `knap apply` operations (11 `repoint-link`
++ 8 `repoint-anchor` + 2 edge-case fixes) built from `lint --suggest`
+diagnostics for step 6, and a final `knap lint` confirming zero problems for
+step 7 — the loop `skills/knap/SKILL.md` prescribes, working end to end
+against the new file layout.
+
+**Efficiency reversed again, in the same shape as Trial 8's reversal.** Every
+metric flipped against knap-assisted, same as Trial 8 (and unlike Trials 3,
+5, 6, 7): slower wall time, more tokens, effectively tied tool calls (+1).
+Both this trial and Trial 8 share the same protocol choice — the default
+`CLAUDE.md`-only prompt rather than Trial 6/7's explicit knap-mention
+departure — which is the most likely shared cause: self-directed discovery
+(finding `CLAUDE.md`, reading it, then reading the skill's entrypoint plus
+however many `reference/*.md` files it decided it needed) costs tool calls
+and tokens up front that the explicit-mention prompt skips entirely. This
+trial doesn't isolate whether the *split* skill (4 extra file reads to reach
+`reference/*.md` content the old single-file `SKILL.md` had inline) adds to
+that discovery cost specifically — that's a new variable Trial 8 didn't have
+— but it's consistent with, not necessarily caused by, the split: the
+underlying "default protocol costs more than explicit-mention" pattern
+already showed up once before the restructure existed.
+
+**Not the official run — N=1, same caveats as every prior dry run.** What
+this trial actually settles is narrower and still useful: the `hint` fields
+and the split skill layout don't break anything (setup script now works
+again, correctness ties cleanly at the strictest check available), and the
+efficiency question is unresolved for the same reason Trial 8 left it
+unresolved — this protocol choice doesn't isolate "does knap help" from
+"how expensive is unprompted discovery," which Trial 6/7's departure was
+built to do. An official N≥3 follow-up should pick one of two framings
+rather than default into Trial 8's: either reuse Trial 6/7's explicit-mention
+prompt for a clean read on the hints/split-skill content itself, or, if
+discovery cost under the new split layout is itself the question, treat that
+as what's being measured rather than an uncontrolled confound.
+
+## Opportunities for improvement surfaced by Trial 9
+
+**Status: proposed, not yet implemented.**
+
+### 1. Resolve Trial 8's open procedural item before the next official run
+
+Trials 8 and 9 both used the default `CLAUDE.md`-only prompt and both saw
+efficiency reverse against knap-assisted; Trials 3, 5, 6, and 7 didn't. That's
+now two data points, not one, suggesting the choice of prompt protocol may
+matter more than either trial's own writeup treated it as. Trial 8's
+Opportunity 1 (state explicitly which protocol is standing for official runs)
+is still open — this trial is a second reason to close it before spending an
+N≥3 run on either framing.
+
+### 2. Capture the explicit-mention prompt as a script flag, not prose
+
+Same as Trial 8's Opportunity 2, restated because it's now blocking a second
+trial's worth of apples-to-apples comparisons:
+`scripts/bench-setup-trial.sh` should grow a flag (e.g. `--explicit-mention`)
+that renders Trial 6/7's "the `knap` CLI is installed, use it" paragraph into
+`prompt.knap.txt`, so the choice is reproducible and diffable across trials
+instead of hand-copied from a prior trial's writeup.
+
 ## Threats to validity (call these out alongside results, don't bury them)
 
 - **N is small.** This is a manual protocol for a directional check, not a

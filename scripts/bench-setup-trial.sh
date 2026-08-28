@@ -3,10 +3,11 @@
 # in docs/design/experiments/agentic-efficiency-benchmark.md: builds knap,
 # generates a seeded vault, turns it into two git repos (baseline/,
 # knap-assisted/) at an identical bench-vault-seed tag, installs the knap
-# skill (+ a CLAUDE.md that names knap explicitly, so skill *discoverability*
-# isn't a variable in trials that aren't specifically testing that) into
-# knap-assisted/ only, and renders the 7-step task prompt with this seed's
-# concrete resolved names substituted in.
+# skill (skills/knap/, entrypoint + reference/*.md) plus a CLAUDE.md that
+# names knap explicitly, so skill *discoverability* isn't a variable in
+# trials that aren't specifically testing that) into knap-assisted/ only,
+# and renders the 7-step task prompt with this seed's concrete resolved
+# names substituted in.
 #
 # Usage:
 #   scripts/bench-setup-trial.sh --out DIR [--seed N] [--notes N]
@@ -216,7 +217,7 @@ done
 
 echo "==> installing knap skill + CLAUDE.md in knap-assisted/ only"
 mkdir -p "$OUT/knap-assisted/.claude/skills/knap"
-cp "$REPO_ROOT/skill/knap/SKILL.md" "$OUT/knap-assisted/.claude/skills/knap/SKILL.md"
+cp -r "$REPO_ROOT/skills/knap/." "$OUT/knap-assisted/.claude/skills/knap/"
 cat > "$OUT/knap-assisted/CLAUDE.md" <<'EOF'
 # Working notes
 
