@@ -1818,9 +1818,20 @@ not that knap's ranking fix is what did it this time.
 
 ## Opportunities for improvement surfaced by Trial 11
 
-**Status: proposed, not yet implemented.**
+**Status: Opportunity 1 is done (see below); Opportunity 2 (re-run N≥3) is
+still open, gated on Opportunity 1 landing.**
 
 ### 1. Make the benchmark's seeded-defect mangling non-mechanically-reversible
+
+**Done.** `examples/gen_bench_vault.rs`'s `mangle_word` now mangles a
+broken link's filename stem (and a broken anchor's slug) by deleting — or,
+for very short strings, duplicating — a single random character, retried
+against every real slug/heading-slug in the vault so the result can't
+collide with an actual note or heading by chance. This replaces the fixed
+`-removed`/`-stale` suffix that Trial 11 found both conditions' agents
+stripping mechanically instead of resolving against real candidates (e.g.
+`schema.md` → `schea.md`, `backup.md` → `bckup.md`, rather than
+`schema-removed.md`). Opportunity 2's re-run is next.
 
 `examples/gen_bench_vault.rs` mangles a link/anchor by appending a fixed,
 visible suffix (`-removed` for links, `-stale` for anchors) to an otherwise

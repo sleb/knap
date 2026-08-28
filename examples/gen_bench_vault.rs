@@ -242,6 +242,23 @@ fn main() {
         .collect();
 
     // ─── Render bodies ──────────────────────────────────────────────────
+    // Seeded-defect targets must be *unresolvable by string-stripping* — a
+    // fixed, recognizable marker (a literal `-removed`/`-stale` suffix) lets
+    // an agent "fix" the defect by pattern-matching the marker away instead
+    // of actually resolving the broken reference against real candidates in
+    // the vault. Mangling by deleting/duplicating a random character instead
+    // produces a target that doesn't exist but carries no recognizable
+    // shape, so recovering the correct one requires genuine matching
+    // (ranking, text, or directory signal). Collision-check against every
+    // real slug/heading-slug in the vault so a mangled target can't
+    // accidentally land on another real note or heading by chance.
+    let all_slug_names: std::collections::HashSet<String> =
+        notes.iter().map(|n| n.slug_name.clone()).collect();
+    let all_heading_slugs: std::collections::HashSet<String> = notes
+        .iter()
+        .flat_map(|n| n.headings.iter().map(|h| h.slug.clone()))
+        .collect();
+
     // Group planted links by source note so each note's body can weave them
     // into sentences in one pass.
     let mut by_source: Vec<Vec<usize>> = vec![Vec::new(); notes.len()];
@@ -289,7 +306,7 @@ fn main() {
                         file: note.rel_path(),
                         original_target: format!("{href}#{s}"),
                     });
-                    s = format!("{s}-stale");
+                    s = mangle_word(&s, &all_heading_slugs, &mut rng);
                 }
                 anchor_slug = Some(s);
             }
@@ -298,7 +315,8 @@ fn main() {
                     file: note.rel_path(),
                     original_target: href.clone(),
                 });
-                href = href.replace(".md", "-removed.md");
+                let mangled_stem = mangle_word(&target.slug_name, &all_slug_names, &mut rng);
+                href = href.replacen(&target.slug_name, &mangled_stem, 1);
             }
             let dest = match &anchor_slug {
                 Some(s) => format!("{href}#{s}"),
@@ -370,6 +388,33 @@ fn titlecase(s: &str) -> String {
 
 fn section_word(i: usize) -> &'static str {
     ["Overview", "Details", "Notes", "Background", "Appendix"][i % 5]
+}
+
+/// Mangles `s` into a same-shaped but non-existent string by deleting (or,
+/// for very short strings, duplicating) a random character — never by
+/// appending a fixed, recognizable marker. Retries against `existing` so the
+/// result can't accidentally collide with a real slug/heading-slug already
+/// in the vault.
+fn mangle_word(s: &str, existing: &std::collections::HashSet<String>, rng: &mut StdRng) -> String {
+    for _ in 0..8 {
+        let mut chars: Vec<char> = s.chars().collect();
+        if chars.is_empty() {
+            break;
+        }
+        let idx = rng.random_range(0..chars.len());
+        if chars.len() > 3 {
+            chars.remove(idx);
+        } else {
+            chars.insert(idx, chars[idx]);
+        }
+        let candidate: String = chars.into_iter().collect();
+        if candidate != s && !existing.contains(&candidate) {
+            return candidate;
+        }
+    }
+    // Astronomically unlikely fallback: still non-mechanical (not a fixed
+    // suffix), just not collision-checked.
+    format!("{s}{}", rng.random_range(0..10))
 }
 
 /// Relative path from a note in `from_dir` to another note's vault-root
