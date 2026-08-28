@@ -1636,7 +1636,18 @@ address, because identical filenames make the text signal a no-op.
 
 ## Opportunities for improvement surfaced by Trial 10
 
-**Status: proposed, not yet implemented.**
+**Status: Opportunities 1–3 implemented** (`1380256`, "Rank link suggestions
+by directory proximity and flag shared basenames") — directory proximity
+folded into `rank_link_candidates`, `same_basename` flag added to
+`--suggest` diagnostics, and `skills/knap/reference/lint.md` reworded to
+warn about a correct-but-lower-ranked answer. Verified directly against
+this exact seed's `projects/gateway.md` diagnostic before Trial 11 ran:
+`storage.md` (the correct target) now ranks first with `same_basename:
+true` set, ahead of both wrong-directory decoys that beat it in Trial 10.
+**Opportunity 4 (re-run N≥3) is done — see Trial 11 below — but see that
+trial's own caveat: the live agent runs didn't end up exercising this
+ranking at all**, for a reason specific to this benchmark's defect
+generator, not the fix.
 
 ### 1. Break same-filename ties using directory proximity to the linking file, not just string distance
 
@@ -1684,6 +1695,159 @@ already established across 8 trials now) at N≥3, and check specifically
 whether `projects/gateway.md`'s three-way `storage.md` collision resolves
 correctly this time, not just whether `knap lint`'s `problem_count` stays at
 zero.
+
+### Trial 11 — 2026-08-27, N=3 per condition, Haiku 4.5, 200-note vault (official run, directory-proximity fix confirmation)
+
+The N≥3 follow-up Trial 10's Opportunity 4 called for, on the identical
+seed-1/200-note setup (`scripts/bench-setup-trial.sh --seed 1 --notes 200`,
+confirmed byte-identical to Trials 3–10: hub `topics/release.md`/17
+backlinks, split target `reference/cache.md`/14 backlinks, tag `archived`,
+20/20 seeded problems pre-run), `knap` built from this branch at `1380256`
+("Rank link suggestions by directory proximity and flag shared basenames",
+still `0.24.0`/Unreleased per `CHANGELOG.md`), installed via `cargo install
+--path . --force` and verified on `PATH` by the setup script's own
+version check. The single seeded `baseline/`/`knap-assisted/` pair was
+copied into 3 independent git repos per condition
+(`baseline-run{1,2,3}`, `knap-assisted-run{1,2,3}`), each at the identical
+`bench-vault-seed` tag, dispatched as a fully independent, isolated
+Agent-tool subagent pinned to `claude-haiku-4-5`, no shared context between
+runs or across conditions, given the exact prompt the script rendered for
+its condition (task text plus the standing `knap-mention.txt` paragraph for
+knap-assisted, nothing else — the protocol `f9399f3` made standing, same as
+Trial 10).
+
+Before spending the run, the fix was checked directly against Trial 10's
+own failure case: a fresh `knap lint --suggest --json` against the
+unmodified seed vault now ranks `storage.md` first for
+`projects/gateway.md`'s broken link, with `data.same_basename: true` set,
+ahead of the two wrong-directory decoys (`../notes/storage.md`,
+`../topics/storage.md`) that beat it in Trial 10.
+
+| Metric                                    | Baseline (median)  | knap-assisted (median) | Δ                              |
+| ------------------------------------------ | ------------------- | ------------------------ | ------------------------------ |
+| Wall time (harness `duration_ms`)         | 291.4s              | 260.3s                   | knap **10.7% faster**          |
+| Tokens (harness `subagent_tokens`)        | 67,880              | 55,833                   | knap **17.7% fewer**           |
+| Tool calls (harness `tool_uses`)          | 105                 | 99                       | knap **5.7% fewer**            |
+| Files changed (`git diff --stat`)         | 93                  | 100                      | ~tie                           |
+| Broken links/anchors left (`knap lint`)   | 1 of 3 runs (self-introduced, not seeded) | 0 (all 3 runs) | knap **cleaner**  |
+| Malformed/unparseable links (whole vault) | 0 (all 3 runs)      | 0 (all 3 runs)            | tie — corruption fix still holds |
+| Seeded-fix accuracy (vs. ground truth)    | **20/20** (all 3)   | **20/20** (all 3)         | tie — see caveat below         |
+| Tasks fully completed (of 7)              | 2 of 3 clean (see below) | 3 of 3 clean         | knap **cleaner**               |
+
+Per-run raw numbers, for the record:
+
+| Run                | Wall time | Tokens | Tool calls | Files changed |
+| ------------------ | --------- | ------ | ---------- | -------------- |
+| baseline-run1      | 550.8s    | 88,160 | 164        | 77             |
+| baseline-run2      | 271.0s    | 63,145 | 103        | 93             |
+| baseline-run3      | 291.4s    | 67,880 | 105        | 101            |
+| knap-assisted-run1 | 260.3s    | 55,833 | 99         | 100            |
+| knap-assisted-run2 | 276.2s    | 60,231 | 103        | 101            |
+| knap-assisted-run3 | 215.9s    | 52,827 | 79         | 92             |
+
+**Efficiency favors knap-assisted cleanly on all three harness metrics for
+the first time since Trial 7** — every metric moved knap's direction,
+unlike Trial 10's mixed picture (tool calls only) or Trials 8/9's outright
+reversal. `baseline-run1` is a clear outlier (550.8s/88,160 tokens/164 tool
+calls, roughly double every other run in either condition) that pulls the
+baseline median up; even discounting it, `baseline-run2`/`run3` (271.0s/
+63,145 tokens/103 calls and 291.4s/67,880/105) still land above every
+knap-assisted run on wall time and tokens.
+
+**`baseline-run1` also has the trial's one real correctness finding.**
+`knap lint` reports `problem_count: 1` in `baseline-run1` — not one of the
+20 seeded defects (those all resolved cleanly, see below), but a broken
+anchor the agent introduced itself in step 4: it created
+`reference/monitoring.md` linking to `reference/metrics.md#release-overview`,
+a heading that doesn't exist in `metrics.md`. The agent's own step-7
+self-check ("verified no broken links remain... all referenced headings
+exist") was wrong — a hand-verification that missed its own self-authored
+defect, the kind of thing `knap lint` catches for free and hand-grep can
+miss. All 3 knap-assisted runs, and `baseline-run2`/`run3`, introduced no
+such defect. This is a single instance, not a pattern (2 of 3 baseline runs
+were clean), but it's exactly the class of error the hypothesis's step 7 was
+designed to surface, and this time it was the knap-assisted condition's
+built-in final-check habit (all 3 transcripts show a `knap lint` as the last
+tool call) that would have caught it, had baseline made the same mistake
+under knap.
+
+**Seeded-fix accuracy is a clean 20/20 for both conditions — but this
+run's biggest finding is that this metric didn't actually test what Trial
+10's Opportunity 4 asked it to test.** Cross-checking every one of the 20
+seeded defects against `BENCH_MANIFEST.json`'s `original_target` (resolving
+both the recorded and actual link/anchor relative to their containing file,
+not a raw string match, per Trial 5's scoring note) found all 6 runs — both
+conditions — landed every fix correctly, including the exact
+`projects/gateway.md` (`storage.md`) and `reference/billing.md`
+(`sync-835.md`) cases Trial 10 got wrong. That reads like unambiguous
+confirmation of the fix, but reading all 6 transcripts' own summaries shows
+why it isn't: every run, in both conditions, describes fixing step 6 by
+literally stripping a `-removed`/`-stale` suffix from the broken target
+string — e.g. `../projects/storage-removed.md` → `../projects/storage.md`,
+`#session-notes-stale` → `#session-notes`. That's not a coincidence of
+phrasing; it's how `examples/gen_bench_vault.rs`'s seeded-defect mangling
+actually works (confirmed directly: `projects/gateway.md`'s broken link
+literally reads `[Storage](../projects/storage-removed.md)`,
+`notes/deployment.md`'s broken anchor literally reads
+`#session-notes-stale`) — the correct answer is always mechanically
+recoverable from the broken string itself by stripping a fixed suffix,
+with zero need to disambiguate against any decoy, rank candidates, or use
+`knap` at all. Both conditions' Haiku agents apparently noticed this
+pattern and used it directly this run, which is why baseline also went
+20/20 (matching every prior trial) but, more importantly, why
+knap-assisted's 20/20 doesn't demonstrate live-agent trust in the fixed
+ranking the way Trial 4/6/8/10's wrong repoints demonstrated live-agent
+*mistrust* of the old one — no run's transcript shows the agent consulting
+`data.suggestions` for step 6 at all. **The only actual confirmation that
+Opportunities 1–2 fixed the ranking is the manual, off-agent `knap lint
+--suggest --json` check performed before this trial was dispatched** (see
+above) — real, but not what an N≥3 live-agent trial is for. This is a
+benchmark-generator gap, not a knap-side one: see Opportunity 1 below.
+
+**Per the hypothesis's own bar (wins/ties on tokens/time *provided*
+correctness ties/wins), Trial 11 supports the hypothesis** — knap-assisted
+wins cleanly on all three efficiency metrics, and correctness ties (20/20
+both conditions) or favors knap-assisted slightly (`baseline-run1`'s
+self-introduced defect). This is the first trial since Trial 7 to land
+cleanly on the hypothesis's side without a correctness caveat working
+against it. The efficiency win should still be read against
+`baseline-run1`'s outlier weight on the baseline median, and the
+seeded-fix tie should be read with the mangling-shortcut caveat above in
+mind — it confirms both conditions get the *easy* version of step 6 right,
+not that knap's ranking fix is what did it this time.
+
+## Opportunities for improvement surfaced by Trial 11
+
+**Status: proposed, not yet implemented.**
+
+### 1. Make the benchmark's seeded-defect mangling non-mechanically-reversible
+
+`examples/gen_bench_vault.rs` mangles a link/anchor by appending a fixed,
+visible suffix (`-removed` for links, `-stale` for anchors) to an otherwise
+correct target string. That was presumably always true across every prior
+trial, but this is the first trial where the writeup checked closely enough
+to notice both conditions' agents exploiting it directly instead of
+disambiguating candidates — which means step 6 has likely been testing
+"can the agent notice a naming convention" more than "can the agent (with
+or without knap) correctly resolve an ambiguous broken reference" for a
+while, and Trial 10's `gateway.md`/`billing.md` failures only surfaced
+because those particular runs' agents happened to reach for `knap
+fix`/`lint --suggest`/hand-picked `apply` instead of the shortcut. Proposed
+fix: mangle by substituting the target with a *different, unrelated*
+existing-shaped string (e.g. swap in another candidate's numeric suffix, or
+truncate/rewrite rather than append a recognizable marker) so recovering
+the correct target actually requires matching against real candidates in
+the vault — ranking, text, or directory signal — not stripping a known
+literal.
+
+### 2. Re-run N≥3 once the generator no longer has a shortcut, to get a real read on the ranking fix
+
+Same procedural shape as every prior fix-and-confirm cycle in this doc, but
+gated on Opportunity 1 landing first this time: once step 6's defects can't
+be solved by string-stripping, re-run this protocol at N≥3 and check
+whether knap-assisted's seeded-fix accuracy holds at or near 20/20 under
+genuine ranking pressure — the read Trial 11 was supposed to get and, per
+the caveat above, didn't.
 
 ## Threats to validity (call these out alongside results, don't bury them)
 
