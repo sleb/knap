@@ -1472,6 +1472,219 @@ that renders Trial 6/7's "the `knap` CLI is installed, use it" paragraph into
 `prompt.knap.txt`, so the choice is reproducible and diffable across trials
 instead of hand-copied from a prior trial's writeup.
 
+**Status: superseded.** `f9399f3` ("Make explicit knap-mention the standing
+benchmark protocol") resolved both items directly instead: rather than a flag
+choosing between two prompt variants, the explicit-mention paragraph is now
+the *only* prompt `scripts/bench-setup-trial.sh` renders (`knap-mention.txt`),
+and `CLAUDE.md`/the discoverability pre-step were dropped entirely. Trial 10
+below is the first official run under this resolved protocol.
+
+### Trial 10 — 2026-08-27, N=3 per condition, Haiku 4.5, 200-note vault (official run, standing explicit-mention protocol)
+
+The first official run under the protocol `f9399f3` made standing (no
+`CLAUDE.md`, explicit knap-mention baked into `scripts/bench-setup-trial.sh`
+itself), and the first official run to test "the latest" post-Trial-9 state:
+`knap` 0.24.0 plus everything currently unreleased on `main` at the time of
+this run (`skills/knap/` moved from `skill/knap/` and split into an
+entrypoint + `reference/{lint,apply,rename,index}.md`, the `knap skill`
+command removed). Also the first trial to exercise the split skill layout at
+N≥3 (Trial 9 was N=1).
+
+Setup: `scripts/bench-setup-trial.sh --seed 1 --notes 200` (defaults for
+`--broken-links`/`--broken-anchors`) — identical seed/parameters to Trials
+3–9, confirmed byte-identical (hub `topics/release.md`, 17 backlinks; split
+target `reference/cache.md`, 14 backlinks; tag `archived`; `knap lint --json`
+reporting exactly 20/20 seeded problems pre-run). `knap` on `PATH` was this
+branch's release build (0.24.0, `f9399f3`), verified by the script's own
+PATH-version check. The single seeded `baseline/`/`knap-assisted/` pair the
+script produces was copied into 3 independent git repos per condition
+(`baseline-run{1,2,3}`, `knap-assisted-run{1,2,3}`), each at the identical
+`bench-vault-seed` tag, so every run starts from a byte-identical tree but
+mutates its own copy. Each of the 6 was dispatched as a fully independent,
+isolated Agent-tool subagent pinned to `claude-haiku-4-5`, no shared context
+between runs or across conditions, given the exact prompt the script
+rendered for its condition (`prompt.baseline.runN.txt` / `prompt.knap.runN.txt`,
+task text plus the standing `knap-mention.txt` paragraph for the
+knap-assisted condition, nothing else).
+
+| Metric                                    | Baseline (median)  | knap-assisted (median)      | Δ                             |
+| ------------------------------------------ | ------------------- | ---------------------------- | ------------------------------ |
+| Wall time (harness `duration_ms`)         | 262.0s              | 259.5s                       | knap ~tie (1.0% faster)        |
+| Tokens (harness `subagent_tokens`)        | 55,511              | 57,757                       | knap **4.0% more**             |
+| Tool calls (harness `tool_uses`)          | 92                  | 61                           | knap **33.7% fewer**           |
+| Files changed (`git diff --stat`)         | 100                 | 100                          | tie                            |
+| Broken links/anchors left (`knap lint`)   | 0 (all 3 runs)      | 0 (all 3 runs)                | tie                            |
+| Malformed/unparseable links (whole vault) | 0 (all 3 runs)      | 0 (all 3 runs)                | tie — corruption fix still holds |
+| Seeded-fix accuracy (vs. ground truth)    | **20/20** (all 3)   | 20/20, **19/20**, **18/20**   | knap **worse in 2 of 3 runs**  |
+| Tasks fully completed (of 7)              | 7/7 (all 3)         | 7/7 (all 3)                   | tie                            |
+
+Per-run raw numbers, for the record:
+
+| Run                | Wall time | Tokens | Tool calls |
+| ------------------ | --------- | ------ | ---------- |
+| baseline-run1      | 242.6s    | 54,384 | 76         |
+| baseline-run2      | 262.0s    | 55,511 | 92         |
+| baseline-run3      | 304.3s    | 62,605 | 99         |
+| knap-assisted-run1 | 259.5s    | 57,757 | 61         |
+| knap-assisted-run2 | 296.0s    | 62,384 | 52         |
+| knap-assisted-run3 | 252.4s    | 55,318 | 94         |
+
+**Efficiency is mixed, not a clean win either way.** Tool-call count still
+favors knap-assisted clearly (33.7% fewer, no overlap: 52–94 vs. 76–99 — one
+point of overlap, unlike Trial 6's zero-overlap result), consistent with
+every prior trial. But wall time is now an effective tie and tokens flipped
+to a small knap-assisted loss (+4.0%) — not the large, clean wins Trials 3, 5,
+6, and 7 saw, and not as bad as Trials 8/9's reversal either. All 6
+transcripts confirm the standing protocol worked as intended this time:
+every knap-assisted run's own summary names `rename-file`/`rename-heading`/
+`rename-tag` plus either `lint --suggest`/`apply` (runs 1–2) or hand-`Edit`
+for step 6 while still using the three atomic rename commands (run 3) — no
+repeat of Trial 4/5's undiscovered-skill failure, and no repeat of Trial
+8/9's self-directed-discovery overhead (nothing to discover; the mention is
+in the prompt).
+
+**Correctness is the finding that matters here, and it's a clear regression
+from Trial 9 and most of the trials before it.** `knap lint` reports zero
+problems in all 6 vaults, and the whole-vault malformed-link scan (Trial 6's
+guardrail check) found zero corrupted links anywhere — the `defe511` fix
+keeps holding, 13 knap-assisted runs across five trials now with no repeat.
+But seeded-fix accuracy against `BENCH_MANIFEST.json` found 2 of the 3
+knap-assisted runs each got one seeded link wrong, both landing on the same
+specific defect (`projects/gateway.md`'s "Storage" link) plus one more
+(`reference/billing.md`'s "Sync 835" link) in the worse of the two:
+
+| Run                | Miss                       | Link text  | Repointed to            | Correct target          |
+| ------------------ | -------------------------- | ---------- | ------------------------ | ------------------------ |
+| knap-assisted-run1 | `projects/gateway.md`      | "Storage"  | `../notes/storage.md`    | `../projects/storage.md` |
+| knap-assisted-run2 | `projects/gateway.md`      | "Storage"  | `../notes/storage.md`    | `../projects/storage.md` |
+| knap-assisted-run2 | `reference/billing.md`     | "Sync 835" | `../topics/sync-800.md`  | `../reference/sync-835.md` |
+
+Both files exist in the vault for every wrong repoint, so `knap lint` sees
+nothing wrong with any of them — exactly the "resolves cleanly but wrong
+target" failure mode Trial 4 first found and Trial 5's text-aware ranking fix
+was meant to close.
+
+**Root-cause investigation split this into two distinct failure modes, not
+one — traced by re-running `knap lint --suggest --json` against the
+unmodified seed vault for both files:**
+
+1. **`projects/gateway.md` (both misses) is a real, reproducible knap-side
+   ranking gap the text-aware fix doesn't cover**, not an agent judgment
+   lapse. The diagnostic's own ranked suggestions for the broken
+   `../projects/storage-removed.md` link are:
+
+   ```
+   1. ../notes/storage.md    distance 13  text_distance 0
+   2. ../topics/storage.md   distance 13  text_distance 0
+   3. storage.md             distance 20  text_distance 0
+   ```
+
+   The correct answer — `storage.md`, resolving to the same-directory
+   `projects/storage.md` — is ranked **last**, behind two wrong-directory
+   decoys sharing the exact same filename (so `text_distance` is `0` for all
+   three and can't discriminate at all), because raw path-edit-distance
+   rewards keeping the mangled string's `../<dir>/` shape over correctly
+   dropping it for a same-directory target. The top two are also tied with
+   each other (`13` vs. `13`), so `knap fix`/`--fix` would correctly decline
+   to auto-apply here — but an agent hand-picking from `--suggest`'s list
+   has no signal at all that the actual answer isn't even in view; both
+   knap-assisted agents that hit this file picked one of the two ambiguous
+   top candidates rather than recognizing neither looked right and searching
+   further. This is a genuine gap in the ranking, distinct from Trial 4's
+   original finding: same-basename-different-directory decoys can still beat
+   a correct same-directory match on combined ranking even after link text is
+   factored in, because identical filenames make `text_distance` useless as
+   a tiebreaker for exactly this decoy shape.
+2. **`reference/billing.md` (the run2-only extra miss) is an agent judgment
+   failure, not a ranking failure** — the ranking actually got this one
+   right. The same diagnostic's suggestions for `../reference/sync-835-removed.md`
+   rank the correct answer first *despite* a higher raw path distance:
+
+   ```
+   1. sync-835.md            distance 21  text_distance 0
+   2. ../topics/sync-800.md  distance 18  text_distance 2
+   3. ../projects/sync-397.md distance 18  text_distance 3
+   ```
+
+   `sync-835.md` — the correct target — is `suggestions[0]`, unambiguously
+   first, with `text_distance: 0` breaking what would otherwise be a
+   path-distance loss against the two decoys. `knap-assisted-run2` picked
+   `suggestions[1]` instead, the same "ignored a correctly-ranked top
+   suggestion" pattern Trial 4's opportunities warned against (though not as
+   mechanical as Trial 4's `suggestions[0]`-always script — this agent
+   picked the *wrong* index, not blindly the first one).
+
+Baseline had zero misses across all 3 runs, matching every prior trial —
+hand-`grep`-and-read correctly resolved both of these cases in all 3 baseline
+transcripts, consistent with a careful read of surrounding context beating a
+distance-based ranking on a same-basename-different-directory decoy.
+
+**Per the hypothesis's own bar (wins/ties on tokens/time *provided*
+correctness ties/wins), Trial 10 does not support the hypothesis.** Tool
+calls still favor knap-assisted clearly, but tokens flipped to a small loss,
+wall time is an effective tie, and correctness — the gating criterion —
+regressed in 2 of 3 runs against a clean 3/3 baseline. This is a different
+shape of "doesn't support the hypothesis" than Trials 8/9 (which failed only
+on efficiency, tying cleanly on correctness): here efficiency partially
+recovered (tool calls) while correctness got worse. The common thread across
+Trial 4, 8, and this trial's `sync-835`/`sync-800` case is unchanged since
+Trial 4: an agent (or, in Trial 6's case, a home-grown script) treating a
+ranked suggestion as more trustworthy than it is. This trial adds a new
+thread: the ranking itself has a decoy shape (identical filename, different
+directory) that the text-aware fix built for Trial 4's failure doesn't
+address, because identical filenames make the text signal a no-op.
+
+## Opportunities for improvement surfaced by Trial 10
+
+**Status: proposed, not yet implemented.**
+
+### 1. Break same-filename ties using directory proximity to the linking file, not just string distance
+
+`projects/gateway.md`'s failure is structural: `rank_link_candidates` scores
+`../notes/storage.md` and `../topics/storage.md` above the correct
+same-directory `storage.md` because raw path-string edit distance rewards
+matching the broken target's `../<dir>/` prefix shape over correctly
+dropping it. A same-directory (or same-subtree) candidate relative to the
+*linking* file is a strong independent signal current ranking ignores
+entirely — weighting "candidate lives in the same directory as the broken
+link" (or a shorter relative path in general) alongside path-string distance
+would have surfaced `storage.md` above both decoys here, since it's the only
+candidate requiring zero `../` traversal.
+
+### 2. When the top suggestions are filename-identical, say so explicitly
+
+Even with Opportunity 1, some same-basename ties across directories will
+remain genuinely ambiguous from path/text signals alone (this vault has three
+`storage.md` files by construction). `lint --suggest`'s output already
+carries enough information for an agent to notice this itself (compare
+`target`'s basename across entries) but doesn't call it out — a
+`same_basename_as: [...]` or similar flag on the diagnostic's `data` field
+when ≥2 suggestions share a filename would turn "an agent might notice" into
+"an agent is told," the same shift Trial 4's `text_mismatch` flag made for
+the text-mismatch case.
+
+### 3. Re-word the skill's pick-from-suggestions guidance to warn specifically about a correct-but-lower-ranked answer
+
+Opportunity 1 from Trial 4 told the skill not to blindly take
+`suggestions[0]`; this trial's `gateway.md` case is closer to the opposite
+problem — an agent needs to recognize when *none* of the visible top
+candidates look right (both top-ranked `storage.md` variants are
+wrong-directory decoys) and know to look further, e.g. by listing the vault's
+files for that basename directly (`knap index --json` or a plain search)
+rather than settling for the least-implausible ranked option. The skill
+doesn't currently say what to do when every visible suggestion looks
+suspect — that's a real gap this trial's `gateway.md` failure exposes
+directly.
+
+### 4. Re-run N≥3 after 1–2 land to confirm the fix, same pattern as Trial 6→7→8
+
+Same procedural shape as every prior fix-and-confirm cycle in this doc:
+implement Opportunities 1–2, re-run this exact seed (byte-identical setup is
+already established across 8 trials now) at N≥3, and check specifically
+whether `projects/gateway.md`'s three-way `storage.md` collision resolves
+correctly this time, not just whether `knap lint`'s `problem_count` stays at
+zero.
+
 ## Threats to validity (call these out alongside results, don't bury them)
 
 - **N is small.** This is a manual protocol for a directional check, not a
