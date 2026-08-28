@@ -18,6 +18,13 @@ diagnostics to any LSP-compatible editor — using standard Markdown syntax.
 > then apply it) remain the recommended flow. See
 > `docs/design/releases/archive/v0.17/drop-fix/design.md`.
 
+> **Scope note (v0.25):** knap dropped the `knap skill` CLI subcommand — the
+> shipped skill is installed via `npx skills add sleb/knap [-g]` instead,
+> now that it lives at `skills/knap/`, a location `npx skills` can discover
+> directly. US-D22 was reworded to describe the `npx skills` install path;
+> its ID is unchanged. See
+> `docs/design/releases/archive/v0.21/knap-skill-command/design.md`.
+
 Stories are grouped by persona, not just feature:
 
 - **Writer (Human)** — a person maintaining a personal knowledge base,
@@ -347,7 +354,7 @@ forms are the same mechanism, not two different-sounding ones.
 A coding agent (Claude Code or similar) — or a CI script — editing a
 workspace's Markdown files with no editor session in the loop. Delivered entirely through
 the CLI: `knap lint`, `knap index`, `knap rename-*`, `knap apply`, plus a
-shipped skill (`skill/knap/SKILL.md`) that teaches the loop these commands
+shipped skill (`skills/knap/SKILL.md`) that teaches the loop these commands
 are built around — edit → `knap lint --json` → branch on each diagnostic's
 `code` → `rename-*`/`apply` → `knap lint` again to confirm clean. Nothing
 below is agent-exclusive machinery — a human can run any of these commands by
@@ -494,15 +501,16 @@ rather than adjust it by hand, instead of leaving that advice only in
 
 ### The Skill
 
-**US-D15** — As an agent, a `skill/knap/SKILL.md` shipped with knap documents
+**US-D15** — As an agent, a `skills/knap/SKILL.md` shipped with knap documents
 the lint → fix/rename → lint loop — which flags to pass, how to read `--json`
 output, which diagnostic codes each subcommand resolves — so I can pick up
 the intended workflow without reverse-engineering it from `--help` text.
 
-**US-D22** — As an agent or developer, I can run `knap skill --global` or
-`knap skill --path <dir>` to install or update the shipped `SKILL.md`
-without a source checkout, so a `cargo install knap`-only setup still gets
-the skill and it never drifts from the running binary's version.
+**US-D22** — As an agent or developer, I can run `npx skills add sleb/knap`
+(project scope) or `npx skills add sleb/knap -g` (global) to install the
+shipped skill directly from GitHub, with no knap-specific CLI command and no
+risk of the installed copy drifting from a stale local `knap` binary's
+embedded copy.
 
 ---
 

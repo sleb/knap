@@ -4,6 +4,8 @@ description: >
   Walk through the knap release checklist interactively. Verifies docs are in
   sync with code, runs quality gates, updates version/CHANGELOG/README,
   commits, tags, and pushes. Invoke with /knap-release.
+metadata:
+  internal: true
 ---
 
 # knap Release

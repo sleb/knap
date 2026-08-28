@@ -7,6 +7,8 @@ description: >
   whenever the user wants to "implement the plan", "build out" a feature
   design that already has a plan.md, or work through a plan's steps one at a
   time with check-ins. Invoke with /knap-implementor.
+metadata:
+  internal: true
 ---
 
 # knap Implementor

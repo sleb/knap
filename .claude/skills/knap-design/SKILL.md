@@ -6,6 +6,8 @@ description: >
   write a design doc, draft an implementation plan, scope a milestone, think
   through how to implement an LSP capability, or decide what belongs in the next
   version. Invoke with /knap-design.
+metadata:
+  internal: true
 ---
 
 # knap Design & Plan

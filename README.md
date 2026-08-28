@@ -411,17 +411,17 @@ control than the flag alone gives you.
 This is the other half of the synergy: an agent editing a workspace a human
 also writes in shouldn't have to re-derive knap's conventions from `--help`
 text, and shouldn't leave broken links behind for the human to find later.
-`skill/knap/SKILL.md` documents the `lint` → `rename-*`/`apply` → `lint`
+`skills/knap/SKILL.md` documents the `lint` → `rename-*`/`apply` → `lint`
 edit-verify loop for a coding agent working in a workspace that has `knap`
 installed — the six diagnostic `code`s, `--fail-on`/`--since`, and
 `knap index <file> --json` for a fast, scoped read of just the file it
-touched. Install it into a workspace's skill directory with `knap skill` to
-teach an agent knap's conventions directly:
+touched. Install it with [`npx skills`](https://github.com/vercel-labs/skills)
+to teach an agent knap's conventions directly:
 
 ```
-knap skill --global
-# or, project-scoped:
-knap skill --path <workspace>/.claude/skills/knap
+npx skills add sleb/knap
+# or, global:
+npx skills add sleb/knap -g
 ```
 
 ## Configuration

@@ -5,6 +5,33 @@ All notable changes to knap are documented here. The format follows
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Shipped skill moved to `skills/knap/`** (was `skill/knap/`), the
+  location the [`skills`](https://github.com/vercel-labs/skills) package's
+  discovery convention scans, so `npx skills add sleb/knap` can find it
+  directly from GitHub with no source checkout.
+- **`skills/knap/SKILL.md` split into a short entrypoint plus
+  `reference/{lint,apply,rename,index}.md`.** Each subcommand's deep-dive
+  content (diagnostic codes, `--suggest` ranking/tie-break, the
+  `repoint-link`/`repoint-anchor` round trip, `rename-*` argument shapes and
+  failure modes, `index`'s single-doc vs. workspace-wide `--json` shapes) now
+  lives in its own file, so an agent working a single subcommand loads only
+  the reference it needs instead of the whole document.
+
+### Removed
+
+- **`knap skill` command (breaking).** `knap skill --global` and `knap skill
+  --path <dir>` are gone. Anyone scripting either directly needs `npx skills
+  add sleb/knap` (project scope) or `npx skills add sleb/knap -g` (global)
+  instead. Note `--path <arbitrary-dir>` has no direct `npx skills`
+  equivalent — only project and global scope are supported, so a workflow
+  that pointed `--path` at some other location has no drop-in replacement.
+
+---
+
 ## [0.24.0] — 2026-08-27
 
 ### Added

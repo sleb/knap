@@ -562,16 +562,16 @@ etc.), teach it knap's conventions directly instead of letting it re-derive
 them from `--help` text:
 
 ```bash
-knap skill --global
-# or, scoped to just this workspace:
-knap skill --path <workspace>/.claude/skills/knap
+npx skills add sleb/knap
+# or, global:
+npx skills add sleb/knap -g
 ```
 
-This installs `SKILL.md`, which documents the `lint` → `rename-*`/`apply` →
-`lint` edit-verify loop so the agent catches and fixes broken links as it
-edits docs, the same way `knap lint` would for you. Re-run either command any
-time you upgrade knap to pick up the latest `SKILL.md` — it's a no-op if
-nothing changed.
+This installs `SKILL.md` (from `skills/knap/SKILL.md`), which documents the
+`lint` → `rename-*`/`apply` → `lint` edit-verify loop so the agent catches
+and fixes broken links as it edits docs, the same way `knap lint` would for
+you. Re-run either command any time you upgrade knap to pick up the latest
+`SKILL.md` — it's a no-op if nothing changed.
 
 ---
 

@@ -1,5 +1,10 @@
 # v0.21 Design — `knap skill` Command
 
+> **Superseded in v0.25:** the `knap skill` command described below was
+> removed. The shipped skill moved to `skills/knap/` and is now installed
+> via `npx skills add sleb/knap [-g]` instead. See
+> `docs/design/releases/v0.25/skill-restructure/design.md`.
+
 Covers the stories in the v0.21 release:
 
 | Story  | Feature                                                          |

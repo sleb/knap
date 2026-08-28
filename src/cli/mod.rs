@@ -11,7 +11,6 @@ mod lint;
 mod lsp;
 mod parse;
 mod rename;
-mod skill;
 mod version;
 
 #[derive(Parser)]
@@ -157,20 +156,6 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Install or update the shipped SKILL.md for coding agents.
-    #[command(group(
-        clap::ArgGroup::new("target")
-            .required(true)
-            .args(["global", "path"]),
-    ))]
-    Skill {
-        /// Install into ~/.claude/skills/knap.
-        #[arg(long)]
-        global: bool,
-        /// Install into <path>/SKILL.md.
-        #[arg(long)]
-        path: Option<PathBuf>,
-    },
 }
 
 /// Maps a `-v`/`--verbose` occurrence count to an `env_logger` filter
@@ -232,49 +217,12 @@ pub fn run() -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Apply { dry_run, json } => apply::run(dry_run, json),
-        Commands::Skill { global, path } => skill::run(global, path),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn path_and_global_are_mutually_exclusive() {
-        let result = Cli::try_parse_from(["knap", "skill", "--global", "--path", "x"]);
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn neither_path_nor_global_is_required() {
-        let result = Cli::try_parse_from(["knap", "skill"]);
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn global_alone_parses() {
-        let cli = Cli::try_parse_from(["knap", "skill", "--global"]).unwrap();
-
-        let Commands::Skill { global, path } = cli.command else {
-            panic!("expected Commands::Skill");
-        };
-        assert!(global);
-        assert_eq!(path, None);
-    }
-
-    #[test]
-    fn path_alone_parses() {
-        let cli = Cli::try_parse_from(["knap", "skill", "--path", "x"]).unwrap();
-
-        let Commands::Skill { global, path } = cli.command else {
-            panic!("expected Commands::Skill");
-        };
-        assert!(!global);
-        assert_eq!(path, Some(PathBuf::from("x")));
-    }
 
     #[test]
     fn default_log_filter_zero_is_info() {

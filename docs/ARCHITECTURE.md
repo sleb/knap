@@ -324,7 +324,7 @@ exclusively — they do not touch the filesystem directly.
 
 `src/cli/` — one module per subcommand (`mod.rs`, `lsp.rs`, `lint.rs`,
 `index.rs`, `parse.rs`, `check.rs`, `version.rs`, `rename.rs`, `apply.rs`,
-`skill.rs`, `hint.rs`), wired up with `clap`. `main.rs` is just
+`hint.rs`), wired up with `clap`. `main.rs` is just
 `knap::cli::run()`; `cli::run()` initializes `env_logger` itself (using the
 parsed `--verbose` count) before dispatching to a subcommand. There is no
 argument-free fallback: a subcommand is required, and bare `knap` exits
@@ -349,7 +349,6 @@ overrides it.
 | `apply`          | `knap apply [--dry-run] [--json]` (reads a JSON array of change ops from stdin)                              | v0.14, `repoint-link`/`repoint-anchor` ops added v0.15, round-trip guard added v0.19, `hint` field added v0.24  |
 | `check`          | `knap check`                                                                                                 | v0.2                                                                                                           |
 | `version`        | `knap version`                                                                                               | v0.10.1                                                                                                        |
-| `skill`          | `knap skill --global` or `knap skill --path <dir>`                                                           | v0.21                                                                                                          |
 
 The CLI shares the same library crate as the server. `lsp` boots the same
 stdio server the LSP Client talks to. `lint` and `index` both resolve config
