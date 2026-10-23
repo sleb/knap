@@ -30,6 +30,7 @@ task:
 | Doc                                   | When to read                                                         |
 | ------------------------------------- | -------------------------------------------------------------------- |
 | `docs/ARCHITECTURE.md`                | Touching any component boundary, adding a new component, or scoping work — confirms what's in vs. out for the current release |
+| `docs/INTERFACES.md`                  | Adding, renaming, or removing any CLI subcommand/flag, LSP capability, code action, or JSON output field — update its table in the same change |
 | `docs/design/releases/vX.Y/design.md` | Implementing anything in the current release                         |
 | `docs/design/releases/vX.Y/plan.md`   | Implementation order and testing checkpoints for the current release |
 | `docs/design/components/*.md`         | Implementing a specific component (parser, index, handlers, etc.)    |
